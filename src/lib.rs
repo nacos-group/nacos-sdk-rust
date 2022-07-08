@@ -28,8 +28,10 @@ mod tests {
 
     #[test]
     fn it_works() {
-
-        let body = Any { type_url: String::from("{\"key\":\"val\"}"), value: Vec::new() };
+        let body = Any {
+            type_url: String::from("{\"key\":\"val\"}"),
+            value: Vec::new(),
+        };
         Payload {
             metadata: None,
             body: Some(body),
