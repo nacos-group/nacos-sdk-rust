@@ -1,4 +1,4 @@
-name: nacos-sdk-rust
+name: CI
 
 on:
   push:
@@ -22,7 +22,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - name: cargo fmt
         run: cargo fmt -- --check --color ${{ env.CARGO_TERM_COLOR }}
       - name: cargo clippy
@@ -34,7 +34,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - name: Build
         run: cargo build
       - name: Build examples
@@ -49,6 +49,6 @@ jobs:
 #    if: startswith(github.ref, 'refs/tags/v')
 #
 #    steps:
-#      - uses: actions/checkout@v2
+#      - uses: actions/checkout@v3
 #      - name: cargo publish
 #        run: cargo publish --token ${{ env.CARGO_TOKEN }}
