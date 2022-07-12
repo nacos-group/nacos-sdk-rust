@@ -1,2 +1,2 @@
-pub mod remote;
 pub mod error;
+pub mod remote;

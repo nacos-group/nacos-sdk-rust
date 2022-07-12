@@ -14,7 +14,6 @@
 // limitations under the License.
 //
 /// error learn from Skywalking Rust.
-
 use tokio::{sync::oneshot, task::JoinError};
 
 /// Nacos Sdk Rust Result.
