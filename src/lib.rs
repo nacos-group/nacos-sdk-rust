@@ -14,7 +14,9 @@
 // limitations under the License.
 //
 
-pub mod nacos_proto {
+mod common;
+
+mod nacos_proto {
     pub mod v2 {
         tonic::include_proto!("nacos.v2");
     }
