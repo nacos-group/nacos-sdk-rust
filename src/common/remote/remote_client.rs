@@ -29,7 +29,7 @@ impl GrpcRemoteClient {
 
     pub async fn connect(
         address: impl TryInto<Endpoint, Error = transport::Error>,
-    ) -> crate::common::error::Result<Self> {
+    ) -> crate::api::error::Result<Self> {
         let endpoint = address.try_into()?;
         let client = RequestClient::connect(endpoint.clone()).await?;
         let bi_client = BiRequestStreamClient::connect(endpoint.clone()).await?;

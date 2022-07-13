@@ -14,6 +14,8 @@
 // limitations under the License.
 //
 
+pub mod api;
+
 mod common;
 
 mod nacos_proto {
