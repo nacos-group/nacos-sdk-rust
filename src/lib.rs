@@ -48,8 +48,13 @@ mod tests {
             body: Some(body),
         };
         println!("{:?}", payload);
-
-        let result = 2 + 2;
-        assert_eq!(result, 4);
+        assert_eq!(
+            payload.metadata.unwrap().r#type,
+            "com.alibaba.nacos.api.naming.remote.request.ServiceQueryRequest"
+        );
+        assert_eq!(
+            payload.body.unwrap().value,
+            Vec::from("{\"cluster\":\"DEFAULT\",\"healthyOnly\":true}")
+        );
     }
 }
