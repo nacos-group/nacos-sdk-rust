@@ -27,19 +27,27 @@ mod nacos_proto {
 #[cfg(test)]
 mod tests {
     use prost_types::Any;
+    use std::collections::HashMap;
 
+    use crate::nacos_proto::v2::Metadata;
     use crate::nacos_proto::v2::Payload;
 
     #[test]
-    fn it_works() {
+    fn it_works_nacos_proto() {
         let body = Any {
-            type_url: String::from("{\"key\":\"val\"}"),
-            value: Vec::new(),
+            type_url: String::new(),
+            value: Vec::from("{\"cluster\":\"DEFAULT\",\"healthyOnly\":true}"),
         };
-        Payload {
-            metadata: None,
+        let metadata = Metadata {
+            r#type: String::from("com.alibaba.nacos.api.naming.remote.request.ServiceQueryRequest"),
+            client_ip: String::from("127.0.0.1"),
+            headers: HashMap::new(),
+        };
+        let payload = Payload {
+            metadata: Some(metadata),
             body: Some(body),
         };
+        println!("{:?}", payload);
 
         let result = 2 + 2;
         assert_eq!(result, 4);
