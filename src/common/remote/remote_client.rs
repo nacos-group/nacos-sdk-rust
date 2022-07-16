@@ -8,7 +8,7 @@ use tonic::{
 use crate::api::client_config::ClientConfig;
 use crate::api::constants::DEFAULT_SERVER_ADDR;
 use crate::api::error::Error;
-use crate::common::remote::request::ServerCheckClientRequest;
+use crate::common::remote::request::client_request::ServerCheckClientRequest;
 use crate::common::util::*;
 use crate::nacos_proto::v2::bi_request_stream_client::BiRequestStreamClient;
 use crate::nacos_proto::v2::request_client::RequestClient;
@@ -49,7 +49,7 @@ impl GrpcRemoteClient {
         let channel = endpoint.connect().await?;
         let mut client = RequestClient::new(channel.clone());
 
-        let req_payload = payload_helper::build_api_payload(ServerCheckClientRequest::new());
+        let req_payload = payload_helper::build_grpc_payload(ServerCheckClientRequest::new());
         let resp_future = client.request(tonic::Request::new(req_payload));
         match resp_future.await {
             Ok(response) => {

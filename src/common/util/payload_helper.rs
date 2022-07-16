@@ -2,7 +2,7 @@ use crate::common::remote::request::{Request, LOCAL_IP};
 use crate::nacos_proto::v2::{Metadata, Payload};
 use serde::Serialize;
 
-pub(crate) fn build_api_payload(req: impl Request + Serialize) -> Payload {
+pub(crate) fn build_grpc_payload(req: impl Request + Serialize) -> Payload {
     let json_val = serde_json::to_vec(&req).unwrap();
     let metadata = Metadata {
         r#type: req.get_type_url().to_string(),
