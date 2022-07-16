@@ -23,10 +23,10 @@ pub type Result<T> = std::result::Result<T, Error>;
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("Serialization failed: {0}")]
-    Serialization(&'static str),
+    Serialization(#[from] serde_json::Error),
 
     #[error("Deserialization failed: {0}")]
-    Deserialization(&'static str),
+    Deserialization(String),
 
     #[error("remote client shutdown failed: {0}")]
     ClientShutdown(String),

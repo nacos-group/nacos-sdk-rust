@@ -1,60 +1,45 @@
-use serde::ser::SerializeStruct;
-use serde::{Serialize, Serializer};
+#![allow(non_snake_case)]
+use crate::common::remote::response::{Response, TYPE_SERVER_CHECK_SERVER_RESPONSE};
+use serde::{Deserialize, Serialize};
 
-use crate::common::remote::response::Response;
-
-struct ServerResponse {
-    pub(crate) request_id: String,
-    pub(crate) message: Option<String>,
-    pub(crate) error_code: i32,
-}
-
-impl ServerResponse {
-    pub fn new(request_id: String) -> Self {
-        ServerResponse {
-            request_id,
-            message: None,
-            error_code: 0,
-        }
-    }
-}
-
+#[derive(Serialize, Deserialize)]
 pub(crate) struct ServerCheckServerResponse {
-    base_server_response: ServerResponse,
-    connection_id: String,
+    requestId: String,
+    message: Option<String>,
+    errorCode: i32,
+    /// only ServerCheckServerResponse return it.
+    connectionId: String,
 }
 
 impl Response for ServerCheckServerResponse {
+    fn get_connection_id(&self) -> &String {
+        &self.connectionId
+    }
+
     fn get_request_id(&self) -> &String {
-        &self.base_server_response.request_id
+        &self.requestId
     }
 
     fn get_message(&self) -> Option<&String> {
-        Option::from(&self.base_server_response.message)
+        Option::from(&self.message)
     }
 
     fn get_error_code(&self) -> i32 {
-        self.base_server_response.error_code
+        self.errorCode
+    }
+
+    fn get_type_url(&self) -> &String {
+        &TYPE_SERVER_CHECK_SERVER_RESPONSE
     }
 }
 
 impl ServerCheckServerResponse {
     pub fn new(connection_id: String, request_id: String) -> Self {
         ServerCheckServerResponse {
-            base_server_response: ServerResponse::new(request_id),
-            connection_id,
+            requestId: request_id,
+            connectionId: connection_id,
+            message: None,
+            errorCode: 0,
         }
-    }
-}
-
-impl Serialize for ServerCheckServerResponse {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        let mut s = serializer.serialize_struct("ServerCheckServerResponse", 2)?;
-        s.serialize_field("requestId", &self.base_server_response.request_id)?;
-        s.serialize_field("connectionId", &self.connection_id)?;
-        s.end()
     }
 }

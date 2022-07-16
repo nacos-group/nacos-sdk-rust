@@ -53,8 +53,10 @@ impl GrpcRemoteClient {
         let resp_future = client.request(tonic::Request::new(req_payload));
         match resp_future.await {
             Ok(response) => {
-                let resp = response.into_inner();
-
+                let resp_payload = response.into_inner();
+                let server_check_response =
+                    payload_helper::build_server_response(resp_payload).unwrap();
+                let conn_id = server_check_response.get_connection_id();
                 let bi_client = BiRequestStreamClient::new(channel.clone());
 
                 Ok((client, bi_client))

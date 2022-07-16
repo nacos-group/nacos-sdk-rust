@@ -14,7 +14,7 @@ lazy_static! {
     // TODO get local_ip;
     pub static ref LOCAL_IP: String = String::from("127.0.0.1");
 
-    static ref TYPE_SERVER_CHECK_CLIENT_REQUEST: String =
+    pub static ref TYPE_SERVER_CHECK_CLIENT_REQUEST: String =
         String::from("com.alibaba.nacos.api.remote.request.ServerCheckRequest");
 
 }
