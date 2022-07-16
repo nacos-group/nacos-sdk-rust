@@ -1,8 +1,7 @@
-use std::collections::HashMap;
-
 use tonic::async_trait;
 
-pub mod remote_client;
+pub(crate) mod remote_client;
+pub(crate) mod request;
 
 #[async_trait]
 pub(crate) trait RemoteClient {}
