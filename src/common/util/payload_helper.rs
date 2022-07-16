@@ -33,3 +33,22 @@ pub(crate) fn build_server_response(
     }
     Err(crate::api::error::Error::Deserialization(type_url))
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::common::remote::response::server_response::ServerCheckServerResponse;
+    use crate::common::remote::response::Response;
+
+    #[test]
+    fn it_works_serde_json() {
+        let data = r#"
+        {
+            "requestId": "666",
+            "connectionId": "uuid",
+            "errorCode": 0
+        }"#;
+        let resp: ServerCheckServerResponse = serde_json::from_str(data).unwrap();
+        println!("serde_json resp {:?}", resp);
+        assert_eq!(resp.get_request_id().as_str(), "666");
+    }
+}

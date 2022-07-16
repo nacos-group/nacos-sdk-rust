@@ -5,7 +5,7 @@ use crate::common::remote::request::{
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct ServerCheckClientRequest {
     requestId: String,
     /// count be empty.

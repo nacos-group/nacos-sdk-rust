@@ -2,7 +2,7 @@
 use crate::common::remote::response::{Response, TYPE_SERVER_CHECK_SERVER_RESPONSE};
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct ServerCheckServerResponse {
     requestId: String,
     message: Option<String>,
