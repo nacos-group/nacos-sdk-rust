@@ -43,8 +43,9 @@ mod tests {
     fn it_works_serde_json() {
         let data = r#"
         {
-            "requestId": "666",
             "connectionId": "uuid",
+            "requestId": "666",
+            "resultCode": "SUCCESS",
             "errorCode": 0
         }"#;
         let resp: ServerCheckServerResponse = serde_json::from_str(data).unwrap();
