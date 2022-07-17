@@ -5,6 +5,7 @@ use std::collections::HashMap;
 pub struct ClientConfig {
     /// server_addr like 127.0.0.1:9848
     pub(crate) server_addr: Option<String>,
+    pub(crate) namespace: String,
     /// client_name maybe the same as app_name
     pub(crate) client_name: Option<String>,
     /// metadata
@@ -16,6 +17,7 @@ impl ClientConfig {
     pub fn new() -> Self {
         ClientConfig {
             server_addr: None,
+            namespace: String::from(""),
             client_name: None,
             labels: HashMap::default(),
         }
@@ -25,6 +27,14 @@ impl ClientConfig {
     pub fn server_addr(self, server_addr: impl Into<String>) -> Self {
         ClientConfig {
             server_addr: Some(server_addr.into()),
+            ..self
+        }
+    }
+
+    /// Sets the namespace against.
+    pub fn namespace(self, namespace: impl Into<String>) -> Self {
+        ClientConfig {
+            namespace: namespace.into(),
             ..self
         }
     }
