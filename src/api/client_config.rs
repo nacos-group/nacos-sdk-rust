@@ -16,7 +16,7 @@ impl ClientConfig {
     /// Creates a new `ClientConfig`.
     pub fn new() -> Self {
         ClientConfig {
-            server_addr: None,
+            server_addr: Some(String::from(crate::api::constants::DEFAULT_SERVER_ADDR)),
             namespace: String::from(""),
             client_name: None,
             labels: HashMap::default(),
