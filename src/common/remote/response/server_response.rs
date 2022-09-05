@@ -1,5 +1,7 @@
 #![allow(non_snake_case)]
-use crate::common::remote::response::{Response, TYPE_ERROR_SERVER_RESPONSE, TYPE_SERVER_CHECK_SERVER_RESPONSE};
+use crate::common::remote::response::{
+    Response, TYPE_ERROR_SERVER_RESPONSE, TYPE_SERVER_CHECK_SERVER_RESPONSE,
+};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -49,7 +51,6 @@ impl ServerCheckServerResponse {
         }
     }
 }
-
 
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct ErrorResponse {

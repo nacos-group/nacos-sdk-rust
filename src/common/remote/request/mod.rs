@@ -17,6 +17,9 @@ lazy_static! {
     /// com.alibaba.nacos.api.remote.request.ServerCheckRequest
     pub static ref TYPE_SERVER_CHECK_CLIENT_REQUEST: String = String::from("ServerCheckRequest");
 
+    /// com.alibaba.nacos.api.remote.request.ConnectionSetupRequest
+    pub static ref TYPE_CONNECT_SETUP_SERVER_REQUEST: String = String::from("ConnectionSetupRequest");
+
     /// com.alibaba.nacos.api.remote.request.ConnectResetRequest
     pub static ref TYPE_CONNECT_RESET_SERVER_REQUEST: String = String::from("ConnectResetRequest");
 

@@ -1,7 +1,9 @@
 use crate::common::remote::request::client_request::ConnectResetRequest;
 use crate::common::remote::request::{Request, LOCAL_IP, TYPE_CONNECT_RESET_SERVER_REQUEST};
 use crate::common::remote::response::server_response::{ErrorResponse, ServerCheckServerResponse};
-use crate::common::remote::response::{Response, TYPE_ERROR_SERVER_RESPONSE, TYPE_SERVER_CHECK_SERVER_RESPONSE};
+use crate::common::remote::response::{
+    Response, TYPE_ERROR_SERVER_RESPONSE, TYPE_SERVER_CHECK_SERVER_RESPONSE,
+};
 use crate::nacos_proto::v2::{Metadata, Payload};
 use serde::Serialize;
 
@@ -46,13 +48,11 @@ pub(crate) fn build_server_response(
     let body_str = String::from_utf8(body_data).unwrap();
     tracing::debug!("build_server_response {} with {}", type_url, body_str);
     if TYPE_SERVER_CHECK_SERVER_RESPONSE.eq(&type_url) {
-        let de: ServerCheckServerResponse =
-            serde_json::from_str(body_str.as_str())?;
+        let de: ServerCheckServerResponse = serde_json::from_str(body_str.as_str())?;
         return Ok(Box::new(de));
     }
     if TYPE_ERROR_SERVER_RESPONSE.eq(&type_url) {
-        let de: ErrorResponse =
-            serde_json::from_str(body_str.as_str())?;
+        let de: ErrorResponse = serde_json::from_str(body_str.as_str())?;
         return Ok(Box::new(de));
     }
     Err(crate::api::error::Error::Deserialization(type_url))
@@ -67,8 +67,7 @@ pub(crate) fn build_server_request(
     let body_str = String::from_utf8(body_data).unwrap();
     tracing::debug!("build_server_request {} with {}", type_url, body_str);
     if TYPE_CONNECT_RESET_SERVER_REQUEST.eq(&type_url) {
-        let de: ConnectResetRequest =
-            serde_json::from_str(body_str.as_str())?;
+        let de: ConnectResetRequest = serde_json::from_str(body_str.as_str())?;
         return Ok(Box::new(de));
     }
     Err(crate::api::error::Error::Deserialization(type_url))

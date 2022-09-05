@@ -1,5 +1,6 @@
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+
 use tonic::{
     async_trait,
     transport::{Channel, Endpoint},
@@ -24,7 +25,7 @@ pub(crate) struct GrpcRemoteClient {
     labels: HashMap<String, String>,
     client: RequestClient<Channel>,
     bi_client: BiRequestStreamClient<Channel>,
-    resp_bi_stream: Arc<tonic::codec::Streaming<Payload>>,
+    resp_bi_stream: Arc<Mutex<tonic::codec::Streaming<Payload>>>,
 }
 
 impl GrpcRemoteClient {
@@ -39,12 +40,12 @@ impl GrpcRemoteClient {
     }
 
     /// Sets the resp_bi_stream against.
-    pub fn resp_bi_stream(self, resp_bi_stream: Arc<tonic::codec::Streaming<Payload>>) -> Self {
+    /*pub fn resp_bi_stream(self, resp_bi_stream: Arc<tonic::codec::Streaming<Payload>>) -> Self {
         GrpcRemoteClient {
             resp_bi_stream,
             ..self
         }
-    }
+    }*/
 
     pub async fn new(client_config: ClientConfig) -> crate::api::error::Result<Self> {
         let client_name = client_config.client_name;
@@ -59,7 +60,7 @@ impl GrpcRemoteClient {
                 .await
                 .unwrap();
 
-        let resp_bi_stream = Arc::new(resp_bi_stream);
+        let resp_bi_stream = Arc::new(Mutex::new(resp_bi_stream));
 
         let mut resp_bi_stream_clone = Arc::clone(&resp_bi_stream);
         /*let thread = tokio::spawn(async move {
@@ -133,10 +134,15 @@ impl RemoteClient for GrpcRemoteClient {}
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
+    use std::thread::sleep;
+    use std::time::Duration;
+
+    use tokio_stream::StreamExt;
 
     use crate::api::client_config::ClientConfig;
     use crate::common::remote::remote_client::GrpcRemoteClient;
     use crate::common::remote::RemoteClient;
+    use crate::common::util::payload_helper;
 
     // #[tokio::test]
     async fn test_grpc_remote_client() {
@@ -145,5 +151,14 @@ mod tests {
         )
         .await
         .unwrap();
+
+        // wait resp_bi_stream
+        sleep(Duration::from_secs(2));
+
+        let mut resp_bi_stream_clone = remote_client.resp_bi_stream.clone();
+        while let Some(received) = resp_bi_stream_clone.lock().unwrap().next().await {
+            let payload = received.unwrap();
+            let server_req = payload_helper::build_server_request(payload);
+        }
     }
 }

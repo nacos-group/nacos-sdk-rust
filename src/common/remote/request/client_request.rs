@@ -1,7 +1,7 @@
 #![allow(non_snake_case)]
 use crate::common::remote::request::{
     generate_request_id, Request, TYPE_CONNECT_RESET_SERVER_REQUEST,
-    TYPE_SERVER_CHECK_CLIENT_REQUEST,
+    TYPE_CONNECT_SETUP_SERVER_REQUEST, TYPE_SERVER_CHECK_CLIENT_REQUEST,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -53,7 +53,7 @@ impl Request for ConnectionSetupClientRequest {
         &self.headers
     }
     fn get_type_url(&self) -> &String {
-        &TYPE_SERVER_CHECK_CLIENT_REQUEST
+        &TYPE_CONNECT_SETUP_SERVER_REQUEST
     }
 }
 
