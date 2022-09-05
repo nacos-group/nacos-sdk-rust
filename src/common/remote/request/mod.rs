@@ -17,6 +17,9 @@ lazy_static! {
     pub static ref TYPE_SERVER_CHECK_CLIENT_REQUEST: String =
         String::from("com.alibaba.nacos.api.remote.request.ServerCheckRequest");
 
+    pub static ref TYPE_CONNECT_RESET_SERVER_REQUEST: String =
+        String::from("com.alibaba.nacos.api.remote.request.ConnectResetRequest");
+
 }
 
 // odd by client request id.

@@ -96,7 +96,7 @@ impl GrpcRemoteClient {
         let channel = endpoint.connect().await?;
         let mut client = RequestClient::new(channel.clone());
 
-        let req_payload = payload_helper::build_grpc_payload(ServerCheckClientRequest::new());
+        let req_payload = payload_helper::build_req_grpc_payload(ServerCheckClientRequest::new());
         let resp_future = client.request(tonic::Request::new(req_payload));
         match resp_future.await {
             Ok(response) => {
@@ -121,7 +121,9 @@ impl GrpcRemoteClient {
     fn stream_once_connection_setup_request(
         connection_setup_request: ConnectionSetupClientRequest,
     ) -> impl tonic::codegen::futures_core::Stream<Item = Payload> {
-        tokio_stream::once(payload_helper::build_grpc_payload(connection_setup_request))
+        tokio_stream::once(payload_helper::build_req_grpc_payload(
+            connection_setup_request,
+        ))
     }
 }
 

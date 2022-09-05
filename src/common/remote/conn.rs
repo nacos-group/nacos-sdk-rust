@@ -4,7 +4,6 @@
 use std::{error::Error, pin::Pin, time::Duration};
 
 use tokio::sync::mpsc;
-use tokio::sync::mpsc::UnboundedReceiver;
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use tonic::{transport::Channel, Streaming};
 
@@ -45,6 +44,7 @@ enum State {
     Disconnected(Duration),
 }
 
+/*
 macro_rules! with_client {
     ($me:ident, $client:ident, $bi_sender:ident, $block:expr) => ({
         loop {
@@ -74,11 +74,12 @@ macro_rules! with_client {
         }
     })
 }
+*/
 
 impl Connection {
     const BACKOFF: Duration = Duration::from_millis(500);
 
-    pub fn new(client_config: ClientConfig) -> Self {
+    pub(crate) fn new(client_config: ClientConfig) -> Self {
         Self {
             client_config,
             state: State::Disconnected(Duration::from_secs(0)),
@@ -90,9 +91,9 @@ impl Connection {
 
         while let State::Disconnected(backoff) = self.state {
             if backoff == Duration::from_secs(0) {
-                tracing::debug!(to = %self.client_config.server_addr.as_ref().unwrap(), "connecting");
+                tracing::info!(to = %self.client_config.server_addr.as_ref().unwrap(), "connecting");
             } else {
-                tracing::debug!(reconnect_in = ?backoff, "reconnecting");
+                tracing::info!(reconnect_in = ?backoff, "reconnecting");
                 tokio::time::sleep(backoff).await;
             }
 
@@ -103,28 +104,25 @@ impl Connection {
 
                 let endpoint = tonic::transport::Endpoint::new(target)?;
                 let channel = endpoint.connect().await?;
+
                 let mut client = RequestClient::new(channel.clone());
-
                 let req_payload =
-                    payload_helper::build_grpc_payload(ServerCheckClientRequest::new());
-                let response = client.request(tonic::Request::new(req_payload)).await?;
-
-                let resp_payload = response.into_inner();
+                    payload_helper::build_req_grpc_payload(ServerCheckClientRequest::new());
+                let resp_payload = client.request(tonic::Request::new(req_payload)).await?;
                 let server_check_response =
-                    payload_helper::build_server_response(resp_payload).unwrap();
+                    payload_helper::build_server_response(resp_payload.into_inner()).unwrap();
                 let conn_id = server_check_response.get_connection_id();
-                let mut bi_client = BiRequestStreamClient::new(channel.clone());
 
+                let mut bi_client = BiRequestStreamClient::new(channel.clone());
                 let (tx, rx) = mpsc::unbounded_channel();
-                let req_bi_stream = UnboundedReceiverStream::from(rx);
                 // send a ConnectionSetupClientRequest
-                tx.send(payload_helper::build_grpc_payload(
+                tx.send(payload_helper::build_req_grpc_payload(
                     ConnectionSetupClientRequest::new(tenant, labels),
                 ))
                 .unwrap();
 
                 let resp_bi_stream = bi_client
-                    .request_bi_stream(req_bi_stream)
+                    .request_bi_stream(UnboundedReceiverStream::from(rx))
                     .await?
                     .into_inner();
 
@@ -150,7 +148,7 @@ impl Connection {
         }
     }
 
-    pub async fn next_payload(&mut self) -> Payload {
+    pub(crate) async fn next_payload(&mut self) -> Payload {
         loop {
             match self.state {
                 State::Connected {
@@ -172,48 +170,66 @@ impl Connection {
         }
     }
 
-    /*pub async fn send_req(
+    pub(crate) async fn send_req(
         &mut self,
         req: impl Request + serde::Serialize,
-    ) -> Result<Payload, tonic::Status> {
-        with_client!(self, client, bi_sender, {
-            let req_payload = payload_helper::build_grpc_payload(req);
-            client.request(tonic::Request::new(req_payload)).await
-        })
-        .map(|watch| watch.into_inner())
-    }*/
+    ) -> crate::api::error::Result<Box<dyn Response>> {
+        match self.state {
+            State::Connected { ref mut client, .. } => {
+                let req_payload = payload_helper::build_req_grpc_payload(req);
+                let resp_payload = client.request(tonic::Request::new(req_payload)).await?;
+                payload_helper::build_server_response(resp_payload.into_inner())
+            }
+            State::Disconnected(_) => {
+                self.connect().await;
+                Err(crate::api::error::Error::ClientShutdown(String::from(
+                    "Disconnected, please try again.",
+                )))
+            }
+        }
+    }
 
-    /*pub async fn send_resp(
-        &mut self,
-        resp: impl Response + serde::Serialize,
-    ) -> Result<Payload, tonic::Status> {
-        with_client!(self, client, bi_sender, {
-            bi_sender
+    pub(crate) async fn send_resp(&mut self, resp: impl Response + serde::Serialize) -> () {
+        match self.state {
+            State::Connected {
+                ref mut bi_sender, ..
+            } => bi_sender
                 .send(payload_helper::build_resp_grpc_payload(resp))
-                .unwrap();
-            let req_payload = payload_helper::build_grpc_payload(ServerCheckClientRequest::new());
-            client.request(tonic::Request::new(req_payload)).await
-        })
-        .map(|watch| watch.into_inner())
-    }*/
+                .unwrap(),
+            State::Disconnected(_) => self.connect().await,
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use crate::api::client_config::ClientConfig;
     use crate::common::remote::conn::Connection;
+    use crate::common::util::payload_helper;
 
     #[tokio::test]
     async fn test_remote_connect() {
+        println!("test_remote_connect");
         let mut remote_connect =
             Connection::new(ClientConfig::new().server_addr("http://0.0.0.0:9848".to_string()));
-        remote_connect.connect().await;
+        println!(
+            "try to connect {}",
+            remote_connect.client_config.server_addr.as_ref().unwrap()
+        );
+        remote_connect.connect().await
     }
 
     #[tokio::test]
     async fn test_next_payload() {
+        println!("test_next_payload");
         let mut remote_connect =
             Connection::new(ClientConfig::new().server_addr("http://0.0.0.0:9848".to_string()));
-        remote_connect.next_payload().await;
+        let payload = remote_connect.next_payload().await;
+        let server_req = payload_helper::build_server_request(payload).unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_println() {
+        println!("test_println");
     }
 }
