@@ -14,11 +14,11 @@ lazy_static! {
     // TODO get local_ip;
     pub static ref LOCAL_IP: String = String::from("127.0.0.1");
 
-    pub static ref TYPE_SERVER_CHECK_CLIENT_REQUEST: String =
-        String::from("com.alibaba.nacos.api.remote.request.ServerCheckRequest");
+    /// com.alibaba.nacos.api.remote.request.ServerCheckRequest
+    pub static ref TYPE_SERVER_CHECK_CLIENT_REQUEST: String = String::from("ServerCheckRequest");
 
-    pub static ref TYPE_CONNECT_RESET_SERVER_REQUEST: String =
-        String::from("com.alibaba.nacos.api.remote.request.ConnectResetRequest");
+    /// com.alibaba.nacos.api.remote.request.ConnectResetRequest
+    pub static ref TYPE_CONNECT_RESET_SERVER_REQUEST: String = String::from("ConnectResetRequest");
 
 }
 

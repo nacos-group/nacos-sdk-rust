@@ -20,6 +20,7 @@ fn main() -> Result<(), std::io::Error> {
     // env::set_var("OUT_DIR", "src");
     tonic_build::configure()
         .build_server(false)
+        .disable_package_emission()
         .compile(&["./proto/nacos_grpc_service.proto"], &["./proto"])?;
     Ok(())
 }

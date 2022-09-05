@@ -127,7 +127,7 @@ impl Connection {
                     .into_inner();
 
                 Ok::<State, Box<dyn Error + Send + Sync>>(State::Connected {
-                    conn_id: String::from(conn_id),
+                    conn_id: String::from(conn_id.unwrap()),
                     client,
                     bi_client,
                     bi_sender: tx,
