@@ -136,12 +136,14 @@ impl Connection {
             };
             self.state = match try_connect.await {
                 Ok(connected) => {
+                    println!("connected successfully!");
                     tracing::debug!("connected successfully!");
                     connected
                 }
                 Err(error) => {
+                    println!("error connecting {}", error);
                     tracing::warn!(%error, "error connecting");
-                    let backoff = std::cmp::max(backoff + Self::BACKOFF, MAX_BACKOFF);
+                    let backoff = std::cmp::min(backoff + Self::BACKOFF, MAX_BACKOFF);
                     State::Disconnected(backoff)
                 }
             };
@@ -157,15 +159,20 @@ impl Connection {
                 } => match Pin::new(resp_bi_stream).next().await {
                     Some(Ok(payload)) => return payload,
                     Some(Err(status)) => {
+                        println!("error from stream {}", status);
                         tracing::warn!(%status, "error from stream");
                         self.state = State::Disconnected(Self::BACKOFF);
                     }
                     None => {
+                        println!("stream closed by server");
                         tracing::error!("stream closed by server");
                         self.state = State::Disconnected(Self::BACKOFF);
                     }
                 },
-                State::Disconnected(_) => self.connect().await,
+                State::Disconnected(_) => {
+                    println!("stream closed Disconnected");
+                    self.connect().await
+                }
             }
         }
     }
@@ -209,14 +216,12 @@ mod tests {
 
     #[tokio::test]
     async fn test_remote_connect() {
+        tracing_subscriber::fmt::init();
         println!("test_remote_connect");
         let mut remote_connect =
             Connection::new(ClientConfig::new().server_addr("http://0.0.0.0:9848".to_string()));
-        println!(
-            "try to connect {}",
-            remote_connect.client_config.server_addr.as_ref().unwrap()
-        );
-        remote_connect.connect().await
+        remote_connect.connect().await;
+        println!("{:?}", remote_connect.state)
     }
 
     #[tokio::test]
@@ -225,7 +230,9 @@ mod tests {
         let mut remote_connect =
             Connection::new(ClientConfig::new().server_addr("http://0.0.0.0:9848".to_string()));
         let payload = remote_connect.next_payload().await;
-        let server_req = payload_helper::build_server_request(payload).unwrap();
+        let payload = remote_connect.next_payload().await;
+        // let server_req = payload_helper::build_server_request(payload).unwrap();
+        println!("{:?}", remote_connect.state);
     }
 
     #[tokio::test]

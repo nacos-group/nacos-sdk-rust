@@ -46,6 +46,7 @@ pub(crate) fn build_server_response(
     let body_data = resp_payload.body.unwrap().value;
     let type_url = metadata.r#type;
     let body_str = String::from_utf8(body_data).unwrap();
+    println!("build_server_response {} with {}", type_url, body_str);
     tracing::debug!("build_server_response {} with {}", type_url, body_str);
     if TYPE_SERVER_CHECK_SERVER_RESPONSE.eq(&type_url) {
         let de: ServerCheckServerResponse = serde_json::from_str(body_str.as_str())?;
@@ -65,6 +66,7 @@ pub(crate) fn build_server_request(
     let body_data = req_payload.body.unwrap().value;
     let type_url = metadata.r#type;
     let body_str = String::from_utf8(body_data).unwrap();
+    println!("build_server_request {} with {}", type_url, body_str);
     tracing::debug!("build_server_request {} with {}", type_url, body_str);
     if TYPE_CONNECT_RESET_SERVER_REQUEST.eq(&type_url) {
         let de: ConnectResetRequest = serde_json::from_str(body_str.as_str())?;
