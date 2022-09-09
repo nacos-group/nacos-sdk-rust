@@ -14,13 +14,12 @@
 // limitations under the License.
 //
 
-// use std::env;
-
 fn main() -> Result<(), std::io::Error> {
-    // env::set_var("OUT_DIR", "src");
-    tonic_build::configure()
-        .build_server(false)
-        .disable_package_emission()
-        .compile(&["./proto/nacos_grpc_service.proto"], &["./proto"])?;
+    grpcio_compiler::prost_codegen::compile_protos(
+        &["./proto/nacos_grpc_service.proto"],
+        &["./proto"],
+        "src",
+    )
+    .unwrap();
     Ok(())
 }

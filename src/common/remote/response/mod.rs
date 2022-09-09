@@ -1,5 +1,4 @@
 use lazy_static::lazy_static;
-use serde::{Deserialize, Serialize};
 
 pub(crate) mod server_response;
 

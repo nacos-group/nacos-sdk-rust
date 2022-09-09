@@ -20,21 +20,18 @@ mod common;
 
 mod nacos_proto {
     pub mod v2 {
-        tonic::include_proto!("nacos.v2");
+        include!("_.rs");
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use prost_types::Any;
+    use crate::nacos_proto::v2::{Metadata, Payload};
     use std::collections::HashMap;
-
-    use crate::nacos_proto::v2::Metadata;
-    use crate::nacos_proto::v2::Payload;
 
     #[test]
     fn it_works_nacos_proto() {
-        let body = Any {
+        let body = prost_types::Any {
             type_url: String::new(),
             value: Vec::from("{\"cluster\":\"DEFAULT\",\"healthyOnly\":true}"),
         };
@@ -47,7 +44,7 @@ mod tests {
             metadata: Some(metadata),
             body: Some(body),
         };
-        println!("{:?}", payload);
+        // println!("{:?}", payload);
         assert_eq!(
             payload.metadata.unwrap().r#type,
             "com.alibaba.nacos.api.naming.remote.request.ServiceQueryRequest"

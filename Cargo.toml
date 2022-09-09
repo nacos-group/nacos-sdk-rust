@@ -28,10 +28,9 @@ thiserror = "1.0"
 tokio = { version = "1.21", features = ["full"] }
 tokio-stream = { version = "0.1", features = ["net"] }
 futures = "0.3"
-h2 = "0.3"
-tonic = "0.8"
-prost = "0.11"
-prost-types = "0.11"
+grpcio = { version = "0.10", default-features = false, features = ["prost-codec"] }
+prost = "0.9"
+prost-types = "0.9"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 lazy_static = "1.4"
@@ -39,7 +38,8 @@ lazy_static = "1.4"
 tracing = "0.1"
 
 [build-dependencies]
-tonic-build = "0.8"
+grpcio-compiler = { version = "0.10", default-features = false, features = ["prost-codec"] }
+prost-build = "0.9"
 
 [dev-dependencies]
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }

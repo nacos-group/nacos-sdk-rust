@@ -1,9 +1,7 @@
-use crate::common::remote::request::client_request::ConnectResetRequest;
-use crate::common::remote::request::{Request, LOCAL_IP, TYPE_CONNECT_RESET_SERVER_REQUEST};
-use crate::common::remote::response::server_response::{ErrorResponse, ServerCheckServerResponse};
-use crate::common::remote::response::{
-    Response, TYPE_ERROR_SERVER_RESPONSE, TYPE_SERVER_CHECK_SERVER_RESPONSE,
-};
+use crate::common::remote::request::server_request::*;
+use crate::common::remote::request::*;
+use crate::common::remote::response::server_response::*;
+use crate::common::remote::response::*;
 use crate::nacos_proto::v2::{Metadata, Payload};
 use serde::Serialize;
 
@@ -69,7 +67,11 @@ pub(crate) fn build_server_request(
     println!("build_server_request {} with {}", type_url, body_str);
     tracing::debug!("build_server_request {} with {}", type_url, body_str);
     if TYPE_CONNECT_RESET_SERVER_REQUEST.eq(&type_url) {
-        let de: ConnectResetRequest = serde_json::from_str(body_str.as_str())?;
+        let de: ConnectResetServerRequest = serde_json::from_str(body_str.as_str())?;
+        return Ok(Box::new(de));
+    }
+    if TYPE_CLIENT_DETECTION_SERVER_REQUEST.eq(&type_url) {
+        let de: ClientDetectionServerRequest = serde_json::from_str(body_str.as_str())?;
         return Ok(Box::new(de));
     }
     Err(crate::api::error::Error::Deserialization(type_url))

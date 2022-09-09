@@ -14,7 +14,6 @@
 // limitations under the License.
 //
 /// error learn from Skywalking Rust.
-use tokio::{sync::oneshot, task::JoinError};
 
 /// Nacos Sdk Rust Result.
 pub type Result<T> = std::result::Result<T, Error>;
@@ -31,15 +30,16 @@ pub enum Error {
     #[error("remote client shutdown failed: {0}")]
     ClientShutdown(String),
 
+    /*
     #[error("tonic transport failed: {0}")]
     TonicTransport(#[from] tonic::transport::Error),
 
     #[error("tonic status: {0}")]
     TonicStatus(#[from] tonic::Status),
-
+    */
     #[error("tokio task join failed: {0}")]
-    TokioJoin(#[from] JoinError),
+    TokioJoin(#[from] tokio::task::JoinError),
 
     #[error("tokio oneshot receive failed: {0}")]
-    TokioOneshotRecv(#[from] oneshot::error::RecvError),
+    TokioOneshotRecv(#[from] tokio::sync::oneshot::error::RecvError),
 }

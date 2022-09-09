@@ -1,13 +1,11 @@
 /**
  * Learn from https://github.com/tokio-rs/console/blob/main/tokio-console/src/conn.rs
  */
-use std::{error::Error, pin::Pin, time::Duration};
-
-use tokio::sync::mpsc;
-use tokio_stream::wrappers::UnboundedReceiverStream;
-use tonic::{transport::Channel, Streaming};
-
 use futures::stream::StreamExt;
+use futures::SinkExt;
+
+use std::sync::{Arc, Mutex};
+use std::{error::Error, pin::Pin, time::Duration};
 
 use crate::api::client_config::ClientConfig;
 use crate::common::remote::request::client_request::{
@@ -16,11 +14,9 @@ use crate::common::remote::request::client_request::{
 use crate::common::remote::request::Request;
 use crate::common::remote::response::Response;
 use crate::common::util::*;
-use crate::nacos_proto::v2::bi_request_stream_client::BiRequestStreamClient;
-use crate::nacos_proto::v2::request_client::RequestClient;
-use crate::nacos_proto::v2::Payload;
+use crate::nacos_proto::v2::{BiRequestStreamClient, Payload, RequestClient};
 
-#[derive(Debug)]
+// #[derive(Debug)]
 pub struct Connection {
     client_config: ClientConfig,
     state: State,
@@ -32,14 +28,14 @@ pub struct Connection {
 // stream just adds a heap pointer dereference, slightly penalizing polling
 // the stream in most cases. so, don't listen to clippy on this.
 #[allow(clippy::large_enum_variant)]
-#[derive(Debug)]
+// #[derive(Debug)]
 enum State {
     Connected {
         conn_id: String,
-        client: RequestClient<Channel>,
-        bi_client: BiRequestStreamClient<Channel>,
-        bi_sender: mpsc::UnboundedSender<Payload>,
-        resp_bi_stream: Box<Streaming<Payload>>,
+        client: RequestClient,
+        bi_client: BiRequestStreamClient,
+        bi_sender: Arc<Mutex<grpcio::ClientDuplexSender<Payload>>>,
+        bi_receiver: Arc<Mutex<grpcio::ClientDuplexReceiver<Payload>>>,
     },
     Disconnected(Duration),
 }
@@ -102,36 +98,36 @@ impl Connection {
                 let tenant = self.client_config.namespace.clone();
                 let labels = self.client_config.labels.clone();
 
-                let endpoint = tonic::transport::Endpoint::new(target)?;
-                let channel = endpoint.connect().await?;
+                let env = Arc::new(grpcio::Environment::new(2));
+                let channel = grpcio::ChannelBuilder::new(env).connect(target.as_str());
 
-                let mut client = RequestClient::new(channel.clone());
+                let client = RequestClient::new(channel.clone());
+
                 let req_payload =
                     payload_helper::build_req_grpc_payload(ServerCheckClientRequest::new());
-                let resp_payload = client.request(tonic::Request::new(req_payload)).await?;
+                let resp_payload = client.request(&req_payload);
                 let server_check_response =
-                    payload_helper::build_server_response(resp_payload.into_inner()).unwrap();
+                    payload_helper::build_server_response(resp_payload.unwrap()).unwrap();
                 let conn_id = server_check_response.get_connection_id();
 
-                let mut bi_client = BiRequestStreamClient::new(channel.clone());
-                let (tx, rx) = mpsc::unbounded_channel();
+                let bi_client = BiRequestStreamClient::new(channel.clone());
+                let (mut client_sender, client_receiver) = bi_client.request_bi_stream().unwrap();
                 // send a ConnectionSetupClientRequest
-                tx.send(payload_helper::build_req_grpc_payload(
-                    ConnectionSetupClientRequest::new(tenant, labels),
-                ))
-                .unwrap();
-
-                let resp_bi_stream = bi_client
-                    .request_bi_stream(UnboundedReceiverStream::from(rx))
-                    .await?
-                    .into_inner();
+                client_sender
+                    .send((
+                        payload_helper::build_req_grpc_payload(ConnectionSetupClientRequest::new(
+                            tenant, labels,
+                        )),
+                        grpcio::WriteFlags::default(),
+                    ))
+                    .await?;
 
                 Ok::<State, Box<dyn Error + Send + Sync>>(State::Connected {
                     conn_id: String::from(conn_id.unwrap()),
                     client,
                     bi_client,
-                    bi_sender: tx,
-                    resp_bi_stream: Box::new(resp_bi_stream),
+                    bi_sender: Arc::new(Mutex::new(client_sender)),
+                    bi_receiver: Arc::new(Mutex::new(client_receiver)),
                 })
             };
             self.state = match try_connect.await {
@@ -154,9 +150,12 @@ impl Connection {
         loop {
             match self.state {
                 State::Connected {
-                    ref mut resp_bi_stream,
+                    ref mut bi_receiver,
                     ..
-                } => match Pin::new(resp_bi_stream).next().await {
+                } => match Pin::new(bi_receiver.to_owned().lock().unwrap())
+                    .next()
+                    .await
+                {
                     Some(Ok(payload)) => return payload,
                     Some(Err(status)) => {
                         println!("error from stream {}", status);
@@ -184,8 +183,8 @@ impl Connection {
         match self.state {
             State::Connected { ref mut client, .. } => {
                 let req_payload = payload_helper::build_req_grpc_payload(req);
-                let resp_payload = client.request(tonic::Request::new(req_payload)).await?;
-                payload_helper::build_server_response(resp_payload.into_inner())
+                let resp_payload = client.request(&req_payload);
+                payload_helper::build_server_response(resp_payload.unwrap())
             }
             State::Disconnected(_) => {
                 self.connect().await;
@@ -196,12 +195,19 @@ impl Connection {
         }
     }
 
-    pub(crate) async fn send_resp(&mut self, resp: impl Response + serde::Serialize) -> () {
+    pub(crate) async fn send_resp(&mut self, resp: impl Response + serde::Serialize) {
         match self.state {
             State::Connected {
                 ref mut bi_sender, ..
             } => bi_sender
-                .send(payload_helper::build_resp_grpc_payload(resp))
+                .to_owned()
+                .lock()
+                .unwrap()
+                .send((
+                    payload_helper::build_resp_grpc_payload(resp),
+                    grpcio::WriteFlags::default(),
+                ))
+                .await
                 .unwrap(),
             State::Disconnected(_) => self.connect().await,
         }
@@ -219,20 +225,17 @@ mod tests {
         tracing_subscriber::fmt::init();
         println!("test_remote_connect");
         let mut remote_connect =
-            Connection::new(ClientConfig::new().server_addr("http://0.0.0.0:9848".to_string()));
+            Connection::new(ClientConfig::new().server_addr("0.0.0.0:9848".to_string()));
         remote_connect.connect().await;
-        println!("{:?}", remote_connect.state)
     }
 
     #[tokio::test]
     async fn test_next_payload() {
         println!("test_next_payload");
         let mut remote_connect =
-            Connection::new(ClientConfig::new().server_addr("http://0.0.0.0:9848".to_string()));
+            Connection::new(ClientConfig::new().server_addr("0.0.0.0:9848".to_string()));
         let payload = remote_connect.next_payload().await;
-        let payload = remote_connect.next_payload().await;
-        // let server_req = payload_helper::build_server_request(payload).unwrap();
-        println!("{:?}", remote_connect.state);
+        let server_req = payload_helper::build_server_request(payload).unwrap();
     }
 
     #[tokio::test]

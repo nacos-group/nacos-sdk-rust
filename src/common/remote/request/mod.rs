@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicI64, Ordering};
 
 pub(crate) mod client_request;
+pub(crate) mod server_request;
 
 pub(crate) trait Request {
     fn get_request_id(&self) -> &String;
@@ -18,10 +19,13 @@ lazy_static! {
     pub static ref TYPE_SERVER_CHECK_CLIENT_REQUEST: String = String::from("ServerCheckRequest");
 
     /// com.alibaba.nacos.api.remote.request.ConnectionSetupRequest
-    pub static ref TYPE_CONNECT_SETUP_SERVER_REQUEST: String = String::from("ConnectionSetupRequest");
+    pub static ref TYPE_CONNECT_SETUP_CLIENT_REQUEST: String = String::from("ConnectionSetupRequest");
 
     /// com.alibaba.nacos.api.remote.request.ConnectResetRequest
     pub static ref TYPE_CONNECT_RESET_SERVER_REQUEST: String = String::from("ConnectResetRequest");
+
+    /// com.alibaba.nacos.api.remote.request.ClientDetectionRequest
+    pub static ref TYPE_CLIENT_DETECTION_SERVER_REQUEST: String = String::from("ClientDetectionRequest");
 
 }
 
