@@ -30,13 +30,6 @@ pub enum Error {
     #[error("remote client shutdown failed: {0}")]
     ClientShutdown(String),
 
-    /*
-    #[error("tonic transport failed: {0}")]
-    TonicTransport(#[from] tonic::transport::Error),
-
-    #[error("tonic status: {0}")]
-    TonicStatus(#[from] tonic::Status),
-    */
     #[error("tokio task join failed: {0}")]
     TokioJoin(#[from] tokio::task::JoinError),
 

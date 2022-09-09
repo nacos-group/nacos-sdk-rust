@@ -12,6 +12,7 @@ Nacos client in Rust
 
 - serde-rs/serde 一个超高性能的通用序列化/反序列化框架，可以跟多种协议的库联合使用，实现统一编解码格式；serde-rs/json 快到上天的 JSON 库，也是 Rust 事实上的标准 JSON
 - tikv/grpc-rs  一个 Rust 版的 gRPC 客户端和服务器端
+- tokio-rs/prost tokio 出品的 Protocol Buffers 工具，简单易用，文档详细
 - tokio-rs/tokio 最火的异步网络库，除了复杂上手难度高一些外，没有其它大的问题。同时 tokio 团队提供了多个非常优秀的 Rust 库，整个生态欣欣向荣，用户认可度很高
 - tokio-rs/tracing 强大的日志框架，同时还支持 OpenTelemetry 格式，无缝打通未来的监控
 

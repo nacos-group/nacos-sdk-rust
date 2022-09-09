@@ -26,12 +26,15 @@ mod nacos_proto {
 
 #[cfg(test)]
 mod tests {
-    use crate::nacos_proto::v2::{Metadata, Payload};
+    use prost_types::Any;
     use std::collections::HashMap;
+
+    use crate::nacos_proto::v2::Metadata;
+    use crate::nacos_proto::v2::Payload;
 
     #[test]
     fn it_works_nacos_proto() {
-        let body = prost_types::Any {
+        let body = Any {
             type_url: String::new(),
             value: Vec::from("{\"cluster\":\"DEFAULT\",\"healthyOnly\":true}"),
         };
