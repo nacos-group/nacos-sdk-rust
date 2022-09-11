@@ -1,10 +1,10 @@
 use std::collections::HashMap;
 
 /// Configures settings for Client.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct ClientConfig {
     /// server_addr like 127.0.0.1:9848
-    pub(crate) server_addr: Option<String>,
+    pub(crate) server_addr: String,
     pub(crate) namespace: String,
     /// client_name maybe the same as app_name
     pub(crate) client_name: Option<String>,
@@ -16,7 +16,8 @@ impl ClientConfig {
     /// Creates a new `ClientConfig`.
     pub fn new() -> Self {
         ClientConfig {
-            server_addr: Some(String::from(crate::api::constants::DEFAULT_SERVER_ADDR)),
+            server_addr: String::from(crate::api::constants::DEFAULT_SERVER_ADDR),
+            /// public is "", Should define a more meaningful namespace
             namespace: String::from(""),
             client_name: None,
             labels: HashMap::default(),
@@ -26,7 +27,7 @@ impl ClientConfig {
     /// Sets the server addr against.
     pub fn server_addr(self, server_addr: impl Into<String>) -> Self {
         ClientConfig {
-            server_addr: Some(server_addr.into()),
+            server_addr: server_addr.into(),
             ..self
         }
     }

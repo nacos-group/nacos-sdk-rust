@@ -5,7 +5,7 @@ use futures::stream::StreamExt;
 use futures::SinkExt;
 
 use std::sync::{Arc, Mutex};
-use std::{error::Error, pin::Pin, time::Duration};
+use std::{error::Error, time::Duration};
 
 use crate::api::client_config::ClientConfig;
 use crate::common::remote::request::client_request::{
@@ -16,7 +16,6 @@ use crate::common::remote::response::Response;
 use crate::common::util::*;
 use crate::nacos_proto::v2::{BiRequestStreamClient, Payload, RequestClient};
 
-// #[derive(Debug)]
 pub struct Connection {
     client_config: ClientConfig,
     state: State,
@@ -28,10 +27,11 @@ pub struct Connection {
 // stream just adds a heap pointer dereference, slightly penalizing polling
 // the stream in most cases. so, don't listen to clippy on this.
 #[allow(clippy::large_enum_variant)]
-// #[derive(Debug)]
 enum State {
     Connected {
+        target: String,
         conn_id: String,
+        channel: grpcio::Channel,
         client: RequestClient,
         bi_client: BiRequestStreamClient,
         bi_sender: Arc<Mutex<grpcio::ClientDuplexSender<Payload>>>,
@@ -39,38 +39,6 @@ enum State {
     },
     Disconnected(Duration),
 }
-
-/*
-macro_rules! with_client {
-    ($me:ident, $client:ident, $bi_sender:ident, $block:expr) => ({
-        loop {
-            match $me.state {
-                State::Connected { client: ref mut $client, bi_sender: ref mut $bi_sender, .. } => {
-                    match $block {
-                        Ok(resp) => break Ok(resp),
-                        // If the error is a `h2::Error`, that indicates
-                        // something went wrong at the connection level, rather
-                        // than the server returning an error code. In that
-                        // case, let's try reconnecting...
-                        Err(error) if error.source().iter().any(|src| src.is::<h2::Error>()) => {
-                            tracing::warn!(
-                                error = %error,
-                                "connection error sending command"
-                            );
-                            $me.state = State::Disconnected(Self::BACKOFF);
-                        }
-                        // Otherwise, return the error.
-                        Err(e) => {
-                            break Err(e);
-                        }
-                    }
-                }
-                State::Disconnected(_) => $me.connect().await,
-            }
-        }
-    })
-}
-*/
 
 impl Connection {
     const BACKOFF: Duration = Duration::from_millis(500);
@@ -82,19 +50,19 @@ impl Connection {
         }
     }
 
-    async fn connect(&mut self) {
+    pub(crate) async fn connect(&mut self) {
         const MAX_BACKOFF: Duration = Duration::from_secs(5);
 
         while let State::Disconnected(backoff) = self.state {
             if backoff == Duration::from_secs(0) {
-                tracing::info!(to = %self.client_config.server_addr.as_ref().unwrap(), "connecting");
+                tracing::info!(to = %self.client_config.server_addr, "connecting");
             } else {
                 tracing::info!(reconnect_in = ?backoff, "reconnecting");
                 tokio::time::sleep(backoff).await;
             }
 
             let try_connect = async {
-                let target = self.client_config.server_addr.clone().unwrap();
+                let target = self.client_config.server_addr.clone();
                 let tenant = self.client_config.namespace.clone();
                 let labels = self.client_config.labels.clone();
 
@@ -123,7 +91,9 @@ impl Connection {
                     .await?;
 
                 Ok::<State, Box<dyn Error + Send + Sync>>(State::Connected {
+                    target,
                     conn_id: String::from(conn_id.unwrap()),
+                    channel,
                     client,
                     bi_client,
                     bi_sender: Arc::new(Mutex::new(client_sender)),
@@ -146,16 +116,14 @@ impl Connection {
         }
     }
 
-    pub(crate) async fn next_payload(&mut self) -> Payload {
+    /// Listen a server_request from server by bi_receiver
+    pub(crate) async fn next_server_req_payload(&mut self) -> Payload {
         loop {
             match self.state {
                 State::Connected {
                     ref mut bi_receiver,
                     ..
-                } => match Pin::new(bi_receiver.to_owned().lock().unwrap())
-                    .next()
-                    .await
-                {
+                } => match bi_receiver.to_owned().lock().unwrap().next().await {
                     Some(Ok(payload)) => return payload,
                     Some(Err(status)) => {
                         println!("error from stream {}", status);
@@ -176,26 +144,8 @@ impl Connection {
         }
     }
 
-    pub(crate) async fn send_req(
-        &mut self,
-        req: impl Request + serde::Serialize,
-    ) -> crate::api::error::Result<Box<dyn Response>> {
-        match self.state {
-            State::Connected { ref mut client, .. } => {
-                let req_payload = payload_helper::build_req_grpc_payload(req);
-                let resp_payload = client.request(&req_payload);
-                payload_helper::build_server_response(resp_payload.unwrap())
-            }
-            State::Disconnected(_) => {
-                self.connect().await;
-                Err(crate::api::error::Error::ClientShutdown(String::from(
-                    "Disconnected, please try again.",
-                )))
-            }
-        }
-    }
-
-    pub(crate) async fn send_resp(&mut self, resp: impl Response + serde::Serialize) {
+    /// Reply a client_resp to server by bi_sender
+    pub(crate) async fn reply_client_resp(&mut self, resp: impl Response + serde::Serialize) {
         match self.state {
             State::Connected {
                 ref mut bi_sender, ..
@@ -212,12 +162,47 @@ impl Connection {
             State::Disconnected(_) => self.connect().await,
         }
     }
+
+    /// Send a client_req, with get a server_resp
+    pub(crate) async fn send_client_req(
+        &mut self,
+        req: impl Request + serde::Serialize,
+    ) -> crate::api::error::Result<Box<Payload>> {
+        match self.state {
+            State::Connected { ref mut client, .. } => {
+                let req_payload = payload_helper::build_req_grpc_payload(req);
+                let resp_payload = client.request(&req_payload).unwrap();
+                Ok(Box::new(resp_payload))
+            }
+            State::Disconnected(_) => {
+                self.connect().await;
+                Err(crate::api::error::Error::ClientShutdown(String::from(
+                    "Disconnected, please try again.",
+                )))
+            }
+        }
+    }
+
+    /// Get a RequestClient, which use the core channel of connection.
+    pub(crate) fn get_client(&mut self) -> crate::api::error::Result<RequestClient> {
+        match self.state {
+            State::Connected {
+                ref mut channel, ..
+            } => Ok(RequestClient::new(channel.clone())),
+            State::Disconnected(_) => Err(crate::api::error::Error::ClientShutdown(String::from(
+                "Disconnected, please try later.",
+            ))),
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use crate::api::client_config::ClientConfig;
     use crate::common::remote::conn::Connection;
+    use crate::common::remote::request::server_request::ClientDetectionServerRequest;
+    use crate::common::remote::request::{Request, TYPE_CLIENT_DETECTION_SERVER_REQUEST};
+    use crate::common::remote::response::client_response::ClientDetectionClientResponse;
     use crate::common::util::payload_helper;
 
     #[tokio::test]
@@ -230,12 +215,21 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_next_payload() {
+    async fn test_next_server_request() {
         println!("test_next_payload");
         let mut remote_connect =
             Connection::new(ClientConfig::new().server_addr("0.0.0.0:9848".to_string()));
-        let payload = remote_connect.next_payload().await;
-        let server_req = payload_helper::build_server_request(payload).unwrap();
+        let server_req_payload = remote_connect.next_server_req_payload().await;
+        let (type_url, headers, body_json_str) = payload_helper::covert_payload(server_req_payload);
+        if TYPE_CLIENT_DETECTION_SERVER_REQUEST.eq(&type_url) {
+            let de = ClientDetectionServerRequest::from(body_json_str.as_str());
+            let de = de.headers(headers);
+            remote_connect
+                .reply_client_resp(ClientDetectionClientResponse::new(
+                    de.get_request_id().clone(),
+                ))
+                .await;
+        }
     }
 
     #[tokio::test]

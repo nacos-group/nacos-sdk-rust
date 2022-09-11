@@ -17,6 +17,10 @@
 pub mod api;
 
 mod common;
+#[cfg(feature = "config")]
+mod config;
+#[cfg(feature = "naming")]
+mod naming;
 
 mod nacos_proto {
     pub mod v2 {

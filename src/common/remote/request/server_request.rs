@@ -3,7 +3,7 @@ use crate::common::remote::request::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub(crate) struct ConnectResetServerRequest {
     requestId: String,
     /// count be empty.
@@ -33,9 +33,21 @@ impl ConnectResetServerRequest {
             serverPort: server_port,
         }
     }
+
+    /// Sets the headers.
+    pub fn headers(self, headers: HashMap<String, String>) -> Self {
+        ConnectResetServerRequest { headers, ..self }
+    }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+impl From<&str> for ConnectResetServerRequest {
+    fn from(json_str: &str) -> Self {
+        let de: serde_json::Result<Self> = serde_json::from_str(json_str);
+        de.unwrap()
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub(crate) struct ClientDetectionServerRequest {
     requestId: String,
     /// count be empty.
@@ -60,5 +72,17 @@ impl ClientDetectionServerRequest {
             requestId: generate_request_id(),
             headers: HashMap::new(),
         }
+    }
+
+    /// Sets the headers.
+    pub fn headers(self, headers: HashMap<String, String>) -> Self {
+        ClientDetectionServerRequest { headers, ..self }
+    }
+}
+
+impl From<&str> for ClientDetectionServerRequest {
+    fn from(json_str: &str) -> Self {
+        let de: serde_json::Result<Self> = serde_json::from_str(json_str);
+        de.unwrap()
     }
 }
