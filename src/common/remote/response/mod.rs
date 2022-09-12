@@ -5,7 +5,9 @@ pub(crate) mod server_response;
 
 pub(crate) trait Response {
     fn is_success(&self) -> bool;
-    fn get_connection_id(&self) -> Option<&String>;
+    fn get_connection_id(&self) -> Option<&String> {
+        None
+    }
     fn get_request_id(&self) -> Option<&String>;
     fn get_message(&self) -> Option<&String>;
     fn get_error_code(&self) -> u32;

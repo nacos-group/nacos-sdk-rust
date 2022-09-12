@@ -63,10 +63,6 @@ impl Response for ErrorResponse {
         ResponseCode::Ok == self.resultCode
     }
 
-    fn get_connection_id(&self) -> Option<&String> {
-        None
-    }
-
     fn get_request_id(&self) -> Option<&String> {
         Option::from(&self.requestId)
     }
@@ -106,10 +102,6 @@ pub(crate) struct HealthCheckServerResponse {
 impl Response for HealthCheckServerResponse {
     fn is_success(&self) -> bool {
         ResponseCode::Ok == self.resultCode
-    }
-
-    fn get_connection_id(&self) -> Option<&String> {
-        None
     }
 
     fn get_request_id(&self) -> Option<&String> {

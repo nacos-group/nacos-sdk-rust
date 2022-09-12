@@ -77,7 +77,17 @@ impl Connection {
                     payload_helper::build_req_grpc_payload(ServerCheckClientRequest::new());
                 let resp_payload = client.request(&req_payload)?;
                 let server_check_response = payload_helper::build_server_response(resp_payload)?;
-                let conn_id = server_check_response.get_connection_id();
+                let conn_id = server_check_response
+                    .get_connection_id()
+                    .ok_or(crate::api::error::Error::ClientShutdown(format!(
+                        "Get connection_id failed,error_code={},message={}",
+                        server_check_response.get_error_code(),
+                        server_check_response
+                            .get_message()
+                            .or(Some(&"".to_string()))
+                            .unwrap(),
+                    )))?
+                    .to_string();
 
                 let bi_client = BiRequestStreamClient::new(channel.clone());
                 let (mut client_sender, client_receiver) = bi_client.request_bi_stream()?;
@@ -93,7 +103,7 @@ impl Connection {
 
                 Ok::<State, Box<dyn Error + Send + Sync>>(State::Connected {
                     target,
-                    conn_id: String::from(conn_id.unwrap()),
+                    conn_id,
                     channel,
                     client,
                     bi_client,

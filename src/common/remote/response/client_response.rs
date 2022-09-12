@@ -15,10 +15,6 @@ impl Response for ConnectResetClientResponse {
         ResponseCode::Ok == self.resultCode
     }
 
-    fn get_connection_id(&self) -> Option<&String> {
-        None
-    }
-
     fn get_request_id(&self) -> Option<&String> {
         Option::from(&self.requestId)
     }
@@ -58,10 +54,6 @@ pub(crate) struct ClientDetectionClientResponse {
 impl Response for ClientDetectionClientResponse {
     fn is_success(&self) -> bool {
         ResponseCode::Ok == self.resultCode
-    }
-
-    fn get_connection_id(&self) -> Option<&String> {
-        None
     }
 
     fn get_request_id(&self) -> Option<&String> {
