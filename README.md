@@ -7,6 +7,9 @@ Nacos client in Rust
 
 - 请 `cargo fmt` 格式化代码再提交
 
+- Rust 入门，还有太多东西不规范，仍需斟酌各种实现逻辑
+- 测试用例暂未能实现自动化，开发过程需本地启动 [nacos server](https://github.com/alibaba/nacos) `-Dnacos.standalone=true`
+
 ### 主要依赖包
 在 nacos-sdk-rust 工程里，为主要功能的实现，将会引入以下依赖包。
 

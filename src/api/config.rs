@@ -111,18 +111,21 @@ mod tests {
     use std::time::Duration;
     use tokio::time::sleep;
 
-    #[tokio::test]
+    // #[tokio::test]
     async fn test_api_config_service() {
+        tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::DEBUG)
+            .init();
         let mut config_service = ConfigServiceBuilder::default().build().await;
         let config =
             config_service.get_config("hongwen.properties".to_string(), "LOVE".to_string(), 3000);
-        println!("get the config {}", config.expect("None"));
+        tracing::info!("get the config {}", config.expect("None"));
 
         let _listen = config_service.listen(
             "hongwen.properties".to_string(),
             "LOVE".to_string(),
             Arc::new(|config_resp| {
-                println!("listen the config {}", config_resp.get_content());
+                tracing::info!("listen the config {}", config_resp.get_content());
             }),
         );
 

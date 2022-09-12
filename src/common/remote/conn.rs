@@ -102,12 +102,10 @@ impl Connection {
             };
             self.state = match try_connect.await {
                 Ok(connected) => {
-                    println!("connected successfully!");
                     tracing::debug!("connected successfully!");
                     connected
                 }
                 Err(error) => {
-                    println!("error connecting {}", error);
                     tracing::warn!(%error, "error connecting");
                     let backoff = std::cmp::min(backoff + Self::BACKOFF, MAX_BACKOFF);
                     State::Disconnected(backoff)
@@ -126,20 +124,15 @@ impl Connection {
                 } => match bi_receiver.to_owned().lock().unwrap().next().await {
                     Some(Ok(payload)) => return payload,
                     Some(Err(status)) => {
-                        println!("error from stream {}", status);
                         tracing::warn!(%status, "error from stream");
                         self.state = State::Disconnected(Self::BACKOFF);
                     }
                     None => {
-                        println!("stream closed by server");
                         tracing::error!("stream closed by server");
                         self.state = State::Disconnected(Self::BACKOFF);
                     }
                 },
-                State::Disconnected(_) => {
-                    println!("stream closed Disconnected");
-                    self.connect().await
-                }
+                State::Disconnected(_) => self.connect().await,
             }
         }
     }
@@ -205,18 +198,21 @@ mod tests {
     use crate::common::remote::response::client_response::ClientDetectionClientResponse;
     use crate::common::util::payload_helper;
 
-    #[tokio::test]
+    // #[tokio::test]
     async fn test_remote_connect() {
-        tracing_subscriber::fmt::init();
-        println!("test_remote_connect");
+        tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::DEBUG)
+            .init();
         let mut remote_connect =
             Connection::new(ClientConfig::new().server_addr("0.0.0.0:9848".to_string()));
         remote_connect.connect().await;
     }
 
-    #[tokio::test]
+    // #[tokio::test]
     async fn test_next_server_request() {
-        println!("test_next_payload");
+        tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::DEBUG)
+            .init();
         let mut remote_connect =
             Connection::new(ClientConfig::new().server_addr("0.0.0.0:9848".to_string()));
         let server_req_payload = remote_connect.next_server_req_payload().await;
@@ -230,10 +226,5 @@ mod tests {
                 ))
                 .await;
         }
-    }
-
-    #[tokio::test]
-    async fn test_println() {
-        println!("test_println");
     }
 }

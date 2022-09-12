@@ -96,10 +96,6 @@ impl NacosConfigService {
                                         &server_req.group,
                                         req_tenant.clone()
                                     );
-                                    println!(
-                                        "receiver config change, dataId={},group={},namespace={}",
-                                        &server_req.dataId, &server_req.group, req_tenant.clone()
-                                    );
                                     // todo notify config change
                                 } else {
                                     tracing::warn!("unknown receive type_url={}, maybe sdk have to upgrade!", type_url);
@@ -192,8 +188,11 @@ mod tests {
     use std::time::Duration;
     use tokio::time::sleep;
 
-    #[tokio::test]
+    // #[tokio::test]
     async fn test_config_service() {
+        tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::DEBUG)
+            .init();
         let mut config_service = NacosConfigService::new(
             ClientConfig::new()
                 .server_addr("0.0.0.0:9848".to_string())
@@ -202,13 +201,13 @@ mod tests {
         config_service.start().await;
         let config =
             config_service.get_config("hongwen.properties".to_string(), "LOVE".to_string(), 3000);
-        println!("get the config {}", config.expect("None"));
+        tracing::info!("get the config {}", config.expect("None"));
 
         let _listen = config_service.listen(
             "hongwen.properties".to_string(),
             "LOVE".to_string(),
             Arc::new(|config_resp| {
-                println!("listen the config {}", config_resp.get_content());
+                tracing::info!("listen the config {}", config_resp.get_content());
             }),
         );
 

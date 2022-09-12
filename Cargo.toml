@@ -47,5 +47,8 @@ grpcio-compiler = { version = "0.10", default-features = false, features = ["pro
 prost-build = "0.9"
 
 [dev-dependencies]
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-subscriber = { version = "0.3", features = ["default"] }
 
+[[example]]
+name = "simple_app"
+path = "examples/simple_app.rs"

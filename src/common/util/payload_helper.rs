@@ -7,6 +7,11 @@ use serde::Serialize;
 use std::collections::HashMap;
 
 pub(crate) fn build_req_grpc_payload(req: impl Request + Serialize) -> Payload {
+    tracing::debug!(
+        "build_req_grpc_payload {} request_id={}",
+        req.get_type_url(),
+        req.get_request_id()
+    );
     let json_val = serde_json::to_vec(&req).unwrap();
     let metadata = Metadata {
         r#type: req.get_type_url().to_string(),
@@ -23,6 +28,11 @@ pub(crate) fn build_req_grpc_payload(req: impl Request + Serialize) -> Payload {
 }
 
 pub(crate) fn build_resp_grpc_payload(resp: impl Response + Serialize) -> Payload {
+    tracing::debug!(
+        "build_resp_grpc_payload {} request_id={}",
+        resp.get_type_url(),
+        resp.get_request_id().or(Some(&"".to_string())).unwrap()
+    );
     let json_val = serde_json::to_vec(&resp).unwrap();
     let metadata = Metadata {
         r#type: resp.get_type_url().to_string(),
@@ -45,7 +55,6 @@ pub(crate) fn build_server_response(
     let body_data = resp_payload.body.unwrap().value;
     let type_url = metadata.r#type;
     let body_str = String::from_utf8(body_data).unwrap();
-    println!("build_server_response {} with {}", type_url, body_str);
     tracing::debug!("build_server_response {} with {}", type_url, body_str);
     if TYPE_SERVER_CHECK_SERVER_RESPONSE.eq(&type_url) {
         let de: ServerCheckServerResponse = serde_json::from_str(body_str.as_str())?;
@@ -70,7 +79,6 @@ pub(crate) fn build_server_request(
     let type_url = metadata.r#type;
     let headers = metadata.headers;
     let body_str = String::from_utf8(body_data).unwrap();
-    println!("build_server_request {} with {}", type_url, body_str);
     tracing::debug!("build_server_request {} with {}", type_url, body_str);
     if TYPE_CONNECT_RESET_SERVER_REQUEST.eq(&type_url) {
         let de = ConnectResetServerRequest::from(body_str.as_str()).headers(headers);
@@ -90,7 +98,6 @@ pub(crate) fn covert_payload(payload: Payload) -> (String, HashMap<String, Strin
     let type_url = metadata.r#type;
     let headers = metadata.headers;
     let body_str = String::from_utf8(body_data).unwrap();
-    println!("covert_payload {} with {}", type_url, body_str);
     tracing::debug!("covert_payload {} with {}", type_url, body_str);
     return (type_url, headers, body_str);
 }

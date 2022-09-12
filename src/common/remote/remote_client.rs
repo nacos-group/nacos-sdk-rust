@@ -77,8 +77,11 @@ mod tests {
     use crate::api::client_config::ClientConfig;
     use crate::common::remote::remote_client::GrpcRemoteClient;
 
-    #[tokio::test]
+    // #[tokio::test]
     async fn test_grpc_remote_client() {
+        tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::DEBUG)
+            .init();
         let mut remote_client =
             GrpcRemoteClient::new(ClientConfig::new().server_addr("0.0.0.0:9848".to_string()));
         std::thread::Builder::new()
@@ -94,7 +97,7 @@ mod tests {
                     loop {
                         tokio::select! { biased;
                             deal_with_connection = remote_client.deal_with_connection() => {
-                                println!("deal_with_connection")
+                                tracing::info!("deal_with_connection")
                             },
                         }
                     }
