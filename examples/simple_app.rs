@@ -1,6 +1,5 @@
 use nacos_client::api::config::ConfigService;
 use nacos_client::api::config::ConfigServiceBuilder;
-use std::sync::Arc;
 use std::thread::sleep;
 use std::time::Duration;
 
@@ -21,7 +20,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _listen = config_service.listen(
         "hongwen.properties".to_string(),
         "LOVE".to_string(),
-        Arc::new(|config_resp| {
+        Box::new(|config_resp| {
             tracing::info!("listen the config {}", config_resp.get_content());
         }),
     );

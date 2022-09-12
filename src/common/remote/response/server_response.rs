@@ -7,14 +7,14 @@ pub(crate) struct ServerCheckServerResponse {
     /// only ServerCheckServerResponse return it.
     connectionId: String,
     requestId: Option<String>,
-    resultCode: i32,
-    errorCode: i32,
+    resultCode: ResponseCode,
+    errorCode: u32,
     message: Option<String>,
 }
 
 impl Response for ServerCheckServerResponse {
     fn is_success(&self) -> bool {
-        200 == self.resultCode
+        ResponseCode::Ok == self.resultCode
     }
 
     fn get_connection_id(&self) -> Option<&String> {
@@ -29,7 +29,7 @@ impl Response for ServerCheckServerResponse {
         Option::from(&self.message)
     }
 
-    fn get_error_code(&self) -> i32 {
+    fn get_error_code(&self) -> u32 {
         self.errorCode
     }
 
@@ -43,7 +43,7 @@ impl ServerCheckServerResponse {
         ServerCheckServerResponse {
             connectionId: connection_id,
             requestId: Some(request_id),
-            resultCode: 200,
+            resultCode: ResponseCode::Ok,
             errorCode: 0,
             message: None,
         }
@@ -53,14 +53,14 @@ impl ServerCheckServerResponse {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub(crate) struct ErrorResponse {
     requestId: Option<String>,
-    resultCode: i32,
-    errorCode: i32,
+    resultCode: ResponseCode,
+    errorCode: u32,
     message: Option<String>,
 }
 
 impl Response for ErrorResponse {
     fn is_success(&self) -> bool {
-        200 == self.resultCode
+        ResponseCode::Ok == self.resultCode
     }
 
     fn get_connection_id(&self) -> Option<&String> {
@@ -75,7 +75,7 @@ impl Response for ErrorResponse {
         Option::from(&self.message)
     }
 
-    fn get_error_code(&self) -> i32 {
+    fn get_error_code(&self) -> u32 {
         self.errorCode
     }
 
@@ -88,8 +88,8 @@ impl ErrorResponse {
     pub fn new(request_id: String) -> Self {
         ErrorResponse {
             requestId: Some(request_id),
-            resultCode: 500,
-            errorCode: 0,
+            resultCode: ResponseCode::Fail,
+            errorCode: 500,
             message: None,
         }
     }
@@ -98,14 +98,14 @@ impl ErrorResponse {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub(crate) struct HealthCheckServerResponse {
     requestId: Option<String>,
-    resultCode: i32,
-    errorCode: i32,
+    resultCode: ResponseCode,
+    errorCode: u32,
     message: Option<String>,
 }
 
 impl Response for HealthCheckServerResponse {
     fn is_success(&self) -> bool {
-        200 == self.resultCode
+        ResponseCode::Ok == self.resultCode
     }
 
     fn get_connection_id(&self) -> Option<&String> {
@@ -120,7 +120,7 @@ impl Response for HealthCheckServerResponse {
         Option::from(&self.message)
     }
 
-    fn get_error_code(&self) -> i32 {
+    fn get_error_code(&self) -> u32 {
         self.errorCode
     }
 
@@ -133,7 +133,7 @@ impl HealthCheckServerResponse {
     pub fn new(request_id: String) -> Self {
         HealthCheckServerResponse {
             requestId: Some(request_id),
-            resultCode: 200,
+            resultCode: ResponseCode::Ok,
             errorCode: 0,
             message: None,
         }

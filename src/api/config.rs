@@ -1,6 +1,6 @@
 use crate::api::{client_config, error};
 
-pub(crate) type ListenFn = dyn Fn(ConfigResponse) + Send + Sync + 'static;
+pub(crate) type ConfigChangeListenFn = dyn Fn(ConfigResponse) + Send + Sync;
 
 pub trait ConfigService {
     /// Get config, return the content.
@@ -11,7 +11,7 @@ pub trait ConfigService {
         &mut self,
         data_id: String,
         group: String,
-        func: std::sync::Arc<ListenFn>,
+        func: Box<ConfigChangeListenFn>,
     ) -> error::Result<()>;
 }
 
@@ -107,7 +107,6 @@ impl ConfigServiceBuilder {
 mod tests {
     use crate::api::config::ConfigService;
     use crate::api::config::ConfigServiceBuilder;
-    use std::sync::Arc;
     use std::time::Duration;
     use tokio::time::sleep;
 
@@ -124,7 +123,7 @@ mod tests {
         let _listen = config_service.listen(
             "hongwen.properties".to_string(),
             "LOVE".to_string(),
-            Arc::new(|config_resp| {
+            Box::new(|config_resp| {
                 tracing::info!("listen the config {}", config_resp.get_content());
             }),
         );

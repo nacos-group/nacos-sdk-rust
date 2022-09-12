@@ -5,15 +5,15 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub(crate) struct ConfigChangeBatchListenServerResponse {
     requestId: Option<String>,
-    resultCode: i32,
-    errorCode: i32,
+    resultCode: ResponseCode,
+    errorCode: u32,
     message: Option<String>,
     changedConfigs: Option<Vec<ConfigContext>>,
 }
 
 impl Response for ConfigChangeBatchListenServerResponse {
     fn is_success(&self) -> bool {
-        200 == self.resultCode
+        ResponseCode::Ok == self.resultCode
     }
 
     fn get_connection_id(&self) -> Option<&String> {
@@ -28,7 +28,7 @@ impl Response for ConfigChangeBatchListenServerResponse {
         Option::from(&self.message)
     }
 
-    fn get_error_code(&self) -> i32 {
+    fn get_error_code(&self) -> u32 {
         self.errorCode
     }
 
@@ -41,7 +41,7 @@ impl ConfigChangeBatchListenServerResponse {
     pub fn new(request_id: String) -> Self {
         ConfigChangeBatchListenServerResponse {
             requestId: Some(request_id),
-            resultCode: 200,
+            resultCode: ResponseCode::Ok,
             errorCode: 0,
             message: None,
             changedConfigs: None,
@@ -64,14 +64,14 @@ pub(crate) struct ConfigContext {
     pub(crate) tenant: String,
 }
 
-const CONFIG_NOT_FOUND: i32 = 300;
-const CONFIG_QUERY_CONFLICT: i32 = 400;
+const CONFIG_NOT_FOUND: u32 = 300;
+const CONFIG_QUERY_CONFLICT: u32 = 400;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub(crate) struct ConfigQueryServerResponse {
     requestId: Option<String>,
-    resultCode: i32,
-    errorCode: i32,
+    resultCode: ResponseCode,
+    errorCode: u32,
     message: Option<String>,
 
     /// json, properties, txt, html, xml, ...
@@ -89,7 +89,7 @@ pub(crate) struct ConfigQueryServerResponse {
 
 impl Response for ConfigQueryServerResponse {
     fn is_success(&self) -> bool {
-        200 == self.resultCode
+        ResponseCode::Ok == self.resultCode
     }
 
     fn get_connection_id(&self) -> Option<&String> {
@@ -104,7 +104,7 @@ impl Response for ConfigQueryServerResponse {
         Option::from(&self.message)
     }
 
-    fn get_error_code(&self) -> i32 {
+    fn get_error_code(&self) -> u32 {
         self.errorCode
     }
 

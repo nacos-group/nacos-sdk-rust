@@ -56,7 +56,9 @@ gRPC 交互的 Payload 和 Metadata 由 `Protocol Buffers` 序列化，具体的
 - [ ] 创建参数，自定义传参 + ENV 环境变量读取，后者优先级高
 - [x] 请求交互，Request/Response 通用 grpc 逻辑
 - [ ] 通用客户端，囊括多线程操作，数据跨线程通知，受益于 Config/Naming
-- [ ] 通用日志
+- [ ] 账密登陆，accessToken
+- [x] 通用日志，`tracing::info!()`
+- [ ] Monitor，`opentelemetry`
 - [ ] 内存缓存
 - [ ] 数据落盘
 - [ ] 磁盘加载（用于服务端宕机弱依赖），优先级放低，已云原生容器化是否必要考虑？

@@ -5,14 +5,14 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub(crate) struct ConnectResetClientResponse {
     requestId: Option<String>,
-    resultCode: i32,
-    errorCode: i32,
+    resultCode: ResponseCode,
+    errorCode: u32,
     message: Option<String>,
 }
 
 impl Response for ConnectResetClientResponse {
     fn is_success(&self) -> bool {
-        200 == self.resultCode
+        ResponseCode::Ok == self.resultCode
     }
 
     fn get_connection_id(&self) -> Option<&String> {
@@ -27,7 +27,7 @@ impl Response for ConnectResetClientResponse {
         Option::from(&self.message)
     }
 
-    fn get_error_code(&self) -> i32 {
+    fn get_error_code(&self) -> u32 {
         self.errorCode
     }
 
@@ -40,7 +40,7 @@ impl ConnectResetClientResponse {
     pub fn new(request_id: String) -> Self {
         ConnectResetClientResponse {
             requestId: Some(request_id),
-            resultCode: 200,
+            resultCode: ResponseCode::Ok,
             errorCode: 0,
             message: None,
         }
@@ -50,14 +50,14 @@ impl ConnectResetClientResponse {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub(crate) struct ClientDetectionClientResponse {
     requestId: Option<String>,
-    resultCode: i32,
-    errorCode: i32,
+    resultCode: ResponseCode,
+    errorCode: u32,
     message: Option<String>,
 }
 
 impl Response for ClientDetectionClientResponse {
     fn is_success(&self) -> bool {
-        200 == self.resultCode
+        ResponseCode::Ok == self.resultCode
     }
 
     fn get_connection_id(&self) -> Option<&String> {
@@ -72,7 +72,7 @@ impl Response for ClientDetectionClientResponse {
         Option::from(&self.message)
     }
 
-    fn get_error_code(&self) -> i32 {
+    fn get_error_code(&self) -> u32 {
         self.errorCode
     }
 
@@ -85,7 +85,7 @@ impl ClientDetectionClientResponse {
     pub fn new(request_id: String) -> Self {
         ClientDetectionClientResponse {
             requestId: Some(request_id),
-            resultCode: 200,
+            resultCode: ResponseCode::Ok,
             errorCode: 0,
             message: None,
         }

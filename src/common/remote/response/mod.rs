@@ -8,8 +8,21 @@ pub(crate) trait Response {
     fn get_connection_id(&self) -> Option<&String>;
     fn get_request_id(&self) -> Option<&String>;
     fn get_message(&self) -> Option<&String>;
-    fn get_error_code(&self) -> i32;
+    fn get_error_code(&self) -> u32;
     fn get_type_url(&self) -> &String;
+}
+
+#[derive(Debug, Clone, PartialEq, serde_repr::Serialize_repr, serde_repr::Deserialize_repr)]
+#[repr(u32)]
+pub enum ResponseCode {
+    /**
+     * SUCCESS(200, "Response ok").
+     */
+    Ok = 200,
+    /**
+     * FAIL(500, "Response fail").
+     */
+    Fail = 500,
 }
 
 lazy_static! {

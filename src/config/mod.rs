@@ -16,15 +16,14 @@ use crate::config::client_response::*;
 use crate::config::server_request::*;
 use crate::config::server_response::*;
 use std::collections::HashMap;
-use std::sync::Arc;
 
 pub(crate) struct NacosConfigService {
     client_config: ClientConfig,
     client: Option<crate::nacos_proto::v2::RequestClient>,
     conn_thread: Option<std::thread::JoinHandle<()>>,
 
-    /// config listen context
-    config_listen_context: HashMap<String, Vec<Arc<crate::api::config::ListenFn>>>,
+    /// config listen context, todo Arc<Mutex<HashMap<String, Vec<Box<crate::api::config::ConfigChangeListenFn>>>>>
+    config_listen_context: HashMap<String, Vec<Box<crate::api::config::ConfigChangeListenFn>>>,
 }
 
 impl NacosConfigService {
@@ -140,7 +139,7 @@ impl ConfigService for NacosConfigService {
         &mut self,
         data_id: String,
         group: String,
-        func: std::sync::Arc<crate::api::config::ListenFn>,
+        func: Box<crate::api::config::ConfigChangeListenFn>,
     ) -> crate::api::error::Result<()> {
         if self.client.is_some() {
             // todo 抽离到统一的发起地方
@@ -184,7 +183,6 @@ mod tests {
     use crate::api::client_config::ClientConfig;
     use crate::api::config::ConfigService;
     use crate::config::NacosConfigService;
-    use std::sync::Arc;
     use std::time::Duration;
     use tokio::time::sleep;
 
@@ -206,7 +204,7 @@ mod tests {
         let _listen = config_service.listen(
             "hongwen.properties".to_string(),
             "LOVE".to_string(),
-            Arc::new(|config_resp| {
+            Box::new(|config_resp| {
                 tracing::info!("listen the config {}", config_resp.get_content());
             }),
         );
