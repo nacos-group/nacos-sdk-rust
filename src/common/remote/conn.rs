@@ -16,6 +16,7 @@ use crate::common::remote::response::Response;
 use crate::common::util::*;
 use crate::nacos_proto::v2::{BiRequestStreamClient, Payload, RequestClient};
 
+#[derive(Clone)]
 pub struct Connection {
     client_config: ClientConfig,
     state: State,
@@ -27,6 +28,7 @@ pub struct Connection {
 // stream just adds a heap pointer dereference, slightly penalizing polling
 // the stream in most cases. so, don't listen to clippy on this.
 #[allow(clippy::large_enum_variant)]
+#[derive(Clone)]
 enum State {
     Connected {
         target: String,
@@ -73,13 +75,12 @@ impl Connection {
 
                 let req_payload =
                     payload_helper::build_req_grpc_payload(ServerCheckClientRequest::new());
-                let resp_payload = client.request(&req_payload);
-                let server_check_response =
-                    payload_helper::build_server_response(resp_payload.unwrap()).unwrap();
+                let resp_payload = client.request(&req_payload)?;
+                let server_check_response = payload_helper::build_server_response(resp_payload)?;
                 let conn_id = server_check_response.get_connection_id();
 
                 let bi_client = BiRequestStreamClient::new(channel.clone());
-                let (mut client_sender, client_receiver) = bi_client.request_bi_stream().unwrap();
+                let (mut client_sender, client_receiver) = bi_client.request_bi_stream()?;
                 // send a ConnectionSetupClientRequest
                 client_sender
                     .send((
@@ -164,7 +165,7 @@ impl Connection {
         match self.state {
             State::Connected { ref mut client, .. } => {
                 let req_payload = payload_helper::build_req_grpc_payload(req);
-                let resp_payload = client.request(&req_payload).unwrap();
+                let resp_payload = client.request(&req_payload)?;
                 Ok(Box::new(resp_payload))
             }
             State::Disconnected(_) => {
@@ -179,9 +180,7 @@ impl Connection {
     /// Get a RequestClient, which use the core channel of connection.
     pub(crate) fn get_client(&mut self) -> crate::api::error::Result<RequestClient> {
         match self.state {
-            State::Connected {
-                ref mut channel, ..
-            } => Ok(RequestClient::new(channel.clone())),
+            State::Connected { ref mut client, .. } => Ok(client.clone()),
             State::Disconnected(_) => Err(crate::api::error::Error::ClientShutdown(String::from(
                 "Disconnected, please try later.",
             ))),

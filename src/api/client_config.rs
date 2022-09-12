@@ -47,7 +47,7 @@ impl ClientConfig {
 
     /// Sets the labels.
     pub fn labels(mut self, labels: HashMap<String, String>) -> Self {
-        self.labels.clone_from(&labels);
+        self.labels.extend(labels.into_iter());
         self
     }
 }

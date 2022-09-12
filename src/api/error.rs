@@ -30,6 +30,9 @@ pub enum Error {
     #[error("remote client shutdown failed: {0}")]
     ClientShutdown(String),
 
+    #[error("grpcio conn failed: {0}")]
+    GrpcioJoin(#[from] grpcio::Error),
+
     #[error("tokio task join failed: {0}")]
     TokioJoin(#[from] tokio::task::JoinError),
 

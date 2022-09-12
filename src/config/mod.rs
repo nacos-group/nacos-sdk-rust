@@ -19,7 +19,7 @@ use std::collections::HashMap;
 
 pub(crate) struct NacosConfigService {
     client_config: ClientConfig,
-    client: Option<crate::nacos_proto::v2::RequestClient>,
+    connection: Connection,
     conn_thread: Option<std::thread::JoinHandle<()>>,
 
     /// config listen context, todo Arc<Mutex<HashMap<String, Vec<Box<crate::api::config::ConfigChangeListenFn>>>>>
@@ -28,9 +28,10 @@ pub(crate) struct NacosConfigService {
 
 impl NacosConfigService {
     pub fn new(client_config: ClientConfig) -> Self {
+        let connection = Connection::new(client_config.clone());
         Self {
             client_config,
-            client: None,
+            connection,
             conn_thread: None,
 
             config_listen_context: HashMap::new(),
@@ -39,13 +40,9 @@ impl NacosConfigService {
 
     /// start Once
     pub(crate) async fn start(&mut self) {
-        let mut connection = Connection::new(self.client_config.clone());
-        connection.connect().await;
-        let client = connection.get_client();
-        if client.is_ok() {
-            self.client = Some(client.unwrap());
-        }
+        self.connection.connect().await;
 
+        let mut conn = self.connection.clone();
         let conn_thread = std::thread::Builder::new()
             .name("config-remote-client".into())
             .spawn(|| {
@@ -60,18 +57,14 @@ impl NacosConfigService {
                     loop {
                         tokio::select! { biased;
                             // deal with next_server_req_payload, basic conn interaction logic.
-                            server_req_payload = connection.next_server_req_payload() => {
+                            server_req_payload = conn.next_server_req_payload() => {
                                 let (type_url, headers, body_json_str) = payload_helper::covert_payload(server_req_payload);
                                 if TYPE_CLIENT_DETECTION_SERVER_REQUEST.eq(&type_url) {
                                     let de = ClientDetectionServerRequest::from(body_json_str.as_str()).headers(headers);
-                                    connection
-                                        .reply_client_resp(ClientDetectionClientResponse::new(de.get_request_id().clone()))
-                                        .await;
+                                    conn.reply_client_resp(ClientDetectionClientResponse::new(de.get_request_id().clone())).await;
                                 } else if TYPE_CONNECT_RESET_SERVER_REQUEST.eq(&type_url) {
                                     let de = ConnectResetServerRequest::from(body_json_str.as_str()).headers(headers);
-                                    connection
-                                        .reply_client_resp(ConnectResetClientResponse::new(de.get_request_id().clone()))
-                                        .await;
+                                    conn.reply_client_resp(ConnectResetClientResponse::new(de.get_request_id().clone())).await;
                                     // todo reset connection
                                 } else {
                                     // publish a server_req_payload, server_req_payload_rx receive it once.
@@ -85,9 +78,7 @@ impl NacosConfigService {
                                 let (type_url, headers, body_str) = receive_server_req.unwrap();
                                 if TYPE_CONFIG_CHANGE_NOTIFY_SERVER_REQUEST.eq(&type_url) {
                                     let server_req = ConfigChangeNotifyServerRequest::from(body_str.as_str()).headers(headers);
-                                    connection
-                                        .reply_client_resp(ConfigChangeNotifyClientResponse::new(server_req.get_request_id().clone()))
-                                        .await;
+                                    conn.reply_client_resp(ConfigChangeNotifyClientResponse::new(server_req.get_request_id().clone())).await;
                                     let req_tenant = server_req.tenant.or(Some("".to_string())).unwrap();
                                     tracing::info!(
                                         "receiver config change, dataId={},group={},namespace={}",
@@ -114,25 +105,18 @@ impl NacosConfigService {
 
 impl ConfigService for NacosConfigService {
     fn get_config(
-        &self,
+        &mut self,
         data_id: String,
         group: String,
         _timeout_ms: u64,
     ) -> crate::api::error::Result<String> {
-        if self.client.is_some() {
-            let tenant = self.client_config.namespace.clone();
-            let req = payload_helper::build_req_grpc_payload(ConfigQueryClientRequest::new(
-                data_id, group, tenant,
-            ));
-            let resp = self.client.as_ref().unwrap().request(&req);
-            let (_type_url, _headers, body_str) = payload_helper::covert_payload(resp.unwrap());
-            let config_resp = ConfigQueryServerResponse::from(body_str.as_str());
-            Ok(String::from(config_resp.get_content()))
-        } else {
-            Err(crate::api::error::Error::ClientShutdown(String::from(
-                "Disconnected, please try later.",
-            )))
-        }
+        let tenant = self.client_config.namespace.clone();
+        let req = ConfigQueryClientRequest::new(data_id, group, tenant);
+        let req_payload = payload_helper::build_req_grpc_payload(req);
+        let resp = self.connection.get_client()?.request(&req_payload)?;
+        let (_type_url, _headers, body_str) = payload_helper::covert_payload(resp);
+        let config_resp = ConfigQueryServerResponse::from(body_str.as_str());
+        Ok(String::from(config_resp.get_content()))
     }
 
     fn listen(
@@ -141,40 +125,28 @@ impl ConfigService for NacosConfigService {
         group: String,
         func: Box<crate::api::config::ConfigChangeListenFn>,
     ) -> crate::api::error::Result<()> {
-        if self.client.is_some() {
-            // todo 抽离到统一的发起地方
-            let req = ConfigBatchListenClientRequest::new(true).add_config_listen_context(
-                ConfigListenContext::new(
-                    data_id.clone(),
-                    group.clone(),
-                    self.client_config.namespace.clone(),
-                    String::from(""),
-                ),
-            );
-            // todo 抽离到统一的发起地方，取得结果
-            let req_payload = payload_helper::build_req_grpc_payload(req);
-            let _resp_payload = self
-                .client
-                .as_ref()
-                .expect("Disconnected, please try later.")
-                .request(&req_payload)
-                .unwrap();
+        // todo 抽离到统一的发起地方，并取得结果
+        let req = ConfigBatchListenClientRequest::new(true).add_config_listen_context(
+            ConfigListenContext::new(
+                data_id.clone(),
+                group.clone(),
+                self.client_config.namespace.clone(),
+                String::from(""),
+            ),
+        );
+        let req_payload = payload_helper::build_req_grpc_payload(req);
+        let _resp_payload = self.connection.get_client()?.request(&req_payload)?;
 
-            let group_key = util::group_key(&data_id, &group, &(self.client_config.namespace));
-            let vec_op = self.config_listen_context.get_mut(group_key.as_str());
-            if vec_op.is_some() {
-                vec_op.unwrap().push(func);
-            } else {
-                let mut v = Vec::new();
-                v.push(func);
-                self.config_listen_context.insert(group_key, v);
-            }
-            Ok(())
-        } else {
-            Err(crate::api::error::Error::ClientShutdown(String::from(
-                "Disconnected, please try later.",
-            )))
+        let group_key = util::group_key(&data_id, &group, &(self.client_config.namespace));
+        // todo self.config_listen_context.lock on concurrent
+        if !self.config_listen_context.contains_key(group_key.as_str()) {
+            self.config_listen_context.insert(group_key.clone(), vec![]);
         }
+        let _ = self
+            .config_listen_context
+            .get_mut(group_key.as_str())
+            .map(|v| v.push(func));
+        Ok(())
     }
 }
 
