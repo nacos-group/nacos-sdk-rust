@@ -73,13 +73,11 @@ pub(crate) fn build_server_request(
     println!("build_server_request {} with {}", type_url, body_str);
     tracing::debug!("build_server_request {} with {}", type_url, body_str);
     if TYPE_CONNECT_RESET_SERVER_REQUEST.eq(&type_url) {
-        let de = ConnectResetServerRequest::from(body_str.as_str());
-        let de = de.headers(headers);
+        let de = ConnectResetServerRequest::from(body_str.as_str()).headers(headers);
         return Ok(Box::new(de));
     }
     if TYPE_CLIENT_DETECTION_SERVER_REQUEST.eq(&type_url) {
-        let de = ClientDetectionServerRequest::from(body_str.as_str());
-        let de = de.headers(headers);
+        let de = ClientDetectionServerRequest::from(body_str.as_str()).headers(headers);
         return Ok(Box::new(de));
     }
     Err(crate::api::error::Error::Deserialization(type_url))

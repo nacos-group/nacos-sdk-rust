@@ -6,8 +6,8 @@ pub struct ClientConfig {
     /// server_addr like 127.0.0.1:9848
     pub(crate) server_addr: String,
     pub(crate) namespace: String,
-    /// client_name maybe the same as app_name
-    pub(crate) client_name: Option<String>,
+    /// app_name
+    pub(crate) app_name: Option<String>,
     /// metadata
     pub(crate) labels: HashMap<String, String>,
 }
@@ -19,37 +19,35 @@ impl ClientConfig {
             server_addr: String::from(crate::api::constants::DEFAULT_SERVER_ADDR),
             /// public is "", Should define a more meaningful namespace
             namespace: String::from(""),
-            client_name: None,
+            app_name: None,
             labels: HashMap::default(),
         }
     }
 
-    /// Sets the server addr against.
-    pub fn server_addr(self, server_addr: impl Into<String>) -> Self {
-        ClientConfig {
-            server_addr: server_addr.into(),
-            ..self
-        }
+    /// Sets the server addr.
+    pub fn server_addr(mut self, server_addr: impl Into<String>) -> Self {
+        self.server_addr = server_addr.into();
+        self
     }
 
-    /// Sets the namespace against.
-    pub fn namespace(self, namespace: impl Into<String>) -> Self {
-        ClientConfig {
-            namespace: namespace.into(),
-            ..self
-        }
+    /// Sets the namespace.
+    pub fn namespace(mut self, namespace: impl Into<String>) -> Self {
+        self.namespace = namespace.into();
+        self
     }
 
-    /// Sets the client name against.
-    pub fn client_name(self, client_name: impl Into<String>) -> Self {
-        ClientConfig {
-            client_name: Some(client_name.into()),
-            ..self
-        }
+    /// Sets the app_name.
+    pub fn app_name(mut self, app_name: impl Into<String>) -> Self {
+        let name = app_name.into();
+        self.app_name = Some(name.clone());
+        self.labels
+            .insert(crate::api::constants::KEY_LABEL_APP_NAME.to_string(), name);
+        self
     }
 
-    /// Sets the labels against.
-    pub fn labels(self, labels: HashMap<String, String>) -> Self {
-        ClientConfig { labels, ..self }
+    /// Sets the labels.
+    pub fn labels(mut self, labels: HashMap<String, String>) -> Self {
+        self.labels.clone_from(&labels);
+        self
     }
 }
