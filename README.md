@@ -34,20 +34,29 @@ gRPC 交互的 Payload 和 Metadata 由 `Protocol Buffers` 序列化，具体的
 以上交互务必参考 java nacos-client 和 nacos-server 的实现。
 
 ### Config 配置交互
-TODO List-Watch 机制
+- [x] 构建客户端，api 待规范
+- [x] 获取配置，api 待规范
+- [ ] 监听配置，api 待规范，待实现完整逻辑
+- [ ] 监听配置 List-Watch 机制，有一个 list 兜底逻辑
 
 ### Naming 注册交互
-TODO List-Watch 机制
-
-- 订阅数据防推空，默认开启，可选关闭。
+- [ ] 构建客户端 api 与实现
+- [ ] 注册服务 api 与实现
+- [ ] 反注册服务 api 与实现
+- [ ] 批量注册服务 api 与实现
+- [ ] 获取服务 api 与实现
+- [ ] 订阅服务 api 与实现
+- [ ] 订阅服务 List-Watch 机制，有一个 list 兜底逻辑
+- [ ] 服务防推空，默认开启，可选关闭。
 
 ### Common 通用能力
-- 创建参数，自定义传参 + ENV 环境变量读取，后者优先级高
-- 请求交互，Request/Response 通用逻辑
-- 通用日志
-- 内存缓存
-- 数据落盘
-- 磁盘加载（用于服务端宕机弱依赖），优先级放低，已云原生容器化是否必要考虑？
+- [ ] 创建参数，自定义传参 + ENV 环境变量读取，后者优先级高
+- [x] 请求交互，Request/Response 通用 grpc 逻辑
+- [ ] 通用客户端，囊括多线程操作，数据跨线程通知，受益于 Config/Naming
+- [ ] 通用日志
+- [ ] 内存缓存
+- [ ] 数据落盘
+- [ ] 磁盘加载（用于服务端宕机弱依赖），优先级放低，已云原生容器化是否必要考虑？
 
 # License
 [Apache License Version 2.0](LICENSE)
