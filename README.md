@@ -41,6 +41,7 @@ gRPC 交互的 Payload 和 Metadata 由 `Protocol Buffers` 序列化，具体的
 - [x] 获取配置，api 待规范
 - [ ] 监听配置，api 待规范，待实现完整逻辑
 - [ ] 监听配置 List-Watch 机制，有一个 list 兜底逻辑
+- [ ] 配置 Filter，提供配置解密默认实现；配置获取后，内存缓存，磁盘缓存均是原文，仅返回到用户时经过配置 Filter
 
 ### Naming 注册交互
 - [ ] 构建客户端 api 与实现
@@ -53,7 +54,7 @@ gRPC 交互的 Payload 和 Metadata 由 `Protocol Buffers` 序列化，具体的
 - [ ] 服务防推空，默认开启，可选关闭。
 
 ### Common 通用能力
-- [ ] 创建参数，自定义传参 + ENV 环境变量读取，后者优先级高
+- [ ] 创建参数，自定义传参 + ENV 环境变量读取，后者优先级高；ENV 统一前缀，例如 `NACOS_CLIENT_CONFIG_*` `NACOS_CLIENT_NAMING_*`
 - [x] 请求交互，Request/Response 通用 grpc 逻辑
 - [ ] 通用客户端，囊括多线程操作，数据跨线程通知，受益于 Config/Naming
 - [ ] 账密登陆，accessToken
