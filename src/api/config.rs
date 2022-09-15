@@ -1,6 +1,6 @@
 use crate::api::{client_config, error};
 
-pub(crate) type ConfigChangeListenFn = dyn Fn(ConfigResponse) + Send + Sync;
+pub(crate) type ConfigChangeListener = dyn Fn(ConfigResponse) + Send + Sync;
 
 pub trait ConfigService {
     /// Get config, return the content.
@@ -12,11 +12,11 @@ pub trait ConfigService {
     ) -> error::Result<String>;
 
     /// Listen the config change.
-    fn listen(
+    fn add_listener(
         &mut self,
         data_id: String,
         group: String,
-        func: Box<ConfigChangeListenFn>,
+        listener: Box<ConfigChangeListener>,
     ) -> error::Result<()>;
 }
 
@@ -30,6 +30,8 @@ pub struct ConfigResponse {
     group: String,
     /// Content
     content: String,
+    /// Content's Type; e.g. json,properties,xml,html,text,yaml
+    content_type: String,
 }
 
 impl std::fmt::Display for ConfigResponse {
@@ -60,12 +62,19 @@ impl std::fmt::Display for ConfigResponse {
 }
 
 impl ConfigResponse {
-    pub fn new(data_id: String, group: String, namespace: String, content: String) -> Self {
+    pub fn new(
+        data_id: String,
+        group: String,
+        namespace: String,
+        content: String,
+        content_type: String,
+    ) -> Self {
         ConfigResponse {
             data_id,
             group,
             namespace,
             content,
+            content_type,
         }
     }
 
@@ -80,6 +89,9 @@ impl ConfigResponse {
     }
     pub fn get_content(&self) -> &String {
         &self.content
+    }
+    pub fn get_content_type(&self) -> &String {
+        &self.content_type
     }
 }
 
@@ -123,15 +135,22 @@ mod tests {
         let mut config_service = ConfigServiceBuilder::default().build().await;
         let config =
             config_service.get_config("hongwen.properties".to_string(), "LOVE".to_string(), 3000);
-        tracing::info!("get the config {}", config.expect("None"));
+        match config {
+            Ok(config) => tracing::info!("get the config {}", config),
+            Err(err) => tracing::error!("get the config {:?}", err),
+        }
 
-        let _listen = config_service.listen(
+        let _listen = config_service.add_listener(
             "hongwen.properties".to_string(),
             "LOVE".to_string(),
             Box::new(|config_resp| {
                 tracing::info!("listen the config {}", config_resp.get_content());
             }),
         );
+        match _listen {
+            Ok(_) => tracing::info!("listening the config"),
+            Err(err) => tracing::error!("listen config error {:?}", err),
+        }
 
         sleep(Duration::from_secs(30)).await;
     }
