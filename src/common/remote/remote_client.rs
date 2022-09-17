@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use tokio::sync::mpsc::{Receiver, Sender};
 
 use crate::api::client_config::ClientConfig;
@@ -8,14 +6,15 @@ use crate::common::remote::request::server_request::*;
 use crate::common::remote::request::*;
 use crate::common::remote::response::client_response::*;
 use crate::common::util::payload_helper;
+use crate::common::util::payload_helper::PayloadInner;
 
 pub(crate) struct GrpcRemoteClient {
     pub(crate) client_config: ClientConfig,
     pub(crate) connection: Connection,
-    /// (type_url, headers, body_json_str)
-    conn_server_req_payload_tx: Sender<(String, HashMap<String, String>, String)>,
-    /// (type_url, headers, body_json_str)
-    pub(crate) conn_server_req_payload_rx: Receiver<(String, HashMap<String, String>, String)>,
+    /// PayloadInner {type_url, headers, body_json_str}
+    conn_server_req_payload_tx: Sender<PayloadInner>,
+    /// PayloadInner {type_url, headers, body_json_str}
+    pub(crate) conn_server_req_payload_rx: Receiver<PayloadInner>,
 }
 
 impl GrpcRemoteClient {
@@ -33,28 +32,24 @@ impl GrpcRemoteClient {
     /// deal with connection, all logic here.
     pub(crate) async fn deal_with_connection(&mut self) {
         let server_req_payload = self.connection.next_server_req_payload().await;
-        let (type_url, headers, body_json_str) = payload_helper::covert_payload(server_req_payload);
-        if TYPE_CLIENT_DETECTION_SERVER_REQUEST.eq(&type_url) {
-            let de = ClientDetectionServerRequest::from(body_json_str.as_str());
-            let de = de.headers(headers);
+        let payload_inner = payload_helper::covert_payload(server_req_payload);
+        if TYPE_CLIENT_DETECTION_SERVER_REQUEST.eq(&payload_inner.type_url) {
+            let de = ClientDetectionServerRequest::from(payload_inner.body_str.as_str());
+            let de = de.headers(payload_inner.headers);
             self.connection
                 .reply_client_resp(ClientDetectionClientResponse::new(
                     de.get_request_id().clone(),
                 ))
                 .await;
-        } else if TYPE_CONNECT_RESET_SERVER_REQUEST.eq(&type_url) {
-            let de = ConnectResetServerRequest::from(body_json_str.as_str());
-            let de = de.headers(headers);
+        } else if TYPE_CONNECT_RESET_SERVER_REQUEST.eq(&payload_inner.type_url) {
+            let de = ConnectResetServerRequest::from(payload_inner.body_str.as_str());
+            let de = de.headers(payload_inner.headers);
             self.connection
                 .reply_client_resp(ConnectResetClientResponse::new(de.get_request_id().clone()))
                 .await;
         } else {
             // publish a server_req_payload, conn_server_req_payload_rx receive it once.
-            if let Err(_) = self
-                .conn_server_req_payload_tx
-                .send((type_url, headers, body_json_str))
-                .await
-            {
+            if let Err(_) = self.conn_server_req_payload_tx.send(payload_inner).await {
                 tracing::error!("receiver dropped")
             }
         }

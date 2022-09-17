@@ -13,6 +13,7 @@ use crate::common::remote::request::client_request::{
 };
 use crate::common::remote::request::Request;
 use crate::common::remote::response::Response;
+use crate::common::util::payload_helper::PayloadInner;
 use crate::common::util::*;
 use crate::nacos_proto::v2::{BiRequestStreamClient, Payload, RequestClient};
 
@@ -171,12 +172,12 @@ impl Connection {
     pub(crate) async fn send_client_req(
         &mut self,
         req: impl Request + serde::Serialize,
-    ) -> crate::api::error::Result<Box<Payload>> {
+    ) -> crate::api::error::Result<Box<PayloadInner>> {
         match self.state {
             State::Connected { ref mut client, .. } => {
                 let req_payload = payload_helper::build_req_grpc_payload(req);
                 let resp_payload = client.request(&req_payload)?;
-                Ok(Box::new(resp_payload))
+                Ok(Box::new(payload_helper::covert_payload(resp_payload)))
             }
             State::Disconnected(_) => {
                 self.connect().await;
@@ -225,10 +226,10 @@ mod tests {
         let mut remote_connect =
             Connection::new(ClientConfig::new().server_addr("0.0.0.0:9848".to_string()));
         let server_req_payload = remote_connect.next_server_req_payload().await;
-        let (type_url, headers, body_json_str) = payload_helper::covert_payload(server_req_payload);
-        if TYPE_CLIENT_DETECTION_SERVER_REQUEST.eq(&type_url) {
-            let de = ClientDetectionServerRequest::from(body_json_str.as_str());
-            let de = de.headers(headers);
+        let payload_inner = payload_helper::covert_payload(server_req_payload);
+        if TYPE_CLIENT_DETECTION_SERVER_REQUEST.eq(&payload_inner.type_url) {
+            let de = ClientDetectionServerRequest::from(payload_inner.body_str.as_str());
+            let de = de.headers(payload_inner.headers);
             remote_connect
                 .reply_client_resp(ClientDetectionClientResponse::new(
                     de.get_request_id().clone(),

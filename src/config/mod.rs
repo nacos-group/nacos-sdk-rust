@@ -12,6 +12,7 @@ use crate::common::remote::request::server_request::*;
 use crate::common::remote::request::*;
 use crate::common::remote::response::client_response::*;
 use crate::common::util::payload_helper;
+use crate::common::util::payload_helper::PayloadInner;
 use crate::config::client_request::*;
 use crate::config::client_response::*;
 use crate::config::server_request::*;
@@ -58,17 +59,17 @@ impl NacosConfigService {
                         tokio::select! { biased;
                             // deal with next_server_req_payload, basic conn interaction logic.
                             server_req_payload = conn.next_server_req_payload() => {
-                                let (type_url, headers, body_json_str) = payload_helper::covert_payload(server_req_payload);
-                                if TYPE_CLIENT_DETECTION_SERVER_REQUEST.eq(&type_url) {
-                                    let de = ClientDetectionServerRequest::from(body_json_str.as_str()).headers(headers);
+                                let payload_inner = payload_helper::covert_payload(server_req_payload);
+                                if TYPE_CLIENT_DETECTION_SERVER_REQUEST.eq(&payload_inner.type_url) {
+                                    let de = ClientDetectionServerRequest::from(payload_inner.body_str.as_str()).headers(payload_inner.headers);
                                     conn.reply_client_resp(ClientDetectionClientResponse::new(de.get_request_id().clone())).await;
-                                } else if TYPE_CONNECT_RESET_SERVER_REQUEST.eq(&type_url) {
-                                    let de = ConnectResetServerRequest::from(body_json_str.as_str()).headers(headers);
+                                } else if TYPE_CONNECT_RESET_SERVER_REQUEST.eq(&payload_inner.type_url) {
+                                    let de = ConnectResetServerRequest::from(payload_inner.body_str.as_str()).headers(payload_inner.headers);
                                     conn.reply_client_resp(ConnectResetClientResponse::new(de.get_request_id().clone())).await;
                                     // todo reset connection
                                 } else {
                                     // publish a server_req_payload, server_req_payload_rx receive it once.
-                                    if let Err(_) = server_req_payload_tx.send((type_url, headers, body_json_str)).await {
+                                    if let Err(_) = server_req_payload_tx.send(payload_inner).await {
                                         tracing::error!("receiver dropped")
                                     }
                                 }
@@ -90,11 +91,11 @@ impl NacosConfigService {
     async fn deal_extra_server_req(
         client_worker: &mut ConfigWorker,
         conn: &mut Connection,
-        (type_url, headers, body_str): (String, std::collections::HashMap<String, String>, String),
+        payload_inner: PayloadInner,
     ) {
-        if TYPE_CONFIG_CHANGE_NOTIFY_SERVER_REQUEST.eq(&type_url) {
-            let server_req =
-                ConfigChangeNotifyServerRequest::from(body_str.as_str()).headers(headers);
+        if TYPE_CONFIG_CHANGE_NOTIFY_SERVER_REQUEST.eq(&payload_inner.type_url) {
+            let server_req = ConfigChangeNotifyServerRequest::from(payload_inner.body_str.as_str())
+                .headers(payload_inner.headers);
             let server_req_id = server_req.get_request_id().clone();
             let req_tenant = server_req.tenant.or(Some("".to_string())).unwrap();
             tracing::info!(
@@ -115,7 +116,7 @@ impl NacosConfigService {
         } else {
             tracing::warn!(
                 "unknown receive type_url={}, maybe sdk have to upgrade!",
-                type_url
+                &payload_inner.type_url
             );
         }
     }
@@ -132,8 +133,8 @@ impl ConfigService for NacosConfigService {
         let req = ConfigQueryClientRequest::new(data_id, group, tenant);
         let req_payload = payload_helper::build_req_grpc_payload(req);
         let resp = self.connection.get_client()?.request(&req_payload)?;
-        let (_type_url, _headers, body_str) = payload_helper::covert_payload(resp);
-        let config_resp = ConfigQueryServerResponse::from(body_str.as_str());
+        let payload_inner = payload_helper::covert_payload(resp);
+        let config_resp = ConfigQueryServerResponse::from(payload_inner.body_str.as_str());
         Ok(String::from(config_resp.get_content()))
     }
 
