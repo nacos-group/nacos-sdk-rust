@@ -19,19 +19,19 @@ pub(crate) struct PayloadInner {
 pub(crate) fn build_req_grpc_payload(req: impl Request + Serialize) -> Payload {
     tracing::debug!(
         "build_req_grpc_payload {} request_id={}",
-        req.get_type_url(),
-        req.get_request_id()
+        req.type_url(),
+        req.request_id()
     );
     let json_val = serde_json::to_vec(&req).unwrap();
     let metadata = Metadata {
-        r#type: req.get_type_url().to_string(),
+        r#type: req.type_url().to_string(),
         client_ip: LOCAL_IP.clone(),
-        headers: req.get_headers().clone(),
+        headers: req.headers().clone(),
     };
     Payload {
         metadata: Some(metadata),
         body: Some(prost_types::Any {
-            type_url: req.get_type_url().to_string(),
+            type_url: req.type_url().to_string(),
             value: json_val,
         }),
     }
@@ -40,19 +40,19 @@ pub(crate) fn build_req_grpc_payload(req: impl Request + Serialize) -> Payload {
 pub(crate) fn build_resp_grpc_payload(resp: impl Response + Serialize) -> Payload {
     tracing::debug!(
         "build_resp_grpc_payload {} request_id={}",
-        resp.get_type_url(),
-        resp.get_request_id().or(Some(&"".to_string())).unwrap()
+        resp.type_url(),
+        resp.request_id().or(Some(&"".to_string())).unwrap()
     );
     let json_val = serde_json::to_vec(&resp).unwrap();
     let metadata = Metadata {
-        r#type: resp.get_type_url().to_string(),
+        r#type: resp.type_url().to_string(),
         client_ip: LOCAL_IP.clone(),
         headers: std::collections::HashMap::new(),
     };
     Payload {
         metadata: Some(metadata),
         body: Some(prost_types::Any {
-            type_url: resp.get_type_url().to_string(),
+            type_url: resp.type_url().to_string(),
             value: json_val,
         }),
     }
@@ -118,12 +118,12 @@ pub(crate) fn covert_payload(payload: Payload) -> PayloadInner {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
     use crate::common::remote::request::client_request::ServerCheckClientRequest;
     use crate::common::remote::request::Request;
     use crate::common::remote::response::server_response::ServerCheckServerResponse;
     use crate::common::remote::response::Response;
     use crate::common::util::payload_helper;
+    use std::collections::HashMap;
 
     #[test]
     fn it_works_serde_json() {
@@ -136,7 +136,7 @@ mod tests {
         }"#;
         let resp: ServerCheckServerResponse = serde_json::from_str(data).unwrap();
         println!("serde_json resp {:?}", resp);
-        assert_eq!(resp.get_request_id().unwrap().as_str(), "666");
+        assert_eq!(resp.request_id().unwrap().as_str(), "666");
     }
 
     #[test]
@@ -149,7 +149,7 @@ mod tests {
             "errorCode": 0
         }"#;
         let resp: ServerCheckServerResponse = serde_json::from_str(data).unwrap();
-        let resp_type_url = resp.get_type_url().to_string();
+        let resp_type_url = resp.type_url().to_string();
 
         let payload = payload_helper::build_resp_grpc_payload(resp);
         let payload_inner = payload_helper::covert_payload(payload);
@@ -162,7 +162,7 @@ mod tests {
     fn test_covert_payload2() {
         let data = "{\"requestId\":\"666\",\"headers\":{}}";
         let req: ServerCheckClientRequest = serde_json::from_str(data).unwrap();
-        let req_type_url = req.get_type_url().to_string();
+        let req_type_url = req.type_url().to_string();
 
         let payload = payload_helper::build_req_grpc_payload(req);
         let payload_inner = payload_helper::covert_payload(payload);

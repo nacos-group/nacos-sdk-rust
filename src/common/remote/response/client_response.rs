@@ -15,19 +15,19 @@ impl Response for ConnectResetClientResponse {
         ResponseCode::Ok == self.resultCode
     }
 
-    fn get_request_id(&self) -> Option<&String> {
+    fn request_id(&self) -> Option<&String> {
         Option::from(&self.requestId)
     }
 
-    fn get_message(&self) -> Option<&String> {
+    fn message(&self) -> Option<&String> {
         Option::from(&self.message)
     }
 
-    fn get_error_code(&self) -> u32 {
+    fn error_code(&self) -> u32 {
         self.errorCode
     }
 
-    fn get_type_url(&self) -> &String {
+    fn type_url(&self) -> &String {
         &TYPE_CONNECT_RESET_CLIENT_RESPONSE
     }
 }
@@ -56,19 +56,19 @@ impl Response for ClientDetectionClientResponse {
         ResponseCode::Ok == self.resultCode
     }
 
-    fn get_request_id(&self) -> Option<&String> {
+    fn request_id(&self) -> Option<&String> {
         Option::from(&self.requestId)
     }
 
-    fn get_message(&self) -> Option<&String> {
+    fn message(&self) -> Option<&String> {
         Option::from(&self.message)
     }
 
-    fn get_error_code(&self) -> u32 {
+    fn error_code(&self) -> u32 {
         self.errorCode
     }
 
-    fn get_type_url(&self) -> &String {
+    fn type_url(&self) -> &String {
         &TYPE_CLIENT_DETECTION_CLIENT_RESPONSE
     }
 }

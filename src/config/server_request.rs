@@ -6,7 +6,7 @@ use std::collections::HashMap;
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub(crate) struct ConfigChangeNotifyServerRequest {
     requestId: String,
-    /// count be empty.
+    /// could be empty.
     headers: HashMap<String, String>,
     pub(crate) dataId: String,
     pub(crate) group: String,
@@ -15,13 +15,13 @@ pub(crate) struct ConfigChangeNotifyServerRequest {
 }
 
 impl Request for ConfigChangeNotifyServerRequest {
-    fn get_request_id(&self) -> &String {
+    fn request_id(&self) -> &String {
         &self.requestId
     }
-    fn get_headers(&self) -> &HashMap<String, String> {
+    fn headers(&self) -> &HashMap<String, String> {
         &self.headers
     }
-    fn get_type_url(&self) -> &String {
+    fn type_url(&self) -> &String {
         &TYPE_CONFIG_CHANGE_NOTIFY_SERVER_REQUEST
     }
 }

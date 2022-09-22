@@ -16,19 +16,19 @@ impl Response for ConfigChangeBatchListenServerResponse {
         ResponseCode::Ok == self.resultCode
     }
 
-    fn get_request_id(&self) -> Option<&String> {
+    fn request_id(&self) -> Option<&String> {
         Option::from(&self.requestId)
     }
 
-    fn get_message(&self) -> Option<&String> {
+    fn message(&self) -> Option<&String> {
         Option::from(&self.message)
     }
 
-    fn get_error_code(&self) -> u32 {
+    fn error_code(&self) -> u32 {
         self.errorCode
     }
 
-    fn get_type_url(&self) -> &String {
+    fn type_url(&self) -> &String {
         &TYPE_CONFIG_CHANGE_BATCH_LISTEN_RESPONSE
     }
 }
@@ -44,7 +44,7 @@ impl ConfigChangeBatchListenServerResponse {
         }
     }
 
-    pub fn get_changed_configs(&self) -> Option<&Vec<ConfigContext>> {
+    pub fn changed_configs(&self) -> Option<&Vec<ConfigContext>> {
         Option::from(&self.changedConfigs)
     }
 }
@@ -88,19 +88,19 @@ impl Response for ConfigQueryServerResponse {
         ResponseCode::Ok == self.resultCode
     }
 
-    fn get_request_id(&self) -> Option<&String> {
+    fn request_id(&self) -> Option<&String> {
         Option::from(&self.requestId)
     }
 
-    fn get_message(&self) -> Option<&String> {
+    fn message(&self) -> Option<&String> {
         Option::from(&self.message)
     }
 
-    fn get_error_code(&self) -> u32 {
+    fn error_code(&self) -> u32 {
         self.errorCode
     }
 
-    fn get_type_url(&self) -> &String {
+    fn type_url(&self) -> &String {
         &TYPE_CONFIG_CHANGE_BATCH_LISTEN_RESPONSE
     }
 }
@@ -112,16 +112,16 @@ impl ConfigQueryServerResponse {
     pub(crate) fn is_query_conflict(&self) -> bool {
         self.errorCode == CONFIG_QUERY_CONFLICT
     }
-    pub fn get_content_type(&self) -> &String {
+    pub fn content_type(&self) -> &String {
         &self.contentType
     }
-    pub fn get_content(&self) -> &String {
+    pub fn content(&self) -> &String {
         &self.content
     }
-    pub fn get_md5(&self) -> &String {
+    pub fn md5(&self) -> &String {
         &self.md5
     }
-    pub fn get_encrypted_Data_Key(&self) -> Option<&String> {
+    pub fn encrypted_Data_Key(&self) -> Option<&String> {
         Option::from(&self.encryptedDataKey)
     }
 }

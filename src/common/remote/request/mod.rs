@@ -6,9 +6,9 @@ pub(crate) mod client_request;
 pub(crate) mod server_request;
 
 pub(crate) trait Request {
-    fn get_request_id(&self) -> &String;
-    fn get_headers(&self) -> &HashMap<String, String>;
-    fn get_type_url(&self) -> &String;
+    fn request_id(&self) -> &String;
+    fn headers(&self) -> &HashMap<String, String>;
+    fn type_url(&self) -> &String;
 }
 
 lazy_static! {

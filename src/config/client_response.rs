@@ -15,19 +15,19 @@ impl Response for ConfigChangeNotifyClientResponse {
         ResponseCode::Ok == self.resultCode
     }
 
-    fn get_request_id(&self) -> Option<&String> {
+    fn request_id(&self) -> Option<&String> {
         Option::from(&self.requestId)
     }
 
-    fn get_message(&self) -> Option<&String> {
+    fn message(&self) -> Option<&String> {
         Option::from(&self.message)
     }
 
-    fn get_error_code(&self) -> u32 {
+    fn error_code(&self) -> u32 {
         self.errorCode
     }
 
-    fn get_type_url(&self) -> &String {
+    fn type_url(&self) -> &String {
         &TYPE_CONFIG_CHANGE_NOTIFY_CLIENT_RESPONSE
     }
 }
