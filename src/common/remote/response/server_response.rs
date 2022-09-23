@@ -91,6 +91,13 @@ impl ErrorResponse {
     }
 }
 
+impl From<&str> for ErrorResponse {
+    fn from(json_str: &str) -> Self {
+        let de: serde_json::Result<Self> = serde_json::from_str(json_str);
+        de.unwrap()
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub(crate) struct HealthCheckServerResponse {
     requestId: Option<String>,

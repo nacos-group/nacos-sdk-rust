@@ -127,44 +127,57 @@ impl Connection {
     }
 
     /// Listen a server_request from server by bi_receiver
-    pub(crate) async fn next_server_req_payload(&mut self) -> Payload {
+    pub(crate) async fn next_server_req_payload(&mut self) -> PayloadInner {
         loop {
             match self.state {
                 State::Connected {
                     ref mut bi_receiver,
                     ..
-                } => match bi_receiver.to_owned().lock().unwrap().next().await {
-                    Some(Ok(payload)) => return payload,
-                    Some(Err(status)) => {
-                        tracing::warn!(%status, "error from stream");
-                        self.state = State::Disconnected(Self::BACKOFF);
+                } => {
+                    if let Ok(mut mutex) = bi_receiver.to_owned().try_lock() {
+                        match mutex.next().await {
+                            Some(Ok(payload)) => return payload_helper::covert_payload(payload),
+                            Some(Err(status)) => {
+                                tracing::warn!(%status, "error from stream");
+                                self.state = State::Disconnected(Self::BACKOFF);
+                            }
+                            None => {
+                                tracing::error!("stream closed by server");
+                                self.state = State::Disconnected(Self::BACKOFF);
+                            }
+                        }
                     }
-                    None => {
-                        tracing::error!("stream closed by server");
-                        self.state = State::Disconnected(Self::BACKOFF);
-                    }
-                },
+                }
                 State::Disconnected(_) => self.connect().await,
             }
         }
     }
 
     /// Reply a client_resp to server by bi_sender
-    pub(crate) async fn reply_client_resp(&mut self, resp: impl Response + serde::Serialize) {
+    pub(crate) async fn reply_client_resp(
+        &mut self,
+        resp: impl Response + serde::Serialize,
+    ) -> crate::api::error::Result<()> {
         match self.state {
             State::Connected {
                 ref mut bi_sender, ..
-            } => bi_sender
-                .to_owned()
-                .lock()
-                .unwrap()
-                .send((
-                    payload_helper::build_resp_grpc_payload(resp),
-                    grpcio::WriteFlags::default(),
-                ))
-                .await
-                .unwrap(),
-            State::Disconnected(_) => self.connect().await,
+            } => loop {
+                if let Ok(mut mutex) = bi_sender.to_owned().try_lock() {
+                    mutex
+                        .send((
+                            payload_helper::build_resp_grpc_payload(resp),
+                            grpcio::WriteFlags::default(),
+                        ))
+                        .await?;
+                    return Ok(());
+                }
+            },
+            State::Disconnected(_) => {
+                self.connect().await;
+                Err(crate::api::error::Error::ClientShutdown(String::from(
+                    "Disconnected, please try again.",
+                )))
+            }
         }
     }
 
@@ -172,12 +185,12 @@ impl Connection {
     pub(crate) async fn send_client_req(
         &mut self,
         req: impl Request + serde::Serialize,
-    ) -> crate::api::error::Result<Box<PayloadInner>> {
+    ) -> crate::api::error::Result<PayloadInner> {
         match self.state {
             State::Connected { ref mut client, .. } => {
                 let req_payload = payload_helper::build_req_grpc_payload(req);
                 let resp_payload = client.request(&req_payload)?;
-                Ok(Box::new(payload_helper::covert_payload(resp_payload)))
+                Ok(payload_helper::covert_payload(resp_payload))
             }
             State::Disconnected(_) => {
                 self.connect().await;
@@ -225,12 +238,11 @@ mod tests {
             .init();
         let mut remote_connect =
             Connection::new(ClientConfig::new().server_addr("0.0.0.0:9848".to_string()));
-        let server_req_payload = remote_connect.next_server_req_payload().await;
-        let payload_inner = payload_helper::covert_payload(server_req_payload);
+        let payload_inner = remote_connect.next_server_req_payload().await;
         if TYPE_CLIENT_DETECTION_SERVER_REQUEST.eq(&payload_inner.type_url) {
             let de = ClientDetectionServerRequest::from(payload_inner.body_str.as_str());
             let de = de.headers(payload_inner.headers);
-            remote_connect
+            let _ = remote_connect
                 .reply_client_resp(ClientDetectionClientResponse::new(de.request_id().clone()))
                 .await;
         }

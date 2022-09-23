@@ -7,6 +7,7 @@ use serde::Serialize;
 use std::collections::HashMap;
 
 /// Payload Inner Model
+#[derive(Debug)]
 pub(crate) struct PayloadInner {
     /// The data type of `body_str`
     pub(crate) type_url: String,
@@ -114,6 +115,11 @@ pub(crate) fn covert_payload(payload: Payload) -> PayloadInner {
         headers,
         body_str,
     }
+}
+
+/// Whether ErrorResponse.
+pub(crate) fn is_err_resp(type_trl: &String) -> bool {
+    return TYPE_ERROR_SERVER_RESPONSE.eq(type_trl);
 }
 
 #[cfg(test)]

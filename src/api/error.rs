@@ -27,6 +27,9 @@ pub enum Error {
     #[error("Deserialization failed: {0}")]
     Deserialization(String),
 
+    #[error("get result failed: {0}")]
+    ErrResult(String),
+
     #[error("remote client shutdown failed: {0}")]
     ClientShutdown(String),
 

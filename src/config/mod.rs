@@ -11,6 +11,8 @@ use crate::common::remote::conn::Connection;
 use crate::common::remote::request::server_request::*;
 use crate::common::remote::request::*;
 use crate::common::remote::response::client_response::*;
+use crate::common::remote::response::server_response::*;
+use crate::common::remote::response::*;
 use crate::common::util::payload_helper;
 use crate::common::util::payload_helper::PayloadInner;
 use crate::config::client_request::*;
@@ -58,14 +60,14 @@ impl NacosConfigService {
                     loop {
                         tokio::select! { biased;
                             // deal with next_server_req_payload, basic conn interaction logic.
-                            server_req_payload = conn.next_server_req_payload() => {
-                                let payload_inner = payload_helper::covert_payload(server_req_payload);
+                            server_req_payload_inner = conn.next_server_req_payload() => {
+                                let payload_inner = server_req_payload_inner;
                                 if TYPE_CLIENT_DETECTION_SERVER_REQUEST.eq(&payload_inner.type_url) {
                                     let de = ClientDetectionServerRequest::from(payload_inner.body_str.as_str()).headers(payload_inner.headers);
-                                    conn.reply_client_resp(ClientDetectionClientResponse::new(de.request_id().clone())).await;
+                                    let _ = conn.reply_client_resp(ClientDetectionClientResponse::new(de.request_id().clone())).await;
                                 } else if TYPE_CONNECT_RESET_SERVER_REQUEST.eq(&payload_inner.type_url) {
                                     let de = ConnectResetServerRequest::from(payload_inner.body_str.as_str()).headers(payload_inner.headers);
-                                    conn.reply_client_resp(ConnectResetClientResponse::new(de.request_id().clone())).await;
+                                    let _ = conn.reply_client_resp(ConnectResetClientResponse::new(de.request_id().clone())).await;
                                     // todo reset connection
                                 } else {
                                     // publish a server_req_payload, server_req_payload_rx receive it once.
@@ -111,7 +113,8 @@ impl NacosConfigService {
                 req_tenant.clone(),
             );
             // reply ConfigChangeNotifyClientResponse for ConfigChangeNotifyServerRequest
-            conn.reply_client_resp(ConfigChangeNotifyClientResponse::new(server_req_id))
+            let _ = conn
+                .reply_client_resp(ConfigChangeNotifyClientResponse::new(server_req_id))
                 .await;
         } else {
             tracing::warn!(
@@ -134,6 +137,15 @@ impl ConfigService for NacosConfigService {
         let req_payload = payload_helper::build_req_grpc_payload(req);
         let resp = self.connection.get_client()?.request(&req_payload)?;
         let payload_inner = payload_helper::covert_payload(resp);
+        // return Err if get a err_resp
+        if payload_helper::is_err_resp(&payload_inner.type_url) {
+            let err_resp = ErrorResponse::from(payload_inner.body_str.as_str());
+            return Err(crate::api::error::Error::ErrResult(format!(
+                "error_code={},message={}",
+                err_resp.error_code(),
+                err_resp.message().unwrap()
+            )));
+        }
         let config_resp = ConfigQueryServerResponse::from(payload_inner.body_str.as_str());
         Ok(String::from(config_resp.content()))
     }
