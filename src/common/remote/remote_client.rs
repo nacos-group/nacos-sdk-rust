@@ -37,15 +37,13 @@ impl GrpcRemoteClient {
             let de = ClientDetectionServerRequest::from(payload_inner.body_str.as_str());
             let de = de.headers(payload_inner.headers);
             self.connection
-                .reply_client_resp(ClientDetectionClientResponse::new(
-                    de.get_request_id().clone(),
-                ))
+                .reply_client_resp(ClientDetectionClientResponse::new(de.request_id().clone()))
                 .await;
         } else if TYPE_CONNECT_RESET_SERVER_REQUEST.eq(&payload_inner.type_url) {
             let de = ConnectResetServerRequest::from(payload_inner.body_str.as_str());
             let de = de.headers(payload_inner.headers);
             self.connection
-                .reply_client_resp(ConnectResetClientResponse::new(de.get_request_id().clone()))
+                .reply_client_resp(ConnectResetClientResponse::new(de.request_id().clone()))
                 .await;
         } else {
             // publish a server_req_payload, conn_server_req_payload_rx receive it once.

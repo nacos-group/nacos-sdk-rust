@@ -79,12 +79,12 @@ impl Connection {
                 let resp_payload = client.request(&req_payload)?;
                 let server_check_response = payload_helper::build_server_response(resp_payload)?;
                 let conn_id = server_check_response
-                    .get_connection_id()
+                    .connection_id()
                     .ok_or(crate::api::error::Error::ClientShutdown(format!(
                         "Get connection_id failed,error_code={},message={}",
-                        server_check_response.get_error_code(),
+                        server_check_response.error_code(),
                         server_check_response
-                            .get_message()
+                            .message()
                             .or(Some(&"".to_string()))
                             .unwrap(),
                     )))?
@@ -231,9 +231,7 @@ mod tests {
             let de = ClientDetectionServerRequest::from(payload_inner.body_str.as_str());
             let de = de.headers(payload_inner.headers);
             remote_connect
-                .reply_client_resp(ClientDetectionClientResponse::new(
-                    de.get_request_id().clone(),
-                ))
+                .reply_client_resp(ClientDetectionClientResponse::new(de.request_id().clone()))
                 .await;
         }
     }

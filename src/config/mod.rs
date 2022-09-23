@@ -62,10 +62,10 @@ impl NacosConfigService {
                                 let payload_inner = payload_helper::covert_payload(server_req_payload);
                                 if TYPE_CLIENT_DETECTION_SERVER_REQUEST.eq(&payload_inner.type_url) {
                                     let de = ClientDetectionServerRequest::from(payload_inner.body_str.as_str()).headers(payload_inner.headers);
-                                    conn.reply_client_resp(ClientDetectionClientResponse::new(de.get_request_id().clone())).await;
+                                    conn.reply_client_resp(ClientDetectionClientResponse::new(de.request_id().clone())).await;
                                 } else if TYPE_CONNECT_RESET_SERVER_REQUEST.eq(&payload_inner.type_url) {
                                     let de = ConnectResetServerRequest::from(payload_inner.body_str.as_str()).headers(payload_inner.headers);
-                                    conn.reply_client_resp(ConnectResetClientResponse::new(de.get_request_id().clone())).await;
+                                    conn.reply_client_resp(ConnectResetClientResponse::new(de.request_id().clone())).await;
                                     // todo reset connection
                                 } else {
                                     // publish a server_req_payload, server_req_payload_rx receive it once.
@@ -96,7 +96,7 @@ impl NacosConfigService {
         if TYPE_CONFIG_CHANGE_NOTIFY_SERVER_REQUEST.eq(&payload_inner.type_url) {
             let server_req = ConfigChangeNotifyServerRequest::from(payload_inner.body_str.as_str())
                 .headers(payload_inner.headers);
-            let server_req_id = server_req.get_request_id().clone();
+            let server_req_id = server_req.request_id().clone();
             let req_tenant = server_req.tenant.or(Some("".to_string())).unwrap();
             tracing::info!(
                 "receiver config change, dataId={},group={},namespace={}",
@@ -135,7 +135,7 @@ impl ConfigService for NacosConfigService {
         let resp = self.connection.get_client()?.request(&req_payload)?;
         let payload_inner = payload_helper::covert_payload(resp);
         let config_resp = ConfigQueryServerResponse::from(payload_inner.body_str.as_str());
-        Ok(String::from(config_resp.get_content()))
+        Ok(String::from(config_resp.content()))
     }
 
     fn add_listener(

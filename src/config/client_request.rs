@@ -6,7 +6,7 @@ use std::collections::HashMap;
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub(crate) struct ConfigBatchListenClientRequest {
     requestId: String,
-    /// count be empty.
+    /// could be empty.
     headers: HashMap<String, String>,
     /// listen or remove-listen.
     listen: bool,
@@ -15,13 +15,13 @@ pub(crate) struct ConfigBatchListenClientRequest {
 }
 
 impl Request for ConfigBatchListenClientRequest {
-    fn get_request_id(&self) -> &String {
+    fn request_id(&self) -> &String {
         &self.requestId
     }
-    fn get_headers(&self) -> &HashMap<String, String> {
+    fn headers(&self) -> &HashMap<String, String> {
         &self.headers
     }
-    fn get_type_url(&self) -> &String {
+    fn type_url(&self) -> &String {
         &TYPE_CONFIG_BATCH_LISTEN_CLIENT_REQUEST
     }
 }
@@ -76,7 +76,7 @@ impl ConfigListenContext {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub(crate) struct ConfigQueryClientRequest {
     requestId: String,
-    /// count be empty.
+    /// could be empty.
     headers: HashMap<String, String>,
     /// DataId
     dataId: String,
@@ -87,13 +87,13 @@ pub(crate) struct ConfigQueryClientRequest {
 }
 
 impl Request for ConfigQueryClientRequest {
-    fn get_request_id(&self) -> &String {
+    fn request_id(&self) -> &String {
         &self.requestId
     }
-    fn get_headers(&self) -> &HashMap<String, String> {
+    fn headers(&self) -> &HashMap<String, String> {
         &self.headers
     }
-    fn get_type_url(&self) -> &String {
+    fn type_url(&self) -> &String {
         &TYPE_CONFIG_QUERY_CLIENT_REQUEST
     }
 }

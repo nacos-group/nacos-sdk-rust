@@ -6,20 +6,20 @@ use std::collections::HashMap;
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub(crate) struct ConnectResetServerRequest {
     requestId: String,
-    /// count be empty.
+    /// could be empty.
     headers: HashMap<String, String>,
     serverIp: Option<String>,
     serverPort: Option<String>,
 }
 
 impl Request for ConnectResetServerRequest {
-    fn get_request_id(&self) -> &String {
+    fn request_id(&self) -> &String {
         &self.requestId
     }
-    fn get_headers(&self) -> &HashMap<String, String> {
+    fn headers(&self) -> &HashMap<String, String> {
         &self.headers
     }
-    fn get_type_url(&self) -> &String {
+    fn type_url(&self) -> &String {
         &TYPE_CONNECT_RESET_SERVER_REQUEST
     }
 }
@@ -50,18 +50,18 @@ impl From<&str> for ConnectResetServerRequest {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub(crate) struct ClientDetectionServerRequest {
     requestId: String,
-    /// count be empty.
+    /// could be empty.
     headers: HashMap<String, String>,
 }
 
 impl Request for ClientDetectionServerRequest {
-    fn get_request_id(&self) -> &String {
+    fn request_id(&self) -> &String {
         &self.requestId
     }
-    fn get_headers(&self) -> &HashMap<String, String> {
+    fn headers(&self) -> &HashMap<String, String> {
         &self.headers
     }
-    fn get_type_url(&self) -> &String {
+    fn type_url(&self) -> &String {
         &TYPE_CLIENT_DETECTION_SERVER_REQUEST
     }
 }

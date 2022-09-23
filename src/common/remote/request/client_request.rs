@@ -6,18 +6,18 @@ use std::collections::HashMap;
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub(crate) struct ServerCheckClientRequest {
     requestId: String,
-    /// count be empty.
+    /// could be empty.
     headers: HashMap<String, String>,
 }
 
 impl Request for ServerCheckClientRequest {
-    fn get_request_id(&self) -> &String {
+    fn request_id(&self) -> &String {
         &self.requestId
     }
-    fn get_headers(&self) -> &HashMap<String, String> {
+    fn headers(&self) -> &HashMap<String, String> {
         &self.headers
     }
-    fn get_type_url(&self) -> &String {
+    fn type_url(&self) -> &String {
         &TYPE_SERVER_CHECK_CLIENT_REQUEST
     }
 }
@@ -34,22 +34,21 @@ impl ServerCheckClientRequest {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub(crate) struct ConnectionSetupClientRequest {
     requestId: String,
-    /// count be empty.
+    /// could be empty.
     headers: HashMap<String, String>,
     clientVersion: String,
     tenant: String,
-    /// count be empty.
     labels: HashMap<String, String>,
 }
 
 impl Request for ConnectionSetupClientRequest {
-    fn get_request_id(&self) -> &String {
+    fn request_id(&self) -> &String {
         &self.requestId
     }
-    fn get_headers(&self) -> &HashMap<String, String> {
+    fn headers(&self) -> &HashMap<String, String> {
         &self.headers
     }
-    fn get_type_url(&self) -> &String {
+    fn type_url(&self) -> &String {
         &TYPE_CONNECT_SETUP_CLIENT_REQUEST
     }
 }
@@ -75,18 +74,18 @@ impl ConnectionSetupClientRequest {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub(crate) struct HealthCheckClientRequest {
     requestId: String,
-    /// count be empty.
+    /// could be empty.
     headers: HashMap<String, String>,
 }
 
 impl Request for HealthCheckClientRequest {
-    fn get_request_id(&self) -> &String {
+    fn request_id(&self) -> &String {
         &self.requestId
     }
-    fn get_headers(&self) -> &HashMap<String, String> {
+    fn headers(&self) -> &HashMap<String, String> {
         &self.headers
     }
-    fn get_type_url(&self) -> &String {
+    fn type_url(&self) -> &String {
         &TYPE_HEALTH_CHECK_CLIENT_REQUEST
     }
 }

@@ -5,13 +5,13 @@ pub(crate) mod server_response;
 
 pub(crate) trait Response {
     fn is_success(&self) -> bool;
-    fn get_connection_id(&self) -> Option<&String> {
+    fn connection_id(&self) -> Option<&String> {
         None
     }
-    fn get_request_id(&self) -> Option<&String>;
-    fn get_message(&self) -> Option<&String>;
-    fn get_error_code(&self) -> u32;
-    fn get_type_url(&self) -> &String;
+    fn request_id(&self) -> Option<&String>;
+    fn message(&self) -> Option<&String>;
+    fn error_code(&self) -> u32;
+    fn type_url(&self) -> &String;
 }
 
 #[derive(Debug, Clone, PartialEq, serde_repr::Serialize_repr, serde_repr::Deserialize_repr)]
