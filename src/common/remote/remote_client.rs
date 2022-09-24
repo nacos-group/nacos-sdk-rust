@@ -1,50 +1,50 @@
-use tokio::sync::mpsc::{Receiver, Sender};
+use tokio::sync::mpsc::Sender;
 
 use crate::api::client_config::ClientConfig;
 use crate::common::remote::conn::Connection;
 use crate::common::remote::request::server_request::*;
 use crate::common::remote::request::*;
 use crate::common::remote::response::client_response::*;
-use crate::common::util::payload_helper;
+use crate::common::remote::response::*;
 use crate::common::util::payload_helper::PayloadInner;
 
+/// TODO GrpcRemoteClient to be base common client
+#[derive(Clone)]
 pub(crate) struct GrpcRemoteClient {
-    pub(crate) client_config: ClientConfig,
-    pub(crate) connection: Connection,
+    client_config: ClientConfig,
+    connection: Connection,
     /// PayloadInner {type_url, headers, body_json_str}
     conn_server_req_payload_tx: Sender<PayloadInner>,
-    /// PayloadInner {type_url, headers, body_json_str}
-    pub(crate) conn_server_req_payload_rx: Receiver<PayloadInner>,
 }
 
 impl GrpcRemoteClient {
-    pub fn new(client_config: ClientConfig) -> Self {
+    pub fn new(client_config: ClientConfig, server_req_payload_tx: Sender<PayloadInner>) -> Self {
         let connection = Connection::new(client_config.clone());
-        let (tx, rx) = tokio::sync::mpsc::channel(128);
         Self {
             client_config,
             connection,
-            conn_server_req_payload_tx: tx,
-            conn_server_req_payload_rx: rx,
+            conn_server_req_payload_tx: server_req_payload_tx,
         }
     }
 
     /// deal with connection, all logic here.
     pub(crate) async fn deal_with_connection(&mut self) {
-        let server_req_payload = self.connection.next_server_req_payload().await;
-        let payload_inner = payload_helper::covert_payload(server_req_payload);
+        let payload_inner = self.connection.next_server_req_payload().await;
         if TYPE_CLIENT_DETECTION_SERVER_REQUEST.eq(&payload_inner.type_url) {
             let de = ClientDetectionServerRequest::from(payload_inner.body_str.as_str());
             let de = de.headers(payload_inner.headers);
-            self.connection
+            let _ = self
+                .connection
                 .reply_client_resp(ClientDetectionClientResponse::new(de.request_id().clone()))
                 .await;
         } else if TYPE_CONNECT_RESET_SERVER_REQUEST.eq(&payload_inner.type_url) {
             let de = ConnectResetServerRequest::from(payload_inner.body_str.as_str());
             let de = de.headers(payload_inner.headers);
-            self.connection
+            let _ = self
+                .connection
                 .reply_client_resp(ConnectResetClientResponse::new(de.request_id().clone()))
                 .await;
+            // todo reset connection
         } else {
             // publish a server_req_payload, conn_server_req_payload_rx receive it once.
             if let Err(_) = self.conn_server_req_payload_tx.send(payload_inner).await {
@@ -53,11 +53,20 @@ impl GrpcRemoteClient {
         }
     }
 
+    /// Reply a client_resp to server by bi_sender
     pub(crate) async fn reply_client_resp(
         &mut self,
-        resp: impl crate::common::remote::response::Response + serde::Serialize,
-    ) {
-        self.connection.reply_client_resp(resp).await;
+        resp: impl Response + serde::Serialize,
+    ) -> crate::api::error::Result<()> {
+        self.connection.reply_client_resp(resp).await
+    }
+
+    /// Send a client_req, with get a server_resp
+    pub(crate) async fn send_client_req(
+        &mut self,
+        req: impl Request + serde::Serialize,
+    ) -> crate::api::error::Result<PayloadInner> {
+        self.connection.send_client_req(req).await
     }
 }
 
@@ -75,8 +84,11 @@ mod tests {
         tracing_subscriber::fmt()
             .with_max_level(tracing::Level::DEBUG)
             .init();
-        let mut remote_client =
-            GrpcRemoteClient::new(ClientConfig::new().server_addr("0.0.0.0:9848".to_string()));
+        let (server_req_payload_tx, mut server_req_payload_rx) = tokio::sync::mpsc::channel(128);
+        let mut remote_client = GrpcRemoteClient::new(
+            ClientConfig::new().server_addr("0.0.0.0:9848".to_string()),
+            server_req_payload_tx,
+        );
         std::thread::Builder::new()
             .name("grpc-remote-client".into())
             .spawn(move || {
@@ -90,7 +102,11 @@ mod tests {
                     loop {
                         tokio::select! { biased;
                             deal_with_connection = remote_client.deal_with_connection() => {
-                                tracing::info!("deal_with_connection")
+                                tracing::debug!("deal_with_connection success.")
+                            },
+                            server_req = server_req_payload_rx.recv() => {
+                                let payload_inner = server_req.unwrap();
+                                tracing::info!("server_req_payload_inner {:?}", payload_inner)
                             },
                         }
                     }
