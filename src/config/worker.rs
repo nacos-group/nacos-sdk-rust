@@ -119,7 +119,6 @@ impl ConfigWorker {
         &mut self,
         data_id: String,
         group: String,
-        _timeout_ms: u64,
     ) -> crate::api::error::Result<ConfigResponse> {
         let tenant = self.client_config.namespace.clone();
         let config_resp = Self::get_config_inner(
@@ -127,7 +126,6 @@ impl ConfigWorker {
             data_id.clone(),
             group.clone(),
             tenant.clone(),
-            _timeout_ms,
         )?;
         Ok(ConfigResponse::new(
             data_id,
@@ -161,7 +159,6 @@ impl ConfigWorker {
                             cache_data.data_id.clone(),
                             cache_data.group.clone(),
                             cache_data.tenant.clone(),
-                            3000,
                         );
                         if let Ok(config_resp) = config_resp {
                             Self::fill_data_and_notify(&mut cache_data, config_resp);
@@ -290,7 +287,6 @@ impl ConfigWorker {
                                 c.data_id.clone(),
                                 c.group.clone(),
                                 c.tenant.clone(),
-                                3000,
                             );
                             if let Ok(config_resp) = config_resp {
                                 Self::fill_data_and_notify(c, config_resp);
@@ -322,7 +318,6 @@ impl ConfigWorker {
         data_id: String,
         group: String,
         tenant: String,
-        _timeout_ms: u64,
     ) -> crate::api::error::Result<ConfigQueryServerResponse> {
         let req = ConfigQueryClientRequest::new(data_id, group, tenant);
         let req_payload = payload_helper::build_req_grpc_payload(req);

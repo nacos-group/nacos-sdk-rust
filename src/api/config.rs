@@ -5,12 +5,7 @@ pub(crate) type ConfigChangeListener = dyn Fn(ConfigResponse) + Send + Sync;
 
 pub trait ConfigService {
     /// Get config, return the content.
-    fn get_config(
-        &mut self,
-        data_id: String,
-        group: String,
-        timeout_ms: u64,
-    ) -> error::Result<ConfigResponse>;
+    fn get_config(&mut self, data_id: String, group: String) -> error::Result<ConfigResponse>;
 
     /// Listen the config change.
     fn add_listener(

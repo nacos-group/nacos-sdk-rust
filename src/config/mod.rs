@@ -35,9 +35,8 @@ impl ConfigService for NacosConfigService {
         &mut self,
         data_id: String,
         group: String,
-        _timeout_ms: u64,
     ) -> crate::api::error::Result<crate::api::config::ConfigResponse> {
-        self.client_worker.get_config(data_id, group, _timeout_ms)
+        self.client_worker.get_config(data_id, group)
     }
 
     fn add_listener(
