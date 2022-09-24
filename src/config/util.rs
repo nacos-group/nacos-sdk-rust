@@ -1,6 +1,7 @@
-const GROUP_KEY_SPLIT: &str = "+";
+/// A special splitter that reduces user-defined character repetition.
+const GROUP_KEY_SPLIT: &str = "+_+";
 
-/// group to data_id '+' group '+' tenant
+/// group to data_id '+_+' group '+_+' tenant
 pub(crate) fn group_key(data_id: &String, group: &String, tenant: &String) -> String {
     "".to_string()
         + data_id.as_str()
