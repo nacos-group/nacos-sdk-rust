@@ -124,6 +124,9 @@ impl ConfigQueryServerResponse {
     pub fn encrypted_Data_Key(&self) -> Option<&String> {
         Option::from(&self.encryptedDataKey)
     }
+    pub fn last_modified(&self) -> i64 {
+        self.lastModified
+    }
 }
 
 impl From<&str> for ConfigQueryServerResponse {
