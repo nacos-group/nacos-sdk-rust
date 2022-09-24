@@ -1,6 +1,7 @@
 use crate::api::client_config::ClientConfig;
 use crate::api::config::ConfigResponse;
 use crate::common::remote::conn::Connection;
+use crate::common::remote::request::client_request::*;
 use crate::common::remote::request::server_request::*;
 use crate::common::remote::request::*;
 use crate::common::remote::response::client_response::*;
@@ -96,8 +97,22 @@ impl ConfigWorker {
             Arc::clone(&self.cache_data_map),
         ));
 
-        // sleep 6ms, Make sure the link is established.
-        tokio::time::sleep(std::time::Duration::from_millis(6)).await
+        loop {
+            // sleep 6ms, Make sure the link is established.
+            tokio::time::sleep(std::time::Duration::from_millis(6)).await;
+
+            if let Ok(client) = self.connection.get_client() {
+                let resp = client.request(&payload_helper::build_req_grpc_payload(
+                    HealthCheckClientRequest::new(),
+                ));
+                if let Ok(resp) = resp {
+                    let resp = payload_helper::build_server_response(resp).unwrap();
+                    if resp.is_success() {
+                        break;
+                    }
+                }
+            }
+        }
     }
 
     pub(crate) fn get_config(
