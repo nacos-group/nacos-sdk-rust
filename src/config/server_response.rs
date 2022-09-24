@@ -49,6 +49,13 @@ impl ConfigChangeBatchListenServerResponse {
     }
 }
 
+impl From<&str> for ConfigChangeBatchListenServerResponse {
+    fn from(json_str: &str) -> Self {
+        let de: serde_json::Result<Self> = serde_json::from_str(json_str);
+        de.unwrap()
+    }
+}
+
 /// The Context of config changed.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub(crate) struct ConfigContext {

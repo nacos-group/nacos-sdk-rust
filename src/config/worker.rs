@@ -42,6 +42,8 @@ impl ConfigWorker {
         let mut conn = self.connection.clone();
         // group_key: String
         let (notify_change_tx, notify_change_rx) = tokio::sync::mpsc::channel(16);
+        let notify_change_tx_1 = notify_change_tx.clone();
+        let notify_change_tx_2 = notify_change_tx.clone();
 
         let _conn_thread = std::thread::Builder::new()
             .name("config-remote-client".into())
@@ -75,7 +77,7 @@ impl ConfigWorker {
                             },
                             // receive a server_req from server_req_payload_tx
                             receive_server_req = server_req_payload_rx.recv() => {
-                                Self::deal_extra_server_req(notify_change_tx.clone(), &mut conn, receive_server_req.unwrap()).await
+                                Self::deal_extra_server_req(notify_change_tx_1.clone(), &mut conn, receive_server_req.unwrap()).await
                             },
                         }
                     }
@@ -89,6 +91,7 @@ impl ConfigWorker {
             notify_change_rx,
         ));
         tokio::spawn(Self::list_ensure_cache_data_newest(
+            notify_change_tx_2,
             self.connection.clone(),
             Arc::clone(&self.cache_data_map),
         ));
@@ -191,26 +194,48 @@ impl ConfigWorker {
 
     /// List-Watch, list ensure cache-data newest.
     async fn list_ensure_cache_data_newest(
+        notify_change_tx: tokio::sync::mpsc::Sender<String>,
         mut connection: Connection,
         cache_data_map: Arc<Mutex<HashMap<String, CacheData>>>,
     ) {
         loop {
+            let mut listen_context_vec = vec![];
             {
                 let cache_lock = cache_data_map.try_lock();
                 if let Ok(mutex) = cache_lock {
-                    let mut context_vec = Vec::with_capacity(mutex.len());
                     for c in mutex.values() {
-                        context_vec.push(ConfigListenContext::new(
+                        listen_context_vec.push(ConfigListenContext::new(
                             c.data_id.clone(),
                             c.group.clone(),
                             c.tenant.clone(),
                             c.md5.clone(),
                         ));
                     }
+                }
+            }
+            if !listen_context_vec.is_empty() {
+                if let Ok(client) = connection.get_client() {
                     let req = ConfigBatchListenClientRequest::new(true)
-                        .config_listen_context(context_vec);
-                    if let Ok(client) = connection.get_client() {
-                        let _ = client.request(&payload_helper::build_req_grpc_payload(req));
+                        .config_listen_context(listen_context_vec);
+                    let resp = client.request(&payload_helper::build_req_grpc_payload(req));
+                    if let Ok(resp) = resp {
+                        let payload_inner = payload_helper::covert_payload(resp);
+                        if TYPE_CONFIG_CHANGE_BATCH_LISTEN_RESPONSE.eq(&payload_inner.type_url) {
+                            let batch_listen_resp = ConfigChangeBatchListenServerResponse::from(
+                                payload_inner.body_str.as_str(),
+                            );
+                            if let Some(change_context_vec) = batch_listen_resp.changed_configs() {
+                                for context in change_context_vec {
+                                    // notify config change
+                                    let group_key = util::group_key(
+                                        &context.dataId,
+                                        &context.group,
+                                        &context.tenant,
+                                    );
+                                    let _ = notify_change_tx.send(group_key).await;
+                                }
+                            }
+                        }
                     }
                 }
             }
