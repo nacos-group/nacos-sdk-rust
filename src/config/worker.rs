@@ -282,7 +282,7 @@ impl ConfigWorker {
         cache_data.content = config_resp.content().to_string();
         cache_data.md5 = config_resp.md5().to_string();
         cache_data.last_modified = config_resp.last_modified();
-        cache_data.need_sync_server = false;
+        tracing::info!("fill_data_and_notify, cache_data={}", cache_data);
         if cache_data.initializing {
             cache_data.initializing = false;
         } else {
@@ -332,8 +332,6 @@ struct CacheData {
 
     /// There are some logical differences in the initialization phase, such as no notification of config changed
     initializing: bool,
-    /// Mark the cache config is not the latest, need to query the server for synchronize
-    need_sync_server: bool,
 
     /// who listen of config change.
     listeners: Arc<Mutex<Vec<ListenerWrapper>>>,
@@ -347,7 +345,6 @@ impl CacheData {
             tenant,
             content_type: "text".to_string(),
             initializing: true,
-            need_sync_server: true,
             ..Default::default()
         }
     }
@@ -381,9 +378,49 @@ impl CacheData {
                         self.content_type.clone(),
                     ));
                     listen.last_md5 = self.md5.clone();
+                    tracing::info!(
+                        "notify_listener success, dataId={},group={},namespace={},md5={}",
+                        self.data_id,
+                        self.group,
+                        self.tenant,
+                        self.md5
+                    );
                 }
                 break;
             }
+        }
+    }
+}
+
+impl std::fmt::Display for CacheData {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.content.len() > 30 {
+            let mut content = self.content.clone();
+            content.truncate(30);
+            content.push_str("...");
+            write!(
+                f,
+                "CacheData(namespace={n},data_id={d},group={g},md5={m},encrypted_data_key={k},content_type={t},content={c})",
+                n = self.tenant,
+                d = self.data_id,
+                g = self.group,
+                m = self.md5,
+                k = self.encrypted_data_key.as_ref().or(Some(&"".to_string())).unwrap(),
+                t = self.content_type,
+                c = content
+            )
+        } else {
+            write!(
+                f,
+                "CacheData(namespace={n},data_id={d},group={g},md5={m},encrypted_data_key={k},content_type={t},content={c})",
+                n = self.tenant,
+                d = self.data_id,
+                g = self.group,
+                m = self.md5,
+                k = self.encrypted_data_key.as_ref().or(Some(&"".to_string())).unwrap(),
+                t = self.content_type,
+                c = self.content
+            )
         }
     }
 }
