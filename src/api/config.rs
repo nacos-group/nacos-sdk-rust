@@ -1,5 +1,6 @@
 use crate::api::{client_config, error};
 
+/// Trait or Closure? Please refer to more sdk before deciding.
 pub(crate) type ConfigChangeListener = dyn Fn(ConfigResponse) + Send + Sync;
 
 pub trait ConfigService {
@@ -78,19 +79,19 @@ impl ConfigResponse {
         }
     }
 
-    pub fn get_namespace(&self) -> &String {
+    pub fn namespace(&self) -> &String {
         &self.namespace
     }
-    pub fn get_data_id(&self) -> &String {
+    pub fn data_id(&self) -> &String {
         &self.data_id
     }
-    pub fn get_group(&self) -> &String {
+    pub fn group(&self) -> &String {
         &self.group
     }
-    pub fn get_content(&self) -> &String {
+    pub fn content(&self) -> &String {
         &self.content
     }
-    pub fn get_content_type(&self) -> &String {
+    pub fn content_type(&self) -> &String {
         &self.content_type
     }
 }
@@ -144,7 +145,7 @@ mod tests {
             "hongwen.properties".to_string(),
             "LOVE".to_string(),
             Box::new(|config_resp| {
-                tracing::info!("listen the config {}", config_resp.get_content());
+                tracing::info!("listen the config {}", config_resp.content());
             }),
         );
         match _listen {

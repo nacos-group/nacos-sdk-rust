@@ -8,17 +8,27 @@ use std::sync::{Arc, Mutex};
 pub(crate) struct ConfigWorker {
     client_config: ClientConfig,
     cache_data_map: Arc<Mutex<HashMap<String, CacheData>>>,
+    /// group_key: String
+    notify_change_tx: tokio::sync::mpsc::Sender<String>,
 }
 
 impl ConfigWorker {
     pub(crate) fn new(client_config: ClientConfig) -> Self {
-        let client_worker = Self {
-            client_config,
-            cache_data_map: Arc::new(Mutex::new(HashMap::new())),
-        };
+        let cache_data_map = Arc::new(Mutex::new(HashMap::new()));
+        let clone_cache_data = Arc::clone(&cache_data_map);
+        let (notify_change_tx, notify_change_rx) = tokio::sync::mpsc::channel(16);
 
         tokio::spawn(Self::list_ensure_cache_data_newest());
+        tokio::spawn(Self::notify_change_to_cache_data(
+            clone_cache_data,
+            notify_change_rx,
+        ));
 
+        let client_worker = Self {
+            client_config,
+            cache_data_map,
+            notify_change_tx,
+        };
         client_worker
     }
 
@@ -27,6 +37,36 @@ impl ConfigWorker {
         loop {
             // todo query from server
             tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+        }
+    }
+
+    /// Notify change to cache_data.
+    async fn notify_change_to_cache_data(
+        cache_data_map: Arc<Mutex<HashMap<String, CacheData>>>,
+        mut notify_change_rx: tokio::sync::mpsc::Receiver<String>,
+    ) {
+        loop {
+            while let Some(group_key) = notify_change_rx.recv().await {
+                loop {
+                    let cache_lock = cache_data_map.try_lock();
+                    if let Ok(mut mutex) = cache_lock {
+                        if !mutex.contains_key(group_key.as_str()) {
+                            break;
+                        }
+                        let _ = mutex.get_mut(group_key.as_str()).map(|c| {
+                            // todo get the newest config to notify
+                            c.notify_listener(ConfigResponse::new(
+                                c.data_id.clone(),
+                                c.group.clone(),
+                                c.tenant.clone(),
+                                c.content.clone(),
+                                c.content_type.clone(),
+                            ))
+                        });
+                        break;
+                    }
+                }
+            }
         }
     }
 
@@ -57,32 +97,19 @@ impl ConfigWorker {
     }
 
     /// notify config change
-    pub(crate) fn notify_config_change(&mut self, data_id: String, group: String, tenant: String) {
+    pub(crate) async fn notify_config_change(
+        &mut self,
+        data_id: String,
+        group: String,
+        tenant: String,
+    ) {
         let group_key = util::group_key(&data_id, &group, &tenant);
-        loop {
-            let cache_lock = self.cache_data_map.try_lock();
-            if let Ok(mut mutex) = cache_lock {
-                if !mutex.contains_key(group_key.as_str()) {
-                    break;
-                }
-                let _ = mutex.get_mut(group_key.as_str()).map(|c| {
-                    // todo get the newest config to notify
-                    c.notify_listener(ConfigResponse::new(
-                        c.data_id.clone(),
-                        c.group.clone(),
-                        c.tenant.clone(),
-                        c.content.clone(),
-                        c.content_type.clone(),
-                    ))
-                });
-                break;
-            }
-        }
+        let _ = self.notify_change_tx.send(group_key).await;
     }
 }
 
 /// Cache Data for Config
-#[derive(Clone, Default)]
+#[derive(Default)]
 struct CacheData {
     data_id: String,
     group: String,
@@ -101,7 +128,7 @@ struct CacheData {
     need_sync_server: bool,
 
     /// who listen of config change.
-    listeners: Arc<Mutex<Vec<Box<crate::api::config::ConfigChangeListener>>>>,
+    listeners: Arc<Mutex<Vec<ListenerWrapper>>>,
 }
 
 impl CacheData {
@@ -111,6 +138,8 @@ impl CacheData {
             group,
             tenant,
             content_type: "text".to_string(),
+            initializing: true,
+            need_sync_server: true,
             ..Default::default()
         }
     }
@@ -120,22 +149,43 @@ impl CacheData {
         loop {
             let listen_lock = self.listeners.try_lock();
             if let Ok(mut mutex) = listen_lock {
-                mutex.push(listener);
+                mutex.push(ListenerWrapper::new(listener));
                 break;
             }
         }
     }
 
-    /// Notify listener.
+    /// Notify listener. when last_md5 not equals notify_md5
     fn notify_listener(&mut self, config_response: ConfigResponse) {
         loop {
             let listen_lock = self.listeners.try_lock();
             if let Ok(mut mutex) = listen_lock {
                 for listen in mutex.iter_mut() {
-                    (listen)(config_response.clone());
+                    let notify_md5 = self.md5.clone();
+                    // Notify when last_md5 not equals notify_md5
+                    if listen.last_md5.ne(&notify_md5) {
+                        (listen.listener)(config_response.clone());
+                        listen.last_md5 = notify_md5.clone();
+                    }
                 }
                 break;
             }
+        }
+    }
+}
+
+/// The inner Wrapper of ConfigChangeListener
+struct ListenerWrapper {
+    /// last md5 be notified
+    last_md5: String,
+    listener: Box<crate::api::config::ConfigChangeListener>,
+}
+
+impl ListenerWrapper {
+    fn new(listener: Box<crate::api::config::ConfigChangeListener>) -> Self {
+        Self {
+            last_md5: "".to_string(),
+            listener,
         }
     }
 }
