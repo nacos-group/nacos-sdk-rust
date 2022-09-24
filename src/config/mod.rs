@@ -107,11 +107,13 @@ impl NacosConfigService {
                 req_tenant.clone()
             );
             // notify config change
-            client_worker.notify_config_change(
-                server_req.dataId.to_string(),
-                server_req.group.to_string(),
-                req_tenant.clone(),
-            );
+            client_worker
+                .notify_config_change(
+                    server_req.dataId.to_string(),
+                    server_req.group.to_string(),
+                    req_tenant.clone(),
+                )
+                .await;
             // reply ConfigChangeNotifyClientResponse for ConfigChangeNotifyServerRequest
             let _ = conn
                 .reply_client_resp(ConfigChangeNotifyClientResponse::new(server_req_id))
@@ -207,7 +209,7 @@ mod tests {
             "hongwen.properties".to_string(),
             "LOVE".to_string(),
             Box::new(|config_resp| {
-                tracing::info!("listen the config {}", config_resp.get_content());
+                tracing::info!("listen the config {}", config_resp.content());
             }),
         );
         match _listen {
