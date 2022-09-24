@@ -42,9 +42,9 @@ gRPC 交互的 Payload 和 Metadata 由 `Protocol Buffers` 序列化，具体的
 以上交互务必参考 java nacos-client 和 nacos-server 的实现。
 
 #### Config 配置管理模块
-- [ ] 客户端创建 api
+- [x] 客户端创建 api
 - [x] 获取配置 api 与实现
-- [ ] 监听配置 api 与实现，List-Watch 机制，具备 list 兜底逻辑
+- [x] 监听配置 api 与实现，List-Watch 机制，具备 list 兜底逻辑
 - [ ] 配置 Filter，提供配置解密默认实现；配置获取后，内存缓存，磁盘缓存均是原文，仅返回到用户时经过配置 Filter
 
 #### Naming 服务注册模块

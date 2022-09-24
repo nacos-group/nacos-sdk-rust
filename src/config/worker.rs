@@ -105,11 +105,22 @@ impl ConfigWorker {
         data_id: String,
         group: String,
         _timeout_ms: u64,
-    ) -> crate::api::error::Result<String> {
+    ) -> crate::api::error::Result<ConfigResponse> {
         let tenant = self.client_config.namespace.clone();
-        let config_resp =
-            Self::get_config_inner(&mut self.connection, data_id, group, tenant, _timeout_ms);
-        Ok(String::from(config_resp?.content()))
+        let config_resp = Self::get_config_inner(
+            &mut self.connection,
+            data_id.clone(),
+            group.clone(),
+            tenant.clone(),
+            _timeout_ms,
+        )?;
+        Ok(ConfigResponse::new(
+            data_id,
+            group,
+            tenant,
+            config_resp.content().to_string(),
+            config_resp.content_type().to_string(),
+        ))
     }
 
     /// Add listener.

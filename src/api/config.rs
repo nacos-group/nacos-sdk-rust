@@ -10,7 +10,7 @@ pub trait ConfigService {
         data_id: String,
         group: String,
         timeout_ms: u64,
-    ) -> error::Result<String>;
+    ) -> error::Result<ConfigResponse>;
 
     /// Listen the config change.
     fn add_listener(
