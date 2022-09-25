@@ -1,4 +1,4 @@
-# 更改日志 | Change log
+# 变更日志 | Change log
 
 ### 0.1.0
 
