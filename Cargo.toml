@@ -28,7 +28,7 @@ repository = "https://github.com/nacos-group/nacos-sdk-rust"
 homepage = "https://nacos.io/en-us/"
 description = "Nacos client in Rust."
 categories = ["network-programming", "development-tools"]
-keywords = ["microservices", "dynamic", "nacos", "config", "naming", "service-discovery", "configuration-management"]
+keywords = ["microservices", "config", "naming", "service-discovery", "configuration-management"]
 exclude = [".github"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
