@@ -29,6 +29,10 @@ pub enum Error {
     #[error("get result failed: {0}")]
     ErrResult(String),
 
+    /// Config not found.
+    #[error("config not exist: {0}")]
+    ConfigNotFound(String),
+
     #[error("remote client shutdown failed: {0}")]
     ClientShutdown(String),
 

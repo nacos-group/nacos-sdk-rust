@@ -131,8 +131,8 @@ impl ConfigWorker {
             data_id,
             group,
             tenant,
-            config_resp.content().to_string(),
-            config_resp.content_type().to_string(),
+            config_resp.content().unwrap().to_string(),
+            config_resp.content_type().unwrap().to_string(),
         ))
     }
 
@@ -300,9 +300,9 @@ impl ConfigWorker {
     }
 
     fn fill_data_and_notify(cache_data: &mut CacheData, config_resp: ConfigQueryServerResponse) {
-        cache_data.content_type = config_resp.content_type().to_string();
-        cache_data.content = config_resp.content().to_string();
-        cache_data.md5 = config_resp.md5().to_string();
+        cache_data.content_type = config_resp.content_type().unwrap().to_string();
+        cache_data.content = config_resp.content().unwrap().to_string();
+        cache_data.md5 = config_resp.md5().unwrap().to_string();
         cache_data.last_modified = config_resp.last_modified();
         tracing::info!("fill_data_and_notify, cache_data={}", cache_data);
         if cache_data.initializing {
@@ -333,7 +333,21 @@ impl ConfigWorker {
             )));
         }
         let config_resp = ConfigQueryServerResponse::from(payload_inner.body_str.as_str());
-        Ok(config_resp)
+        if config_resp.is_success() {
+            Ok(config_resp)
+        } else if config_resp.is_not_found() {
+            Err(crate::api::error::Error::ConfigNotFound(format!(
+                "error_code={},message={}",
+                config_resp.error_code(),
+                config_resp.message().unwrap()
+            )))
+        } else {
+            Err(crate::api::error::Error::ErrResult(format!(
+                "error_code={},message={}",
+                config_resp.error_code(),
+                config_resp.message().unwrap()
+            )))
+        }
     }
 }
 

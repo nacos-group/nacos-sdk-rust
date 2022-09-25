@@ -74,13 +74,14 @@ const CONFIG_QUERY_CONFLICT: u32 = 400;
 pub(crate) struct ConfigQueryServerResponse {
     requestId: Option<String>,
     resultCode: ResponseCode,
+    /// maybe [`CONFIG_NOT_FOUND`] or [`CONFIG_QUERY_CONFLICT`], and then `content` etc. data is [`Option::None`]
     errorCode: u32,
     message: Option<String>,
 
     /// json, properties, txt, html, xml, ...
-    contentType: String,
-    content: String,
-    md5: String,
+    contentType: Option<String>,
+    content: Option<String>,
+    md5: Option<String>,
     /// whether content was encrypted with encryptedDataKey.
     encryptedDataKey: Option<String>,
 
@@ -119,14 +120,14 @@ impl ConfigQueryServerResponse {
     pub(crate) fn is_query_conflict(&self) -> bool {
         self.errorCode == CONFIG_QUERY_CONFLICT
     }
-    pub fn content_type(&self) -> &String {
-        &self.contentType
+    pub fn content_type(&self) -> Option<&String> {
+        Option::from(&self.contentType)
     }
-    pub fn content(&self) -> &String {
-        &self.content
+    pub fn content(&self) -> Option<&String> {
+        Option::from(&self.content)
     }
-    pub fn md5(&self) -> &String {
-        &self.md5
+    pub fn md5(&self) -> Option<&String> {
+        Option::from(&self.md5)
     }
     pub fn encrypted_Data_Key(&self) -> Option<&String> {
         Option::from(&self.encryptedDataKey)

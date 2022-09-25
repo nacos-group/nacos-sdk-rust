@@ -180,6 +180,27 @@ mod tests {
             Err(err) => tracing::error!("listen config error {:?}", err),
         }
 
+        // example get a config not exit
+        let config_resp =
+            config_service.get_config("todo-data-id".to_string(), "todo-group".to_string());
+        match config_resp {
+            Ok(config_resp) => tracing::info!("get the config {}", config_resp),
+            Err(err) => tracing::error!("get the config {:?}", err),
+        }
+
+        // example add a listener with config not exit
+        let _listen = config_service.add_listener(
+            "todo-data-id".to_string(),
+            "todo-group".to_string(),
+            Box::new(|config_resp| {
+                tracing::info!("listen the config={:?}", config_resp);
+            }),
+        );
+        match _listen {
+            Ok(_) => tracing::info!("listening the config success"),
+            Err(err) => tracing::error!("listen config error {:?}", err),
+        }
+
         sleep(Duration::from_secs(30)).await;
     }
 }
