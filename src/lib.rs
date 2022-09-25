@@ -57,6 +57,7 @@ mod config;
 #[cfg(feature = "naming")]
 mod naming;
 
+#[allow(dead_code)]
 mod nacos_proto {
     pub mod v2 {
         include!("_.rs");

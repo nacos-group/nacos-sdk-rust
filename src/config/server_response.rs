@@ -34,16 +34,6 @@ impl Response for ConfigChangeBatchListenServerResponse {
 }
 
 impl ConfigChangeBatchListenServerResponse {
-    pub fn new(request_id: String) -> Self {
-        ConfigChangeBatchListenServerResponse {
-            requestId: Some(request_id),
-            resultCode: ResponseCode::Ok,
-            errorCode: 0,
-            message: None,
-            changedConfigs: None,
-        }
-    }
-
     pub fn changed_configs(&self) -> Option<&Vec<ConfigContext>> {
         Option::from(&self.changedConfigs)
     }

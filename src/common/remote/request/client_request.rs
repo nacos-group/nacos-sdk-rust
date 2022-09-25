@@ -65,6 +65,7 @@ impl ConnectionSetupClientRequest {
     }
 
     /// Sets the labels against.
+    #[allow(dead_code)]
     pub fn labels(mut self, labels: HashMap<String, String>) -> Self {
         self.labels.extend(labels.into_iter());
         self

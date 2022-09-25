@@ -38,22 +38,12 @@ impl Response for ServerCheckServerResponse {
     }
 }
 
-impl ServerCheckServerResponse {
-    pub fn new(connection_id: String, request_id: String) -> Self {
-        ServerCheckServerResponse {
-            connectionId: connection_id,
-            requestId: Some(request_id),
-            resultCode: ResponseCode::Ok,
-            errorCode: 0,
-            message: None,
-        }
-    }
-}
-
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub(crate) struct ErrorResponse {
     requestId: Option<String>,
+    /// [`ResponseCode::Fail`]
     resultCode: ResponseCode,
+    /// 500 or else
     errorCode: u32,
     message: Option<String>,
 }
@@ -77,17 +67,6 @@ impl Response for ErrorResponse {
 
     fn type_url(&self) -> &String {
         &TYPE_ERROR_SERVER_RESPONSE
-    }
-}
-
-impl ErrorResponse {
-    pub fn new(request_id: String) -> Self {
-        ErrorResponse {
-            requestId: Some(request_id),
-            resultCode: ResponseCode::Fail,
-            errorCode: 500,
-            message: None,
-        }
     }
 }
 
@@ -125,16 +104,5 @@ impl Response for HealthCheckServerResponse {
 
     fn type_url(&self) -> &String {
         &TYPE_HEALTH_CHECK_SERVER_RESPONSE
-    }
-}
-
-impl HealthCheckServerResponse {
-    pub fn new(request_id: String) -> Self {
-        HealthCheckServerResponse {
-            requestId: Some(request_id),
-            resultCode: ResponseCode::Ok,
-            errorCode: 0,
-            message: None,
-        }
     }
 }

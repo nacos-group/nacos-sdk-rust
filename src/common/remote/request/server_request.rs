@@ -25,15 +25,6 @@ impl Request for ConnectResetServerRequest {
 }
 
 impl ConnectResetServerRequest {
-    pub fn new(server_ip: Option<String>, server_port: Option<String>) -> Self {
-        ConnectResetServerRequest {
-            requestId: generate_request_id(),
-            headers: HashMap::new(),
-            serverIp: server_ip,
-            serverPort: server_port,
-        }
-    }
-
     /// Sets the headers.
     pub fn headers(self, headers: HashMap<String, String>) -> Self {
         ConnectResetServerRequest { headers, ..self }
@@ -67,13 +58,6 @@ impl Request for ClientDetectionServerRequest {
 }
 
 impl ClientDetectionServerRequest {
-    pub fn new() -> Self {
-        ClientDetectionServerRequest {
-            requestId: generate_request_id(),
-            headers: HashMap::new(),
-        }
-    }
-
     /// Sets the headers.
     pub fn headers(self, headers: HashMap<String, String>) -> Self {
         ClientDetectionServerRequest { headers, ..self }
