@@ -12,7 +12,7 @@ Add the dependency in `Cargo.toml`:
 
 ```toml
 [dependencies]
-nacos-client = { version = "0.1.0", features = ["default"] }
+nacos-sdk = { version = "0.1", features = ["default"] }
 ```
 
 ### Usage of Config

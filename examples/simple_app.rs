@@ -1,6 +1,6 @@
-use nacos_client::api::config::ConfigService;
-use nacos_client::api::config::ConfigServiceBuilder;
-use nacos_client::api::props::ClientProps;
+use nacos_sdk::api::config::ConfigService;
+use nacos_sdk::api::config::ConfigServiceBuilder;
+use nacos_sdk::api::props::ClientProps;
 use std::time::Duration;
 use tokio::time::sleep;
 

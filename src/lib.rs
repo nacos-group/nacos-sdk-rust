@@ -27,7 +27,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! nacos-client = { version = "0.1.0", features = ["default"] }
+//! nacos-sdk = { version = "0.1", features = ["default"] }
 //! ```
 //!
 //! ## General Configurations and Initialization
@@ -36,16 +36,15 @@
 //!
 //! ### Example of Config
 //!
-//! ```rust
-//!  let mut config_service = nacos_client::api::config::ConfigServiceBuilder::new(
-//!        nacos_client::api::props::ClientProps::new()
+//! ```ignore
+//!  let mut config_service = nacos_sdk::api::config::ConfigServiceBuilder::new(
+//!        nacos_sdk::api::props::ClientProps::new()
 //!           .server_addr("0.0.0.0:9848")
 //!           // Attention! "public" is "", it is recommended to customize the namespace with clear meaning.
 //!           .namespace("")
 //!           .app_name("todo-your-app-name"),
 //!   )
-//!   .build()//.await
-//!   ;
+//!   .build().await;
 //! ```
 //!
 
