@@ -92,9 +92,9 @@ impl ConfigWorker {
             notify_change_rx,
         ));
         tokio::spawn(Self::list_ensure_cache_data_newest(
-            notify_change_tx_2,
             self.connection.clone(),
             Arc::clone(&self.cache_data_map),
+            notify_change_tx_2,
         ));
 
         loop {
@@ -145,40 +145,36 @@ impl ConfigWorker {
         listener: Box<crate::api::config::ConfigChangeListener>,
     ) {
         let group_key = util::group_key(&data_id, &group, &tenant);
-        loop {
-            let cache_lock = self.cache_data_map.try_lock();
-            if let Ok(mut mutex) = cache_lock {
-                if !mutex.contains_key(group_key.as_str()) {
-                    let mut cache_data =
-                        CacheData::new(data_id.clone(), group.clone(), tenant.clone());
-                    // listen immediately upon initialization
-                    if let Ok(client) = self.connection.get_client() {
-                        // init cache_data
-                        let config_resp = Self::get_config_inner(
-                            &mut self.connection,
+        if let Ok(mut mutex) = self.cache_data_map.lock() {
+            if !mutex.contains_key(group_key.as_str()) {
+                let mut cache_data = CacheData::new(data_id.clone(), group.clone(), tenant.clone());
+                // listen immediately upon initialization
+                if let Ok(client) = self.connection.get_client() {
+                    // init cache_data
+                    let config_resp = Self::get_config_inner(
+                        &mut self.connection,
+                        cache_data.data_id.clone(),
+                        cache_data.group.clone(),
+                        cache_data.tenant.clone(),
+                    );
+                    if let Ok(config_resp) = config_resp {
+                        Self::fill_data_and_notify(&mut cache_data, config_resp);
+                    }
+                    let req = ConfigBatchListenClientRequest::new(true).add_config_listen_context(
+                        ConfigListenContext::new(
                             cache_data.data_id.clone(),
                             cache_data.group.clone(),
                             cache_data.tenant.clone(),
-                        );
-                        if let Ok(config_resp) = config_resp {
-                            Self::fill_data_and_notify(&mut cache_data, config_resp);
-                        }
-                        let req = ConfigBatchListenClientRequest::new(true)
-                            .add_config_listen_context(ConfigListenContext::new(
-                                cache_data.data_id.clone(),
-                                cache_data.group.clone(),
-                                cache_data.tenant.clone(),
-                                cache_data.md5.clone(),
-                            ));
-                        let _ = client.request(&payload_helper::build_req_grpc_payload(req));
-                    }
-                    mutex.insert(group_key.clone(), cache_data);
+                            cache_data.md5.clone(),
+                        ),
+                    );
+                    let _ = client.request(&payload_helper::build_req_grpc_payload(req));
                 }
-                let _ = mutex
-                    .get_mut(group_key.as_str())
-                    .map(|c| c.add_listener(listener));
-                break;
+                mutex.insert(group_key.clone(), cache_data);
             }
+            let _ = mutex
+                .get_mut(group_key.as_str())
+                .map(|c| c.add_listener(listener));
         }
     }
 }
@@ -217,15 +213,15 @@ impl ConfigWorker {
 
     /// List-Watch, list ensure cache-data newest.
     async fn list_ensure_cache_data_newest(
-        notify_change_tx: tokio::sync::mpsc::Sender<String>,
         mut connection: Connection,
         cache_data_map: Arc<Mutex<HashMap<String, CacheData>>>,
+        notify_change_tx: tokio::sync::mpsc::Sender<String>,
     ) {
         loop {
-            let mut listen_context_vec = vec![];
+            let mut listen_context_vec = Vec::with_capacity(6);
             {
-                let cache_lock = cache_data_map.try_lock();
-                if let Ok(mutex) = cache_lock {
+                // try_lock, The failure to acquire the lock can be handled by the next loop.
+                if let Ok(mutex) = cache_data_map.try_lock() {
                     for c in mutex.values() {
                         listen_context_vec.push(ConfigListenContext::new(
                             c.data_id.clone(),
@@ -273,12 +269,12 @@ impl ConfigWorker {
         mut notify_change_rx: tokio::sync::mpsc::Receiver<String>,
     ) {
         loop {
-            while let Some(group_key) = notify_change_rx.recv().await {
-                loop {
-                    let cache_lock = cache_data_map.try_lock();
-                    if let Ok(mut mutex) = cache_lock {
+            match notify_change_rx.recv().await {
+                None => break, // break if notify_change_rx be dropped(shutdown).
+                Some(group_key) => {
+                    if let Ok(mut mutex) = cache_data_map.lock() {
                         if !mutex.contains_key(group_key.as_str()) {
-                            break;
+                            continue;
                         }
                         let _ = mutex.get_mut(group_key.as_str()).map(|c| {
                             // get the newest config to notify
@@ -292,7 +288,6 @@ impl ConfigWorker {
                                 Self::fill_data_and_notify(c, config_resp);
                             }
                         });
-                        break;
                     }
                 }
             }
@@ -386,42 +381,34 @@ impl CacheData {
 
     /// Add listener.
     fn add_listener(&mut self, listener: Box<crate::api::config::ConfigChangeListener>) {
-        loop {
-            let listen_lock = self.listeners.try_lock();
-            if let Ok(mut mutex) = listen_lock {
-                mutex.push(ListenerWrapper::new(listener));
-                break;
-            }
+        if let Ok(mut mutex) = self.listeners.lock() {
+            mutex.push(ListenerWrapper::new(listener));
         }
     }
 
     /// Notify listener. when last-md5 not equals the-newest-md5
     fn notify_listener(&mut self) {
-        loop {
-            let listen_lock = self.listeners.try_lock();
-            if let Ok(mut mutex) = listen_lock {
-                for listen in mutex.iter_mut() {
-                    if listen.last_md5.eq(&self.md5) {
-                        continue;
-                    }
-                    // Notify when last-md5 not equals the-newest-md5
-                    (listen.listener)(ConfigResponse::new(
-                        self.data_id.clone(),
-                        self.group.clone(),
-                        self.tenant.clone(),
-                        self.content.clone(),
-                        self.content_type.clone(),
-                    ));
-                    listen.last_md5 = self.md5.clone();
-                    tracing::info!(
-                        "notify_listener success, dataId={},group={},namespace={},md5={}",
-                        self.data_id,
-                        self.group,
-                        self.tenant,
-                        self.md5
-                    );
+        if let Ok(mut mutex) = self.listeners.lock() {
+            for listen in mutex.iter_mut() {
+                if listen.last_md5.eq(&self.md5) {
+                    continue;
                 }
-                break;
+                // Notify when last-md5 not equals the-newest-md5, todo Notify in independent thread.
+                (listen.listener)(ConfigResponse::new(
+                    self.data_id.clone(),
+                    self.group.clone(),
+                    self.tenant.clone(),
+                    self.content.clone(),
+                    self.content_type.clone(),
+                ));
+                listen.last_md5 = self.md5.clone();
+                tracing::info!(
+                    "notify_listener success, dataId={},group={},namespace={},md5={}",
+                    self.data_id,
+                    self.group,
+                    self.tenant,
+                    self.md5
+                );
             }
         }
     }
