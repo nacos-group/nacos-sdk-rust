@@ -18,7 +18,7 @@
 
 [package]
 name = "nacos-sdk"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 authors = ["nacos-group", "CheirshCai <785427346@qq.com>", "onewe <2583021406@qq.com>"]
 license = "Apache-2.0"
@@ -29,7 +29,7 @@ homepage = "https://nacos.io/en-us/"
 description = "Nacos client in Rust."
 categories = ["network-programming", "development-tools"]
 keywords = ["microservices", "config", "naming", "service-discovery", "config-management"]
-exclude = [".github"]
+exclude = [".github", "proto", "build.rs"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [features]

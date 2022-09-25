@@ -27,7 +27,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! nacos-sdk = { version = "0.1.0", features = ["default"] }
+//! nacos-sdk = { version = "0.1", features = ["default"] }
 //! ```
 //!
 //! ## General Configurations and Initialization
