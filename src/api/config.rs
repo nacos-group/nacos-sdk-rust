@@ -8,8 +8,8 @@ pub(crate) type ConfigChangeListener = dyn Fn(ConfigResponse) + Send + Sync;
 /// # Examples
 ///
 /// ```rust
-///  let mut config_service = nacos_client::api::config::ConfigServiceBuilder::new(
-///        nacos_client::api::props::ClientProps::new()
+///  let mut config_service = nacos_sdk::api::config::ConfigServiceBuilder::new(
+///        nacos_sdk::api::props::ClientProps::new()
 ///           .server_addr("0.0.0.0:9848")
 ///           // Attention! "public" is "", it is recommended to customize the namespace with clear meaning.
 ///           .namespace("")
@@ -112,8 +112,8 @@ impl ConfigResponse {
 /// # Examples
 ///
 /// ```rust
-///  let mut config_service = nacos_client::api::config::ConfigServiceBuilder::new(
-///        nacos_client::api::props::ClientProps::new()
+///  let mut config_service = nacos_sdk::api::config::ConfigServiceBuilder::new(
+///        nacos_sdk::api::props::ClientProps::new()
 ///           .server_addr("0.0.0.0:9848")
 ///           // Attention! "public" is "", it is recommended to customize the namespace with clear meaning.
 ///           .namespace("")

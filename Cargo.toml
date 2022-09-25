@@ -17,9 +17,19 @@
 #
 
 [package]
-name = "nacos-client"
+name = "nacos-sdk"
 version = "0.1.0"
 edition = "2021"
+authors = ["nacos-group", "CheirshCai <785427346@qq.com>", "onewe <2583021406@qq.com>"]
+license = "Apache-2.0"
+readme = "README.md"
+documentation = "https://docs.rs/nacos-sdk/latest"
+repository = "https://github.com/nacos-group/nacos-sdk-rust"
+homepage = "https://nacos.io/en-us/"
+description = "Nacos client in Rust."
+categories = ["network-programming", "development-tools"]
+keywords = ["microservices", "dynamic", "nacos", "config", "naming", "service-discovery", "configuration-management"]
+exclude = [".github"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [features]
@@ -30,7 +40,7 @@ naming = []
 [dependencies]
 thiserror = "1.0"
 tokio = { version = "1.21", features = ["full"] }
-tokio-stream = { version = "0.1", features = ["net"] }
+#tokio-stream = { version = "0.1", features = ["net"] }
 futures = "0.3"
 grpcio = { version = "0.11", default-features = false, features = ["prost-codec"] }
 prost = "0.10"
@@ -43,7 +53,7 @@ lazy_static = "1.4"
 #async-trait = "0"
 #async_once = "0"
 
-opentelemetry = "0"
+#opentelemetry = "0"
 tracing = "0.1"
 local_ipaddress = "0.1.3"
 
