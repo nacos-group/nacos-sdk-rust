@@ -13,7 +13,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 //
-/// error learn from Skywalking Rust.
 
 /// Nacos Sdk Rust Result.
 pub type Result<T> = std::result::Result<T, Error>;

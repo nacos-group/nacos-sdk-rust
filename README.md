@@ -5,11 +5,54 @@ Nacos client in Rust
 
 https://github.com/alibaba/nacos/issues/8443#issuecomment-1248227587
 
+## Quickstart
+
+### Add Dependency
+Add the dependency in `Cargo.toml`:
+
+```toml
+[dependencies]
+nacos-client = { version = "0.1.0", features = ["default"] }
+```
+
+### Usage of Config
+```rust
+    let mut config_service = ConfigServiceBuilder::new(
+        ClientProps::new()
+            .server_addr("0.0.0.0:9848")
+            // Attention! "public" is "", it is recommended to customize the namespace with clear meaning.
+            .namespace("")
+            .app_name("simple_app"),
+    )
+    .build()
+    .await;
+
+    // example get a config
+    let config_resp = config_service.get_config("todo-data-id".to_string(), "todo-group".to_string());
+    match config_resp {
+        Ok(config_resp) => tracing::info!("get the config {}", config_resp),
+        Err(err) => tracing::error!("get the config {:?}", err),
+    }
+    
+    // example add a listener
+    let _listen = config_service.add_listener(
+        "todo-data-id".to_string(),
+        "todo-group".to_string(),
+        Box::new(|config_resp| {
+            tracing::info!("listen the config={:?}", config_resp);
+        }),
+    );
+    match _listen {
+        Ok(_) => tracing::info!("listening the config success"),
+        Err(err) => tracing::error!("listen config error {:?}", err),
+    }
+```
+
 ## 开发说明
 - Build with `cargo build`
 > Note: The proto buf client generation is built into cargo build process so updating the proto files under proto/ is enough to update the proto buf client.
 
-- 请 `cargo fmt` 格式化代码再提交
+- 请 `cargo fmt --all` 格式化代码再提交
 
 - Rust 入门，还有太多东西不规范，仍需斟酌各种实现逻辑
 - 测试用例暂未能实现自动化，开发过程需本地启动 [nacos server](https://github.com/alibaba/nacos) `-Dnacos.standalone=true`

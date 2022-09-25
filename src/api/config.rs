@@ -1,8 +1,24 @@
-use crate::api::{client_config, error};
+use crate::api::{error, props};
 
 /// Trait or Closure? Please refer to more sdk before deciding.
 pub(crate) type ConfigChangeListener = dyn Fn(ConfigResponse) + Send + Sync;
 
+/// Api [`ConfigService`].
+///
+/// # Examples
+///
+/// ```rust
+///  let mut config_service = nacos_client::api::config::ConfigServiceBuilder::new(
+///        nacos_client::api::props::ClientProps::new()
+///           .server_addr("0.0.0.0:9848")
+///           // Attention! "public" is "", it is recommended to customize the namespace with clear meaning.
+///           .namespace("")
+///           .app_name("todo-your-app-name"),
+///   )
+///   .build()//.await
+///   ;
+/// ```
+#[doc(alias("config", "sdk", "api"))]
 pub trait ConfigService {
     /// Get config, return the content.
     fn get_config(&mut self, data_id: String, group: String) -> error::Result<ConfigResponse>;
@@ -91,26 +107,42 @@ impl ConfigResponse {
     }
 }
 
+/// Builder of api [`ConfigService`].
+///
+/// # Examples
+///
+/// ```rust
+///  let mut config_service = nacos_client::api::config::ConfigServiceBuilder::new(
+///        nacos_client::api::props::ClientProps::new()
+///           .server_addr("0.0.0.0:9848")
+///           // Attention! "public" is "", it is recommended to customize the namespace with clear meaning.
+///           .namespace("")
+///           .app_name("todo-your-app-name"),
+///   )
+///   .build()//.await
+///   ;
+/// ```
+#[doc(alias("config", "builder"))]
 pub struct ConfigServiceBuilder {
-    client_config: client_config::ClientConfig,
+    client_props: props::ClientProps,
 }
 
 impl Default for ConfigServiceBuilder {
     fn default() -> Self {
         ConfigServiceBuilder {
-            client_config: client_config::ClientConfig::new(),
+            client_props: props::ClientProps::new(),
         }
     }
 }
 
 impl ConfigServiceBuilder {
-    pub fn new(client_config: client_config::ClientConfig) -> Self {
-        ConfigServiceBuilder { client_config }
+    pub fn new(client_props: props::ClientProps) -> Self {
+        ConfigServiceBuilder { client_props }
     }
 
     /// Builds a new [`ConfigService`].
     pub async fn build(self) -> impl ConfigService {
-        let mut config_service = crate::config::NacosConfigService::new(self.client_config);
+        let mut config_service = crate::config::NacosConfigService::new(self.client_props);
         config_service.start().await;
         config_service
     }
@@ -130,7 +162,7 @@ mod tests {
             .init();
         let mut config_service = ConfigServiceBuilder::default().build().await;
         let config =
-            config_service.get_config("hongwen.properties".to_string(), "LOVE".to_string(), 3000);
+            config_service.get_config("hongwen.properties".to_string(), "LOVE".to_string());
         match config {
             Ok(config) => tracing::info!("get the config {}", config),
             Err(err) => tracing::error!("get the config {:?}", err),

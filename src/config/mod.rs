@@ -5,21 +5,21 @@ mod server_response;
 mod util;
 mod worker;
 
-use crate::api::client_config::ClientConfig;
 use crate::api::config::ConfigService;
+use crate::api::props::ClientProps;
 use crate::config::worker::ConfigWorker;
 
 pub(crate) struct NacosConfigService {
-    client_config: ClientConfig,
+    client_props: ClientProps,
     /// config client worker
     client_worker: ConfigWorker,
 }
 
 impl NacosConfigService {
-    pub fn new(client_config: ClientConfig) -> Self {
-        let client_worker = ConfigWorker::new(client_config.clone());
+    pub fn new(client_props: ClientProps) -> Self {
+        let client_worker = ConfigWorker::new(client_props.clone());
         Self {
-            client_config,
+            client_props,
             client_worker,
         }
     }
@@ -48,7 +48,7 @@ impl ConfigService for NacosConfigService {
         self.client_worker.add_listener(
             data_id.clone(),
             group.clone(),
-            self.client_config.namespace.clone(),
+            self.client_props.namespace.clone(),
             listener,
         );
         Ok(())
@@ -57,8 +57,8 @@ impl ConfigService for NacosConfigService {
 
 #[cfg(test)]
 mod tests {
-    use crate::api::client_config::ClientConfig;
     use crate::api::config::ConfigService;
+    use crate::api::props::ClientProps;
     use crate::config::NacosConfigService;
     use std::time::Duration;
     use tokio::time::sleep;
@@ -69,13 +69,13 @@ mod tests {
             .with_max_level(tracing::Level::DEBUG)
             .init();
         let mut config_service = NacosConfigService::new(
-            ClientConfig::new()
+            ClientProps::new()
                 .server_addr("0.0.0.0:9848".to_string())
                 .app_name("test-app-name"),
         );
         config_service.start().await;
         let config =
-            config_service.get_config("hongwen.properties".to_string(), "LOVE".to_string(), 3000);
+            config_service.get_config("hongwen.properties".to_string(), "LOVE".to_string());
         match config {
             Ok(config) => tracing::info!("get the config {}", config),
             Err(err) => tracing::error!("get the config {:?}", err),

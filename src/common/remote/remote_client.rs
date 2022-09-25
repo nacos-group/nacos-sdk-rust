@@ -1,6 +1,6 @@
 use tokio::sync::mpsc::Sender;
 
-use crate::api::client_config::ClientConfig;
+use crate::api::props::ClientProps;
 use crate::common::remote::conn::Connection;
 use crate::common::remote::request::server_request::*;
 use crate::common::remote::request::*;
@@ -11,17 +11,17 @@ use crate::common::util::payload_helper::PayloadInner;
 /// TODO GrpcRemoteClient to be base common client
 #[derive(Clone)]
 pub(crate) struct GrpcRemoteClient {
-    client_config: ClientConfig,
+    client_props: ClientProps,
     connection: Connection,
     /// PayloadInner {type_url, headers, body_json_str}
     conn_server_req_payload_tx: Sender<PayloadInner>,
 }
 
 impl GrpcRemoteClient {
-    pub fn new(client_config: ClientConfig, server_req_payload_tx: Sender<PayloadInner>) -> Self {
-        let connection = Connection::new(client_config.clone());
+    pub fn new(client_props: ClientProps, server_req_payload_tx: Sender<PayloadInner>) -> Self {
+        let connection = Connection::new(client_props.clone());
         Self {
-            client_config,
+            client_props,
             connection,
             conn_server_req_payload_tx: server_req_payload_tx,
         }
@@ -76,7 +76,7 @@ mod tests {
 
     use tokio::time::sleep;
 
-    use crate::api::client_config::ClientConfig;
+    use crate::api::props::ClientProps;
     use crate::common::remote::remote_client::GrpcRemoteClient;
 
     // #[tokio::test]
@@ -86,7 +86,7 @@ mod tests {
             .init();
         let (server_req_payload_tx, mut server_req_payload_rx) = tokio::sync::mpsc::channel(128);
         let mut remote_client = GrpcRemoteClient::new(
-            ClientConfig::new().server_addr("0.0.0.0:9848".to_string()),
+            ClientProps::new().server_addr("0.0.0.0:9848".to_string()),
             server_req_payload_tx,
         );
         std::thread::Builder::new()

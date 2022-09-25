@@ -1,5 +1,5 @@
-use crate::api::client_config::ClientConfig;
 use crate::api::config::ConfigResponse;
+use crate::api::props::ClientProps;
 use crate::common::remote::conn::Connection;
 use crate::common::remote::request::client_request::*;
 use crate::common::remote::request::server_request::*;
@@ -19,18 +19,18 @@ use std::sync::{Arc, Mutex};
 
 #[derive(Clone)]
 pub(crate) struct ConfigWorker {
-    client_config: ClientConfig,
+    client_props: ClientProps,
     connection: Connection,
     cache_data_map: Arc<Mutex<HashMap<String, CacheData>>>,
 }
 
 impl ConfigWorker {
-    pub(crate) fn new(client_config: ClientConfig) -> Self {
-        let connection = Connection::new(client_config.clone());
+    pub(crate) fn new(client_props: ClientProps) -> Self {
+        let connection = Connection::new(client_props.clone());
         let cache_data_map = Arc::new(Mutex::new(HashMap::new()));
 
         Self {
-            client_config,
+            client_props,
             connection,
             cache_data_map,
         }
@@ -120,7 +120,7 @@ impl ConfigWorker {
         data_id: String,
         group: String,
     ) -> crate::api::error::Result<ConfigResponse> {
-        let tenant = self.client_config.namespace.clone();
+        let tenant = self.client_props.namespace.clone();
         let config_resp = Self::get_config_inner(
             &mut self.connection,
             data_id.clone(),

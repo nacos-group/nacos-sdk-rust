@@ -1,6 +1,6 @@
-use nacos_client::api::client_config::ClientConfig;
 use nacos_client::api::config::ConfigService;
 use nacos_client::api::config::ConfigServiceBuilder;
+use nacos_client::api::props::ClientProps;
 use std::time::Duration;
 use tokio::time::sleep;
 
@@ -14,18 +14,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .init();
 
     let mut config_service = ConfigServiceBuilder::new(
-        ClientConfig::new()
+        ClientProps::new()
             .server_addr("0.0.0.0:9848")
-            // Attention! "public" is ""
+            // Attention! "public" is "", it is recommended to customize the namespace with clear meaning.
             .namespace("")
             .app_name("simple_app"),
     )
     .build()
     .await;
-    let config =
-        config_service.get_config("hongwen.properties".to_string(), "LOVE".to_string(), 3000);
-    match config {
-        Ok(config) => tracing::info!("get the config {}", config),
+    let config_resp =
+        config_service.get_config("hongwen.properties".to_string(), "LOVE".to_string());
+    match config_resp {
+        Ok(config_resp) => tracing::info!("get the config {}", config_resp),
         Err(err) => tracing::error!("get the config {:?}", err),
     }
 
