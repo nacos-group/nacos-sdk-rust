@@ -65,8 +65,9 @@ impl ConnectionSetupClientRequest {
     }
 
     /// Sets the labels against.
-    pub fn labels(self, labels: HashMap<String, String>) -> Self {
-        ConnectionSetupClientRequest { labels, ..self }
+    pub fn labels(mut self, labels: HashMap<String, String>) -> Self {
+        self.labels.extend(labels.into_iter());
+        self
     }
 }
 

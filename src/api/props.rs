@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 /// Configures settings for Client.
 #[derive(Debug, Clone)]
-pub struct ClientConfig {
+pub struct ClientProps {
     /// server_addr like 127.0.0.1:9848
     pub(crate) server_addr: String,
     pub(crate) namespace: String,
@@ -12,10 +12,10 @@ pub struct ClientConfig {
     pub(crate) labels: HashMap<String, String>,
 }
 
-impl ClientConfig {
+impl ClientProps {
     /// Creates a new `ClientConfig`.
     pub fn new() -> Self {
-        ClientConfig {
+        ClientProps {
             server_addr: String::from(crate::api::constants::DEFAULT_SERVER_ADDR),
             /// public is "", Should define a more meaningful namespace
             namespace: String::from(""),

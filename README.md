@@ -5,11 +5,54 @@ Nacos client in Rust
 
 https://github.com/alibaba/nacos/issues/8443#issuecomment-1248227587
 
+## Quickstart
+
+### Add Dependency
+Add the dependency in `Cargo.toml`:
+
+```toml
+[dependencies]
+nacos-client = { version = "0.1.0", features = ["default"] }
+```
+
+### Usage of Config
+```rust
+    let mut config_service = ConfigServiceBuilder::new(
+        ClientProps::new()
+            .server_addr("0.0.0.0:9848")
+            // Attention! "public" is "", it is recommended to customize the namespace with clear meaning.
+            .namespace("")
+            .app_name("simple_app"),
+    )
+    .build()
+    .await;
+
+    // example get a config
+    let config_resp = config_service.get_config("todo-data-id".to_string(), "todo-group".to_string());
+    match config_resp {
+        Ok(config_resp) => tracing::info!("get the config {}", config_resp),
+        Err(err) => tracing::error!("get the config {:?}", err),
+    }
+    
+    // example add a listener
+    let _listen = config_service.add_listener(
+        "todo-data-id".to_string(),
+        "todo-group".to_string(),
+        Box::new(|config_resp| {
+            tracing::info!("listen the config={:?}", config_resp);
+        }),
+    );
+    match _listen {
+        Ok(_) => tracing::info!("listening the config success"),
+        Err(err) => tracing::error!("listen config error {:?}", err),
+    }
+```
+
 ## 开发说明
 - Build with `cargo build`
 > Note: The proto buf client generation is built into cargo build process so updating the proto files under proto/ is enough to update the proto buf client.
 
-- 请 `cargo fmt` 格式化代码再提交
+- 请 `cargo fmt --all` 格式化代码再提交
 
 - Rust 入门，还有太多东西不规范，仍需斟酌各种实现逻辑
 - 测试用例暂未能实现自动化，开发过程需本地启动 [nacos server](https://github.com/alibaba/nacos) `-Dnacos.standalone=true`
@@ -42,9 +85,9 @@ gRPC 交互的 Payload 和 Metadata 由 `Protocol Buffers` 序列化，具体的
 以上交互务必参考 java nacos-client 和 nacos-server 的实现。
 
 #### Config 配置管理模块
-- [ ] 客户端创建 api
+- [x] 客户端创建 api
 - [x] 获取配置 api 与实现
-- [ ] 监听配置 api 与实现，List-Watch 机制，具备 list 兜底逻辑
+- [x] 监听配置 api 与实现，List-Watch 机制，具备 list 兜底逻辑
 - [ ] 配置 Filter，提供配置解密默认实现；配置获取后，内存缓存，磁盘缓存均是原文，仅返回到用户时经过配置 Filter
 
 #### Naming 服务注册模块

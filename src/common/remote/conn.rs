@@ -7,7 +7,7 @@ use futures::SinkExt;
 use std::sync::{Arc, Mutex};
 use std::{error::Error, time::Duration};
 
-use crate::api::client_config::ClientConfig;
+use crate::api::props::ClientProps;
 use crate::common::remote::request::client_request::{
     ConnectionSetupClientRequest, ServerCheckClientRequest,
 };
@@ -19,7 +19,7 @@ use crate::nacos_proto::v2::{BiRequestStreamClient, Payload, RequestClient};
 
 #[derive(Clone)]
 pub struct Connection {
-    client_config: ClientConfig,
+    client_props: ClientProps,
     state: State,
 }
 
@@ -46,9 +46,9 @@ enum State {
 impl Connection {
     const BACKOFF: Duration = Duration::from_millis(500);
 
-    pub(crate) fn new(client_config: ClientConfig) -> Self {
+    pub(crate) fn new(client_props: ClientProps) -> Self {
         Self {
-            client_config,
+            client_props,
             state: State::Disconnected(Duration::from_secs(0)),
         }
     }
@@ -58,16 +58,16 @@ impl Connection {
 
         while let State::Disconnected(backoff) = self.state {
             if backoff == Duration::from_secs(0) {
-                tracing::info!(to = %self.client_config.server_addr, "connecting");
+                tracing::info!(to = %self.client_props.server_addr, "connecting");
             } else {
                 tracing::info!(reconnect_in = ?backoff, "reconnecting");
                 tokio::time::sleep(backoff).await;
             }
 
             let try_connect = async {
-                let target = self.client_config.server_addr.clone();
-                let tenant = self.client_config.namespace.clone();
-                let labels = self.client_config.labels.clone();
+                let target = self.client_props.server_addr.clone();
+                let tenant = self.client_props.namespace.clone();
+                let labels = self.client_props.labels.clone();
 
                 let env = Arc::new(grpcio::Environment::new(2));
                 let channel = grpcio::ChannelBuilder::new(env).connect(target.as_str());
@@ -214,7 +214,7 @@ impl Connection {
 
 #[cfg(test)]
 mod tests {
-    use crate::api::client_config::ClientConfig;
+    use crate::api::props::ClientProps;
     use crate::common::remote::conn::Connection;
     use crate::common::remote::request::server_request::ClientDetectionServerRequest;
     use crate::common::remote::request::{Request, TYPE_CLIENT_DETECTION_SERVER_REQUEST};
@@ -227,7 +227,7 @@ mod tests {
             .with_max_level(tracing::Level::DEBUG)
             .init();
         let mut remote_connect =
-            Connection::new(ClientConfig::new().server_addr("0.0.0.0:9848".to_string()));
+            Connection::new(ClientProps::new().server_addr("0.0.0.0:9848".to_string()));
         remote_connect.connect().await;
     }
 
@@ -237,7 +237,7 @@ mod tests {
             .with_max_level(tracing::Level::DEBUG)
             .init();
         let mut remote_connect =
-            Connection::new(ClientConfig::new().server_addr("0.0.0.0:9848".to_string()));
+            Connection::new(ClientProps::new().server_addr("0.0.0.0:9848".to_string()));
         let payload_inner = remote_connect.next_server_req_payload().await;
         if TYPE_CLIENT_DETECTION_SERVER_REQUEST.eq(&payload_inner.type_url) {
             let de = ClientDetectionServerRequest::from(payload_inner.body_str.as_str());

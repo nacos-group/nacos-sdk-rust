@@ -13,7 +13,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 //
-/// error learn from Skywalking Rust.
 
 /// Nacos Sdk Rust Result.
 pub type Result<T> = std::result::Result<T, Error>;
@@ -29,6 +28,10 @@ pub enum Error {
 
     #[error("get result failed: {0}")]
     ErrResult(String),
+
+    /// Config not found.
+    #[error("config not exist: {0}")]
+    ConfigNotFound(String),
 
     #[error("remote client shutdown failed: {0}")]
     ClientShutdown(String),

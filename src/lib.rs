@@ -14,6 +14,42 @@
 // limitations under the License.
 //
 
+#![cfg_attr(docsrs, feature(doc_cfg))]
+#![cfg_attr(docsrs, allow(unused_attributes))]
+
+//! # Nacos in Rust
+//!
+//! Thorough examples have been provided in our [repository](https://github.com/nacos-group/nacos-sdk-rust).
+//!
+//! ## Add Dependency
+//!
+//! Add the dependency in `Cargo.toml`:
+//!
+//! ```toml
+//! [dependencies]
+//! nacos-client = { version = "0.1.0", features = ["default"] }
+//! ```
+//!
+//! ## General Configurations and Initialization
+//!
+//! Nacos needs to be initialized. Please see the `api` module.
+//!
+//! ### Example of Config
+//!
+//! ```rust
+//!  let mut config_service = nacos_client::api::config::ConfigServiceBuilder::new(
+//!        nacos_client::api::props::ClientProps::new()
+//!           .server_addr("0.0.0.0:9848")
+//!           // Attention! "public" is "", it is recommended to customize the namespace with clear meaning.
+//!           .namespace("")
+//!           .app_name("todo-your-app-name"),
+//!   )
+//!   .build()//.await
+//!   ;
+//! ```
+//!
+
+/// Nacos API
 pub mod api;
 
 mod common;

@@ -1,6 +1,7 @@
-use crate::api::client_config::ClientConfig;
 use crate::api::config::ConfigResponse;
+use crate::api::props::ClientProps;
 use crate::common::remote::conn::Connection;
+use crate::common::remote::request::client_request::*;
 use crate::common::remote::request::server_request::*;
 use crate::common::remote::request::*;
 use crate::common::remote::response::client_response::*;
@@ -18,18 +19,18 @@ use std::sync::{Arc, Mutex};
 
 #[derive(Clone)]
 pub(crate) struct ConfigWorker {
-    client_config: ClientConfig,
+    client_props: ClientProps,
     connection: Connection,
     cache_data_map: Arc<Mutex<HashMap<String, CacheData>>>,
 }
 
 impl ConfigWorker {
-    pub(crate) fn new(client_config: ClientConfig) -> Self {
-        let connection = Connection::new(client_config.clone());
+    pub(crate) fn new(client_props: ClientProps) -> Self {
+        let connection = Connection::new(client_props.clone());
         let cache_data_map = Arc::new(Mutex::new(HashMap::new()));
 
         Self {
-            client_config,
+            client_props,
             connection,
             cache_data_map,
         }
@@ -96,20 +97,43 @@ impl ConfigWorker {
             Arc::clone(&self.cache_data_map),
         ));
 
-        // sleep 6ms, Make sure the link is established.
-        tokio::time::sleep(std::time::Duration::from_millis(6)).await
+        loop {
+            // sleep 6ms, Make sure the link is established.
+            tokio::time::sleep(std::time::Duration::from_millis(6)).await;
+
+            if let Ok(client) = self.connection.get_client() {
+                let resp = client.request(&payload_helper::build_req_grpc_payload(
+                    HealthCheckClientRequest::new(),
+                ));
+                if let Ok(resp) = resp {
+                    let resp = payload_helper::build_server_response(resp).unwrap();
+                    if resp.is_success() {
+                        break;
+                    }
+                }
+            }
+        }
     }
 
     pub(crate) fn get_config(
         &mut self,
         data_id: String,
         group: String,
-        _timeout_ms: u64,
-    ) -> crate::api::error::Result<String> {
-        let tenant = self.client_config.namespace.clone();
-        let config_resp =
-            Self::get_config_inner(&mut self.connection, data_id, group, tenant, _timeout_ms);
-        Ok(String::from(config_resp?.content()))
+    ) -> crate::api::error::Result<ConfigResponse> {
+        let tenant = self.client_props.namespace.clone();
+        let config_resp = Self::get_config_inner(
+            &mut self.connection,
+            data_id.clone(),
+            group.clone(),
+            tenant.clone(),
+        )?;
+        Ok(ConfigResponse::new(
+            data_id,
+            group,
+            tenant,
+            config_resp.content().unwrap().to_string(),
+            config_resp.content_type().unwrap().to_string(),
+        ))
     }
 
     /// Add listener.
@@ -135,7 +159,6 @@ impl ConfigWorker {
                             cache_data.data_id.clone(),
                             cache_data.group.clone(),
                             cache_data.tenant.clone(),
-                            3000,
                         );
                         if let Ok(config_resp) = config_resp {
                             Self::fill_data_and_notify(&mut cache_data, config_resp);
@@ -264,7 +287,6 @@ impl ConfigWorker {
                                 c.data_id.clone(),
                                 c.group.clone(),
                                 c.tenant.clone(),
-                                3000,
                             );
                             if let Ok(config_resp) = config_resp {
                                 Self::fill_data_and_notify(c, config_resp);
@@ -278,9 +300,9 @@ impl ConfigWorker {
     }
 
     fn fill_data_and_notify(cache_data: &mut CacheData, config_resp: ConfigQueryServerResponse) {
-        cache_data.content_type = config_resp.content_type().to_string();
-        cache_data.content = config_resp.content().to_string();
-        cache_data.md5 = config_resp.md5().to_string();
+        cache_data.content_type = config_resp.content_type().unwrap().to_string();
+        cache_data.content = config_resp.content().unwrap().to_string();
+        cache_data.md5 = config_resp.md5().unwrap().to_string();
         cache_data.last_modified = config_resp.last_modified();
         tracing::info!("fill_data_and_notify, cache_data={}", cache_data);
         if cache_data.initializing {
@@ -296,7 +318,6 @@ impl ConfigWorker {
         data_id: String,
         group: String,
         tenant: String,
-        _timeout_ms: u64,
     ) -> crate::api::error::Result<ConfigQueryServerResponse> {
         let req = ConfigQueryClientRequest::new(data_id, group, tenant);
         let req_payload = payload_helper::build_req_grpc_payload(req);
@@ -312,7 +333,21 @@ impl ConfigWorker {
             )));
         }
         let config_resp = ConfigQueryServerResponse::from(payload_inner.body_str.as_str());
-        Ok(config_resp)
+        if config_resp.is_success() {
+            Ok(config_resp)
+        } else if config_resp.is_not_found() {
+            Err(crate::api::error::Error::ConfigNotFound(format!(
+                "error_code={},message={}",
+                config_resp.error_code(),
+                config_resp.message().unwrap()
+            )))
+        } else {
+            Err(crate::api::error::Error::ErrResult(format!(
+                "error_code={},message={}",
+                config_resp.error_code(),
+                config_resp.message().unwrap()
+            )))
+        }
     }
 }
 
