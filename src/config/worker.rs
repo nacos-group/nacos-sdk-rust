@@ -92,9 +92,9 @@ impl ConfigWorker {
             notify_change_rx,
         ));
         tokio::spawn(Self::list_ensure_cache_data_newest(
-            notify_change_tx_2,
             self.connection.clone(),
             Arc::clone(&self.cache_data_map),
+            notify_change_tx_2,
         ));
 
         loop {
@@ -217,9 +217,9 @@ impl ConfigWorker {
 
     /// List-Watch, list ensure cache-data newest.
     async fn list_ensure_cache_data_newest(
-        notify_change_tx: tokio::sync::mpsc::Sender<String>,
         mut connection: Connection,
         cache_data_map: Arc<Mutex<HashMap<String, CacheData>>>,
+        notify_change_tx: tokio::sync::mpsc::Sender<String>,
     ) {
         loop {
             let mut listen_context_vec = vec![];
