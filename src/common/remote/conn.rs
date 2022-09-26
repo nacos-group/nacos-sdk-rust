@@ -71,7 +71,7 @@ impl Connection {
 
                 let env = Arc::new(grpcio::Environment::new(2));
                 let channel = grpcio::ChannelBuilder::new(env)
-                    .use_local_subchannel_pool(true) // same target-addr build multi sub-channel, independent link, not reused.
+                    // .use_local_subchannel_pool(true) // same target-addr build multi sub-channel, independent link, not reused.
                     .connect(target.as_str());
 
                 let client = RequestClient::new(channel.clone());
