@@ -63,9 +63,17 @@ impl ConfigWorker {
                             server_req_payload_inner = conn.next_server_req_payload() => {
                                 let payload_inner = server_req_payload_inner;
                                 if TYPE_CLIENT_DETECTION_SERVER_REQUEST.eq(&payload_inner.type_url) {
+                                    tracing::debug!(
+                                        "[{}] receive client-detection, {} with {}",
+                                        conn.get_conn_id(), payload_inner.type_url, payload_inner.body_str
+                                    );
                                     let de = ClientDetectionServerRequest::from(payload_inner.body_str.as_str()).headers(payload_inner.headers);
                                     let _ = conn.reply_client_resp(ClientDetectionClientResponse::new(de.request_id().clone())).await;
                                 } else if TYPE_CONNECT_RESET_SERVER_REQUEST.eq(&payload_inner.type_url) {
+                                    tracing::warn!(
+                                        "[{}] receive connect-reset, {} with {}",
+                                        conn.get_conn_id(), payload_inner.type_url, payload_inner.body_str
+                                    );
                                     let de = ConnectResetServerRequest::from(payload_inner.body_str.as_str()).headers(payload_inner.headers);
                                     let _ = conn.reply_client_resp(ConnectResetClientResponse::new(de.request_id().clone())).await;
                                     // todo reset connection
