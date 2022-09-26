@@ -70,6 +70,10 @@ impl ConfigWorker {
                                     let _ = conn.reply_client_resp(ConnectResetClientResponse::new(de.request_id().clone())).await;
                                     // todo reset connection
                                 } else {
+                                    tracing::info!(
+                                        "[{}] receive server-request, {} with {}",
+                                        conn.get_conn_id(), payload_inner.type_url, payload_inner.body_str
+                                    );
                                     // publish a server_req_payload, server_req_payload_rx receive it once.
                                     if let Err(_) = server_req_payload_tx.send(payload_inner).await {
                                         tracing::error!("receiver dropped")
@@ -191,10 +195,11 @@ impl ConfigWorker {
             let server_req_id = server_req.request_id().clone();
             let req_tenant = server_req.tenant.or(Some("".to_string())).unwrap();
             tracing::info!(
-                "receiver config change, dataId={},group={},namespace={}",
-                &server_req.dataId,
-                &server_req.group,
-                req_tenant.clone()
+                "[{}] receive config-change, dataId={},group={},namespace={}",
+                conn.get_conn_id(),
+                server_req.dataId,
+                server_req.group,
+                req_tenant
             );
             // notify config change
             let group_key = util::group_key(&server_req.dataId, &server_req.group, &req_tenant);
@@ -270,7 +275,13 @@ impl ConfigWorker {
     ) {
         loop {
             match notify_change_rx.recv().await {
-                None => break, // break if notify_change_rx be dropped(shutdown).
+                None => {
+                    tracing::warn!(
+                        "[{}] notify_change_to_cache_data break, notify_change_rx be dropped(shutdown).",
+                        connection.get_conn_id()
+                    );
+                    break;
+                }
                 Some(group_key) => {
                     if let Ok(mut mutex) = cache_data_map.lock() {
                         if !mutex.contains_key(group_key.as_str()) {
