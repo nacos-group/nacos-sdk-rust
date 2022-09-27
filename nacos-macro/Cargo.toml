@@ -1,0 +1,16 @@
+[package]
+name = "nacos_macro"
+version = "0.1.0"
+edition = "2021"
+authors = ["nacos-group", "CheirshCai <785427346@qq.com>", "onewe <2583021406@qq.com>"]
+
+
+[lib]
+proc-macro = true
+name = "nacos_macro"
+
+[dependencies]
+proc-macro2 = "1.0.29"
+quote = "1.0.10"
+syn = { version = "1.0.80", features = ["extra-traits"] }
+darling = "0.14.0"
