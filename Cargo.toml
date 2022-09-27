@@ -31,6 +31,11 @@ categories = ["network-programming", "development-tools"]
 keywords = ["microservices", "config", "naming", "service-discovery", "config-management"]
 exclude = [".github", "proto", "build.rs"]
 
+[workspace]
+members = [
+    "nacos-macro"
+]
+
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [features]
 default = ["config", "naming"]
@@ -38,6 +43,7 @@ config = []
 naming = []
 
 [dependencies]
+nacos_macro= {version = "0.1.0",path = "nacos-macro"}
 thiserror = "1.0"
 tokio = { version = "1.21", features = ["full"] }
 #tokio-stream = { version = "0.1", features = ["net"] }
