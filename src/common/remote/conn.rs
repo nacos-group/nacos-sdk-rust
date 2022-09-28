@@ -70,7 +70,9 @@ impl Connection {
                 let labels = self.client_props.labels.clone();
 
                 let env = Arc::new(grpcio::Environment::new(2));
-                let channel = grpcio::ChannelBuilder::new(env).connect(target.as_str());
+                let channel = grpcio::ChannelBuilder::new(env)
+                    // .use_local_subchannel_pool(true) // same target-addr build multi sub-channel, independent link, not reused.
+                    .connect(target.as_str());
 
                 let client = RequestClient::new(channel.clone());
 
@@ -208,6 +210,14 @@ impl Connection {
             State::Disconnected(_) => Err(crate::api::error::Error::ClientShutdown(String::from(
                 "Disconnected, please try later.",
             ))),
+        }
+    }
+
+    /// Get a conn_id.
+    pub(crate) fn get_conn_id(&mut self) -> String {
+        match self.state {
+            State::Connected { ref conn_id, .. } => conn_id.clone(),
+            State::Disconnected(_) => "disconnected".to_string(),
         }
     }
 }
