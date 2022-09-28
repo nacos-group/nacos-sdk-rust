@@ -4,13 +4,14 @@ use futures::SinkExt;
 use futures::TryStreamExt;
 use grpcio::WriteFlags;
 use grpcio::{ChannelBuilder, Environment};
-use tokio::sync::mpsc::{Sender, Receiver,channel};
+use tokio::sync::mpsc::{channel, Receiver, Sender};
 
-use tracing::info;
 use tracing::error;
+use tracing::info;
 use tracing::warn;
 
 use crate::nacos_proto::v2::{BiRequestStreamClient, RequestClient};
+use crate::naming::common::executor;
 use crate::naming::grpc::message::{GrpcMessage, GrpcMessageBody};
 
 pub(crate) struct GrpcService {
@@ -47,14 +48,14 @@ impl GrpcService {
         P: GrpcMessageBody,
     {
         let request_payload = message.to_payload();
-        if  request_payload.is_none() {
+        if request_payload.is_none() {
             error!("grpc message convert to payload error");
             return None;
         }
         let request_payload = request_payload.unwrap();
 
         let response_payload = self.request_client.request_async(&request_payload);
-        
+
         if let Err(error) = response_payload {
             error!("receive grpc message occur an error. {:?}", error);
             return None;
@@ -70,19 +71,19 @@ impl GrpcService {
         let response_payload = response_payload.unwrap();
 
         GrpcMessage::<P>::from_payload(response_payload)
-
     }
 
-    pub fn duplex_streaming<R, P>(&self) -> Option<(Sender<GrpcMessage<R>>, Receiver<GrpcMessage<P>>)>
+    pub fn duplex_streaming<R, P>(
+        &self,
+    ) -> Option<(Sender<GrpcMessage<R>>, Receiver<GrpcMessage<P>>)>
     where
         R: GrpcMessageBody + 'static,
         P: GrpcMessageBody + 'static,
     {
-
         let (req_sender, mut req_recevier) = channel::<GrpcMessage<R>>(128);
-        let (rsp_sender, rsp_recevier) =  channel::<GrpcMessage<P>>(128);
+        let (rsp_sender, rsp_recevier) = channel::<GrpcMessage<P>>(128);
 
-        let stream  = self.bi_request_stream_client.request_bi_stream();
+        let stream = self.bi_request_stream_client.request_bi_stream();
         if let Err(error) = stream {
             error!("request bi stream occur an error. {:?}", error);
             return None;
@@ -109,32 +110,29 @@ impl GrpcService {
         };
 
         let receive_task = async move {
-
-           while let Ok(message) = receiver.try_next().await {
-               if message.is_none() {
+            while let Ok(message) = receiver.try_next().await {
+                if message.is_none() {
                     warn!("receive a empty message");
                     continue;
-               }
-               let message = message.unwrap();
-               let message = GrpcMessage::<P>::from_payload(message);
-               if message.is_none() {
+                }
+                let message = message.unwrap();
+                let message = GrpcMessage::<P>::from_payload(message);
+                if message.is_none() {
                     warn!("payload convert to GrpcMessage occur an error");
                     continue;
-               }
-               let message = message.unwrap();
-               let send_ret = rsp_sender.send(message).await;
-               if let Err(error) = send_ret {
+                }
+                let message = message.unwrap();
+                let send_ret = rsp_sender.send(message).await;
+                if let Err(error) = send_ret {
                     error!("send grpc message occur an error. {:?}", error);
-               }
-           }
-           
+                }
+            }
         };
 
-        tokio::spawn(send_task);
-        tokio::spawn(receive_task);
+        executor::spawn(send_task);
+        executor::spawn(receive_task);
 
         Some((req_sender, rsp_recevier))
-        
     }
 }
 
