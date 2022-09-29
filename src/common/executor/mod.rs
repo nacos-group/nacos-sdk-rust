@@ -108,9 +108,11 @@ mod tests {
     #[test]
     fn test_schedule_at_fixed_delay() {
         let handler = schedule_at_fixed_delay(
-            || Some(async move {
-                println!("test schedule at fixed delay");
-            }),
+            || {
+                Some(async move {
+                    println!("test schedule at fixed delay");
+                })
+            },
             tokio::time::Duration::from_secs(1),
         );
 
@@ -123,9 +125,11 @@ mod tests {
     #[test]
     fn test_schedule_at_fixed_rate() {
         let handler = schedule_at_fixed_rate(
-            || Some(async move {
-                println!("test schedule at fixed rate");
-            }),
+            || {
+                Some(async move {
+                    println!("test schedule at fixed rate");
+                })
+            },
             tokio::time::Duration::from_secs(1),
         );
 

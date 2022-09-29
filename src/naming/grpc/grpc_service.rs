@@ -10,8 +10,8 @@ use tracing::error;
 use tracing::info;
 use tracing::warn;
 
-use crate::nacos_proto::v2::{BiRequestStreamClient, RequestClient};
 use crate::common::executor;
+use crate::nacos_proto::v2::{BiRequestStreamClient, RequestClient};
 use crate::naming::grpc::message::{GrpcMessage, GrpcMessageBody};
 
 pub(crate) struct GrpcService {
