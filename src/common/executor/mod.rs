@@ -22,19 +22,19 @@ where
     RT.spawn(future)
 }
 
-pub fn schedule<F>(future: F, duration: Duration) -> JoinHandle<F::Output>
+pub fn schedule<F>(future: F, delay: Duration) -> JoinHandle<F::Output>
 where
     F: Future + Send + 'static,
     F::Output: Send + 'static,
 {
     RT.spawn(async move {
-        sleep(duration).await;
+        sleep(delay).await;
         future.await
     })
 }
 
 pub fn schedule_at_fixed_rate<Fut>(
-    func: impl Fn() -> Fut + Send + 'static,
+    func: impl Fn() -> Option<Fut> + Send + 'static,
     duration: Duration,
 ) -> JoinHandle<()>
 where
@@ -43,6 +43,10 @@ where
     RT.spawn(async move {
         loop {
             let future = func();
+            if future.is_none() {
+                break;
+            }
+            let future = future.unwrap();
             future.await;
             sleep(duration).await;
         }
@@ -50,7 +54,7 @@ where
 }
 
 pub fn schedule_at_fixed_delay<Fut>(
-    func: impl Fn() -> Fut + Send + 'static,
+    func: impl Fn() -> Option<Fut> + Send + 'static,
     duration: Duration,
 ) -> JoinHandle<()>
 where
@@ -61,6 +65,10 @@ where
         loop {
             interval.tick().await;
             let future = func();
+            if future.is_none() {
+                break;
+            }
+            let future = future.unwrap();
             future.await;
         }
     })
@@ -100,9 +108,9 @@ mod tests {
     #[test]
     fn test_schedule_at_fixed_delay() {
         let handler = schedule_at_fixed_delay(
-            || async move {
+            || Some(async move {
                 println!("test schedule at fixed delay");
-            },
+            }),
             tokio::time::Duration::from_secs(1),
         );
 
@@ -115,9 +123,9 @@ mod tests {
     #[test]
     fn test_schedule_at_fixed_rate() {
         let handler = schedule_at_fixed_rate(
-            || async move {
+            || Some(async move {
                 println!("test schedule at fixed rate");
-            },
+            }),
             tokio::time::Duration::from_secs(1),
         );
 

@@ -1,2 +1,1 @@
-mod common;
 mod grpc;
