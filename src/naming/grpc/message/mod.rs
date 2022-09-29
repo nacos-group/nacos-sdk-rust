@@ -62,7 +62,9 @@ where
     }
 }
 
-pub(crate) trait GrpcMessageBody: Debug + Clone + Serialize + DeserializeOwned {
+pub(crate) trait GrpcMessageBody:
+    Debug + Clone + Serialize + DeserializeOwned + Send
+{
     fn request_type(&self) -> std::borrow::Cow<'_, str>;
 
     fn to_proto_any(&self) -> Result<Any, Box<dyn Error>> {
