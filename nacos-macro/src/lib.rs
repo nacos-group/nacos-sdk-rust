@@ -24,7 +24,7 @@ fn derive(input: proc_macro2::TokenStream) -> proc_macro2::TokenStream {
 
     quote! {
         impl GrpcMessageBody for #name {
-            fn request_type(&self) -> std::borrow::Cow<'_, str> {
+            fn type_url<'a>() -> std::borrow::Cow<'a, str> {
                 #request_type.into()
             }
         }

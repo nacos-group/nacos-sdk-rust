@@ -6,15 +6,18 @@ use tokio::{
     time::{interval, sleep, Duration},
 };
 
+use std::thread::available_parallelism;
+
 lazy_static! {
     static ref RT: Runtime = Builder::new_multi_thread()
         .enable_all()
+        .worker_threads(available_parallelism().unwrap().get() * 2 + 1)
         .thread_name("nacos-client-thread-pool")
         .build()
         .unwrap();
 }
 
-pub fn spawn<F>(future: F) -> JoinHandle<F::Output>
+pub(crate) fn spawn<F>(future: F) -> JoinHandle<F::Output>
 where
     F: Future + Send + 'static,
     F::Output: Send + 'static,
@@ -22,7 +25,15 @@ where
     RT.spawn(future)
 }
 
-pub fn schedule<F>(future: F, delay: Duration) -> JoinHandle<F::Output>
+pub(crate) fn block_on<F>(future: F) -> F::Output
+where
+    F: Future + Send + 'static,
+    F::Output: Send + 'static,
+{
+    RT.block_on(future)
+}
+
+pub(crate) fn schedule<F>(future: F, delay: Duration) -> JoinHandle<F::Output>
 where
     F: Future + Send + 'static,
     F::Output: Send + 'static,
@@ -33,7 +44,7 @@ where
     })
 }
 
-pub fn schedule_at_fixed_rate<Fut>(
+pub(crate) fn schedule_at_fixed_rate<Fut>(
     func: impl Fn() -> Option<Fut> + Send + 'static,
     duration: Duration,
 ) -> JoinHandle<()>
@@ -53,7 +64,7 @@ where
     })
 }
 
-pub fn schedule_at_fixed_delay<Fut>(
+pub(crate) fn schedule_at_fixed_delay<Fut>(
     func: impl Fn() -> Option<Fut> + Send + 'static,
     duration: Duration,
 ) -> JoinHandle<()>
