@@ -32,7 +32,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _listen = config_service.add_listener(
         "hongwen.properties".to_string(),
         "LOVE".to_string(),
-        Box::new(|config_resp| {
+        std::sync::Arc::new(|config_resp| {
             tracing::info!("listen the config={:?}", config_resp);
         }),
     );

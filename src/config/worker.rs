@@ -154,7 +154,7 @@ impl ConfigWorker {
         data_id: String,
         group: String,
         tenant: String,
-        listener: Box<crate::api::config::ConfigChangeListener>,
+        listener: Arc<crate::api::config::ConfigChangeListener>,
     ) {
         let group_key = util::group_key(&data_id, &group, &tenant);
         if let Ok(mut mutex) = self.cache_data_map.lock() {
@@ -187,6 +187,25 @@ impl ConfigWorker {
             let _ = mutex
                 .get_mut(group_key.as_str())
                 .map(|c| c.add_listener(listener));
+        }
+    }
+
+    /// Remove listener.
+    pub(crate) fn remove_listener(
+        &mut self,
+        data_id: String,
+        group: String,
+        tenant: String,
+        listener: Arc<crate::api::config::ConfigChangeListener>,
+    ) {
+        let group_key = util::group_key(&data_id, &group, &tenant);
+        if let Ok(mut mutex) = self.cache_data_map.lock() {
+            if !mutex.contains_key(group_key.as_str()) {
+                return;
+            }
+            let _ = mutex
+                .get_mut(group_key.as_str())
+                .map(|c| c.remove_listener(listener));
         }
     }
 }
@@ -399,10 +418,37 @@ impl CacheData {
     }
 
     /// Add listener.
-    fn add_listener(&mut self, listener: Box<crate::api::config::ConfigChangeListener>) {
+    fn add_listener(&mut self, listener: Arc<crate::api::config::ConfigChangeListener>) {
         if let Ok(mut mutex) = self.listeners.lock() {
-            mutex.push(ListenerWrapper::new(listener));
+            if self.index_of_listener(Arc::clone(&listener)).is_some() {
+                return;
+            }
+            mutex.push(ListenerWrapper::new(Arc::clone(&listener)));
         }
+    }
+
+    /// Remove listener.
+    fn remove_listener(&mut self, listener: Arc<crate::api::config::ConfigChangeListener>) {
+        if let Ok(mut mutex) = self.listeners.lock() {
+            if let Some(idx) = self.index_of_listener(Arc::clone(&listener)) {
+                mutex.swap_remove(idx);
+            }
+        }
+    }
+
+    /// fn inner, return idx if existed, else return None.
+    fn index_of_listener(
+        &self,
+        listener: Arc<crate::api::config::ConfigChangeListener>,
+    ) -> Option<usize> {
+        if let Ok(mutex) = self.listeners.lock() {
+            for (idx, listen_warp) in mutex.iter().enumerate() {
+                if Arc::ptr_eq(&listen_warp.listener, &listener) {
+                    return Some(idx);
+                }
+            }
+        }
+        return None;
     }
 
     /// Notify listener. when last-md5 not equals the-newest-md5
@@ -470,11 +516,11 @@ impl std::fmt::Display for CacheData {
 struct ListenerWrapper {
     /// last md5 be notified
     last_md5: String,
-    listener: Box<crate::api::config::ConfigChangeListener>,
+    listener: Arc<crate::api::config::ConfigChangeListener>,
 }
 
 impl ListenerWrapper {
-    fn new(listener: Box<crate::api::config::ConfigChangeListener>) -> Self {
+    fn new(listener: Arc<crate::api::config::ConfigChangeListener>) -> Self {
         Self {
             last_md5: "".to_string(),
             listener,

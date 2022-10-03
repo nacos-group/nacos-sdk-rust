@@ -38,7 +38,7 @@ nacos-sdk = { version = "0.1", features = ["default"] }
     let _listen = config_service.add_listener(
         "todo-data-id".to_string(),
         "todo-group".to_string(),
-        Box::new(|config_resp| {
+        Arc::new(|config_resp| {
             tracing::info!("listen the config={:?}", config_resp);
         }),
     );
