@@ -14,17 +14,17 @@ use self::grpc::message::{GrpcMessage, GrpcMessageBuilder};
 mod error;
 mod grpc;
 
-const LABEL_SOURCE: &'static str = "source";
+const LABEL_SOURCE: &str = "source";
 
-const LABEL_SOURCE_SDK: &'static str = "sdk";
+const LABEL_SOURCE_SDK: &str = "sdk";
 
-const LABEL_MODULE: &'static str = "module";
+const LABEL_MODULE: &str = "module";
 
-const LABEL_MODULE_NAMING: &'static str = "naming";
+const LABEL_MODULE_NAMING: &str = "naming";
 
-const DEFAULT_CLUSTER_NAME: &'static str = "DEFAULT";
+const DEFAULT_CLUSTER_NAME: &str = "DEFAULT";
 
-const DEFAULT_GROUP: &'static str = "DEFAULT_GROUP";
+const DEFAULT_GROUP: &str = "DEFAULT_GROUP";
 
 pub struct NamingService {
     grpc_service: Arc<GrpcService>,

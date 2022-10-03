@@ -82,14 +82,13 @@ impl Connection {
                 let server_check_response = payload_helper::build_server_response(resp_payload)?;
                 let conn_id = server_check_response
                     .connection_id()
-                    .ok_or(crate::api::error::Error::ClientShutdown(format!(
-                        "Get connection_id failed,error_code={},message={}",
-                        server_check_response.error_code(),
-                        server_check_response
-                            .message()
-                            .or(Some(&"".to_string()))
-                            .unwrap(),
-                    )))?
+                    .ok_or_else(|| {
+                        crate::api::error::Error::ClientShutdown(format!(
+                            "Get connection_id failed,error_code={},message={}",
+                            server_check_response.error_code(),
+                            server_check_response.message().unwrap_or(&"".to_string()),
+                        ))
+                    })?
                     .to_string();
 
                 let bi_client = BiRequestStreamClient::new(channel.clone());

@@ -12,6 +12,7 @@ pub struct ClientProps {
     pub(crate) labels: HashMap<String, String>,
 }
 
+#[allow(clippy::new_without_default)]
 impl ClientProps {
     /// Creates a new `ClientConfig`.
     pub fn new() -> Self {

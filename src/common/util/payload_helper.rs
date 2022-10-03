@@ -42,7 +42,7 @@ pub(crate) fn build_resp_grpc_payload(resp: impl Response + Serialize) -> Payloa
     tracing::debug!(
         "build_resp_grpc_payload {} request_id={}",
         resp.type_url(),
-        resp.request_id().or(Some(&"".to_string())).unwrap()
+        resp.request_id().unwrap_or(&"".to_string())
     );
     let json_val = serde_json::to_vec(&resp).unwrap();
     let metadata = Metadata {
@@ -119,7 +119,7 @@ pub(crate) fn covert_payload(payload: Payload) -> PayloadInner {
 
 /// Whether ErrorResponse.
 pub(crate) fn is_err_resp(type_trl: &String) -> bool {
-    return TYPE_ERROR_SERVER_RESPONSE.eq(type_trl);
+    TYPE_ERROR_SERVER_RESPONSE.eq(type_trl)
 }
 
 #[cfg(test)]
