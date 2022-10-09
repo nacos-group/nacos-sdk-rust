@@ -250,6 +250,8 @@ impl ConfigWorker {
         notify_change_tx: tokio::sync::mpsc::Sender<String>,
     ) {
         loop {
+            // todo invoke remove_listener with ConfigBatchListenClientRequest::new(false) when is_empty(),
+            //  and then remove cache_data from cache_data_map.
             let mut listen_context_vec = Vec::with_capacity(6);
             {
                 // try_lock, The failure to acquire the lock can be handled by the next loop.
