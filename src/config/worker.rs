@@ -445,12 +445,13 @@ impl CacheData {
     ) -> Option<usize> {
         if let Ok(mutex) = self.listeners.lock() {
             for (idx, listen_warp) in mutex.iter().enumerate() {
+                #[warn(clippy::vtable_address_comparisons)]
                 if Arc::ptr_eq(&listen_warp.listener, &listener) {
                     return Some(idx);
                 }
             }
         }
-        return None;
+        None
     }
 
     /// Notify listener. when last-md5 not equals the-newest-md5
