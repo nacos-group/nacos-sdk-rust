@@ -46,8 +46,8 @@ impl ConfigService for NacosConfigService {
         listener: std::sync::Arc<crate::api::config::ConfigChangeListener>,
     ) -> crate::api::error::Result<()> {
         self.client_worker.add_listener(
-            data_id.clone(),
-            group.clone(),
+            data_id,
+            group,
             self.client_props.namespace.clone(),
             listener,
         );

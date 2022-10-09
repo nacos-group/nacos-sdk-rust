@@ -159,7 +159,7 @@ impl ConfigWorker {
         let group_key = util::group_key(&data_id, &group, &tenant);
         if let Ok(mut mutex) = self.cache_data_map.lock() {
             if !mutex.contains_key(group_key.as_str()) {
-                let mut cache_data = CacheData::new(data_id.clone(), group.clone(), tenant.clone());
+                let mut cache_data = CacheData::new(data_id, group, tenant);
                 // listen immediately upon initialization
                 if let Ok(client) = self.connection.get_client() {
                     // init cache_data
@@ -220,7 +220,7 @@ impl ConfigWorker {
             let server_req = ConfigChangeNotifyServerRequest::from(payload_inner.body_str.as_str())
                 .headers(payload_inner.headers);
             let server_req_id = server_req.request_id().clone();
-            let req_tenant = server_req.tenant.or(Some("".to_string())).unwrap();
+            let req_tenant = server_req.tenant.unwrap_or_else(|| "".to_string());
             tracing::info!(
                 "[{}] receive config-change, dataId={},group={},namespace={}",
                 conn.get_conn_id(),
@@ -494,7 +494,7 @@ impl std::fmt::Display for CacheData {
                 d = self.data_id,
                 g = self.group,
                 m = self.md5,
-                k = self.encrypted_data_key.as_ref().or(Some(&"".to_string())).unwrap(),
+                k = self.encrypted_data_key.as_ref().unwrap_or(&"".to_string()),
                 t = self.content_type,
                 c = content
             )
@@ -506,7 +506,7 @@ impl std::fmt::Display for CacheData {
                 d = self.data_id,
                 g = self.group,
                 m = self.md5,
-                k = self.encrypted_data_key.as_ref().or(Some(&"".to_string())).unwrap(),
+                k = self.encrypted_data_key.as_ref().unwrap_or(&"".to_string()),
                 t = self.content_type,
                 c = self.content
             )

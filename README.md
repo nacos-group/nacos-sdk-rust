@@ -52,7 +52,11 @@ nacos-sdk = { version = "0.1", features = ["default"] }
 - Build with `cargo build`
 > Note: The proto buf client generation is built into cargo build process so updating the proto files under proto/ is enough to update the proto buf client.
 
+- 请 `cargo clippy --all` 根据提示优化代码
+> Run `cargo clippy --all` - this will catch common mistakes and improve your Rust code.
+
 - 请 `cargo fmt --all` 格式化代码再提交
+> Run `cargo fmt --all` - this will find and fix code formatting issues.
 
 - Rust 入门，还有太多东西不规范，仍需斟酌各种实现逻辑
 - 测试用例暂未能实现自动化，开发过程需本地启动 [nacos server](https://github.com/alibaba/nacos) `-Dnacos.standalone=true`
