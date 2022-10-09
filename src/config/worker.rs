@@ -15,6 +15,7 @@ use crate::config::server_request::*;
 use crate::config::server_response::*;
 use crate::config::util;
 use std::collections::HashMap;
+use std::ops::Deref;
 use std::sync::{Arc, Mutex};
 
 #[derive(Clone)]
@@ -422,7 +423,7 @@ impl CacheData {
     /// Add listener.
     fn add_listener(&mut self, listener: Arc<crate::api::config::ConfigChangeListener>) {
         if let Ok(mut mutex) = self.listeners.lock() {
-            if self.index_of_listener(Arc::clone(&listener)).is_some() {
+            if Self::index_of_listener(mutex.deref(), Arc::clone(&listener)).is_some() {
                 return;
             }
             mutex.push(ListenerWrapper::new(Arc::clone(&listener)));
@@ -432,7 +433,7 @@ impl CacheData {
     /// Remove listener.
     fn remove_listener(&mut self, listener: Arc<crate::api::config::ConfigChangeListener>) {
         if let Ok(mut mutex) = self.listeners.lock() {
-            if let Some(idx) = self.index_of_listener(Arc::clone(&listener)) {
+            if let Some(idx) = Self::index_of_listener(mutex.deref(), Arc::clone(&listener)) {
                 mutex.swap_remove(idx);
             }
         }
@@ -440,15 +441,13 @@ impl CacheData {
 
     /// fn inner, return idx if existed, else return None.
     fn index_of_listener(
-        &self,
+        listen_warp_vec: &[ListenerWrapper],
         listener: Arc<crate::api::config::ConfigChangeListener>,
     ) -> Option<usize> {
-        if let Ok(mutex) = self.listeners.lock() {
-            for (idx, listen_warp) in mutex.iter().enumerate() {
-                #[warn(clippy::vtable_address_comparisons)]
-                if Arc::ptr_eq(&listen_warp.listener, &listener) {
-                    return Some(idx);
-                }
+        for (idx, listen_warp) in listen_warp_vec.iter().enumerate() {
+            #[warn(clippy::vtable_address_comparisons)]
+            if Arc::ptr_eq(&listen_warp.listener, &listener) {
+                return Some(idx);
             }
         }
         None
