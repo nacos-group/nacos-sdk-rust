@@ -28,7 +28,7 @@ pub trait ConfigService {
         &mut self,
         data_id: String,
         group: String,
-        listener: Box<ConfigChangeListener>,
+        listener: std::sync::Arc<ConfigChangeListener>,
     ) -> error::Result<()>;
 }
 
@@ -171,7 +171,7 @@ mod tests {
         let _listen = config_service.add_listener(
             "hongwen.properties".to_string(),
             "LOVE".to_string(),
-            Box::new(|config_resp| {
+            std::sync::Arc::new(|config_resp| {
                 tracing::info!("listen the config {}", config_resp.content());
             }),
         );
@@ -192,7 +192,7 @@ mod tests {
         let _listen = config_service.add_listener(
             "todo-data-id".to_string(),
             "todo-group".to_string(),
-            Box::new(|config_resp| {
+            std::sync::Arc::new(|config_resp| {
                 tracing::info!("listen the config={:?}", config_resp);
             }),
         );

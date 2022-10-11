@@ -43,7 +43,7 @@ impl ConfigService for NacosConfigService {
         &mut self,
         data_id: String,
         group: String,
-        listener: Box<crate::api::config::ConfigChangeListener>,
+        listener: std::sync::Arc<crate::api::config::ConfigChangeListener>,
     ) -> crate::api::error::Result<()> {
         self.client_worker.add_listener(
             data_id,
@@ -84,7 +84,7 @@ mod tests {
         let _listen = config_service.add_listener(
             "hongwen.properties".to_string(),
             "LOVE".to_string(),
-            Box::new(|config_resp| {
+            std::sync::Arc::new(|config_resp| {
                 tracing::info!("listen the config {}", config_resp.content());
             }),
         );
