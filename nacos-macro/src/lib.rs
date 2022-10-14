@@ -1,52 +1,66 @@
-use darling::FromDeriveInput;
-use quote::quote;
-use syn::DeriveInput;
+mod request;
+mod response;
 
-#[derive(Debug, FromDeriveInput)]
-#[darling(attributes(message_attr))]
-struct MessageAttr {
-    request_type: String,
+use darling::FromMeta;
+use request::grpc_request;
+use response::grpc_response;
+use syn::{parse_macro_input, parse_quote, AttributeArgs, ItemStruct, Path};
+
+#[derive(Debug, FromMeta)]
+pub(crate) struct MacroArgs {
+    identity: String,
+
+    #[darling(default)]
+    crates: Crates,
 }
 
-#[proc_macro_derive(GrpcMessageBody, attributes(message_attr))]
-pub fn grpc_message_body_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
-    let input = proc_macro2::TokenStream::from(input);
-    derive(input).into()
+#[derive(Debug, FromMeta)]
+struct Crates {
+    #[darling(default = "Self::default_serde")]
+    serde: Path,
+
+    #[darling(default = "Self::default_std")]
+    std: Path,
 }
 
-fn derive(input: proc_macro2::TokenStream) -> proc_macro2::TokenStream {
-    let derive_input: DeriveInput = syn::parse2(input).unwrap();
-
-    let message_attr = MessageAttr::from_derive_input(&derive_input).unwrap();
-    let MessageAttr { request_type } = message_attr;
-
-    let name = derive_input.ident;
-
-    quote! {
-        impl GrpcMessageBody for #name {
-            fn type_url<'a>() -> std::borrow::Cow<'a, str> {
-                #request_type.into()
-            }
-        }
+impl Default for Crates {
+    fn default() -> Self {
+        Self::from_list(&[]).unwrap()
     }
 }
 
-#[cfg(test)]
-mod tests {
-
-    use super::*;
-
-    #[test]
-    fn test_parse() {
-        let input = quote! {
-            #[derive(GrpcMessageBody, Serialize, Deserialize, Debug, DeserializeOwned, Clone)]
-            #[message_attr(request_type = "queryInstance")]
-            struct FooSpec { foo: String }
-        };
-
-        let derive_input: DeriveInput = syn::parse2(input).unwrap();
-        let message_attr = MessageAttr::from_derive_input(&derive_input).unwrap();
-
-        println!("request type: {:?}", message_attr.request_type)
+impl Crates {
+    fn default_serde() -> Path {
+        parse_quote! { ::serde }
     }
+
+    fn default_std() -> Path {
+        parse_quote! { ::std }
+    }
+}
+
+#[proc_macro_attribute]
+pub fn request(
+    args: proc_macro::TokenStream,
+    input: proc_macro::TokenStream,
+) -> proc_macro::TokenStream {
+    let item_struct = parse_macro_input!(input as ItemStruct);
+
+    let attr_args = parse_macro_input!(args as AttributeArgs);
+    let macro_args = MacroArgs::from_list(&attr_args).unwrap();
+
+    grpc_request(macro_args, item_struct).into()
+}
+
+#[proc_macro_attribute]
+pub fn response(
+    args: proc_macro::TokenStream,
+    input: proc_macro::TokenStream,
+) -> proc_macro::TokenStream {
+    let item_struct = parse_macro_input!(input as ItemStruct);
+
+    let attr_args = parse_macro_input!(args as AttributeArgs);
+    let macro_args = MacroArgs::from_list(&attr_args).unwrap();
+
+    grpc_response(macro_args, item_struct).into()
 }

@@ -1,17 +1,17 @@
-use std::collections::HashMap;
 use std::sync::Arc;
 
-use futures::Future;
-use serde::{Deserialize, Serialize};
-
+use crate::api::error::Error::NamingRegisterServiceFailed;
+use crate::api::error::Result;
+use crate::api::naming::{NamingService, RegisterFuture, ServiceInstance};
 use crate::api::props::ClientProps;
+
+use crate::common::executor;
 use crate::naming::grpc::message::request::InstanceRequest;
 use crate::naming::grpc::message::response::InstanceResponse;
 use crate::naming::grpc::{GrpcService, GrpcServiceBuilder};
 
-use self::grpc::message::{GrpcMessage, GrpcMessageBuilder};
+use self::grpc::message::GrpcMessageBuilder;
 
-mod error;
 mod grpc;
 
 const LABEL_SOURCE: &str = "source";
@@ -22,98 +22,96 @@ const LABEL_MODULE: &str = "module";
 
 const LABEL_MODULE_NAMING: &str = "naming";
 
-const DEFAULT_CLUSTER_NAME: &str = "DEFAULT";
-
 const DEFAULT_GROUP: &str = "DEFAULT_GROUP";
 
-pub struct NamingService {
+pub(crate) struct NacosNamingService {
     grpc_service: Arc<GrpcService>,
     client_props: ClientProps,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct ServiceInstance {
-    instance_id: Option<String>,
-
-    ip: String,
-
-    port: i32,
-
-    weight: f64,
-
-    healthy: bool,
-
-    enabled: bool,
-
-    ephemeral: bool,
-
-    cluster_name: String,
-
-    service_name: Option<String>,
-
-    metadata: HashMap<String, String>,
-}
-
-impl ServiceInstance {
-    pub fn new(ip: String, port: i32) -> Self {
-        ServiceInstance {
-            ip,
-            port,
-            instance_id: None,
-            weight: 1.0,
-            healthy: true,
-            enabled: true,
-            ephemeral: true,
-            cluster_name: DEFAULT_CLUSTER_NAME.to_string(),
-            service_name: None,
-            metadata: HashMap::new(),
-        }
-    }
-}
-
-impl NamingService {
-    pub fn new(client_props: ClientProps) -> Self {
+impl NacosNamingService {
+    pub(crate) fn new(client_props: ClientProps) -> Self {
         let grpc_service = GrpcServiceBuilder::new()
             .address(client_props.server_addr.clone())
             .tenant(client_props.namespace.clone())
-            .add_label(LABEL_SOURCE.to_string(), LABEL_SOURCE_SDK.to_string())
-            .add_label(LABEL_MODULE.to_string(), LABEL_MODULE_NAMING.to_string())
+            .add_label(LABEL_SOURCE.to_owned(), LABEL_SOURCE_SDK.to_owned())
+            .add_label(LABEL_MODULE.to_owned(), LABEL_MODULE_NAMING.to_owned())
             .build();
         let grpc_service = Arc::new(grpc_service);
-        NamingService {
+        NacosNamingService {
             grpc_service,
             client_props,
         }
     }
+}
 
-    pub fn register_service(
+const INSTANCE_REQUEST_REGISTER: &str = "registerInstance";
+impl NamingService for NacosNamingService {
+    fn register_service(
         &self,
         service_name: String,
-        group_name: String,
+        group_name: Option<String>,
         service_instance: ServiceInstance,
-    ) -> impl Future<Output = Option<GrpcMessage<InstanceResponse>>> {
-        let request = InstanceRequest {
-            r_type: "registerInstance".to_string(),
-            namespace: self.client_props.namespace.clone(),
+    ) -> Result<()> {
+        let future = self.register_service_async(service_name, group_name, service_instance);
+        executor::block_on(future)
+    }
+
+    fn register_service_async(
+        &self,
+        service_name: String,
+        group_name: Option<String>,
+        service_instance: ServiceInstance,
+    ) -> RegisterFuture {
+        let group_name = group_name.unwrap_or(DEFAULT_GROUP.to_string());
+        let request = InstanceRequest::new(
+            INSTANCE_REQUEST_REGISTER.to_string(),
+            service_instance,
+            self.client_props.namespace.clone(),
             service_name,
-            group_mame: group_name,
-            instance: service_instance,
-        };
+            group_name,
+        );
+
+        let request_headers = request.get_headers();
         let grpc_service = self.grpc_service.clone();
-        let grpc_message = GrpcMessageBuilder::new(request).build();
+        let grpc_message = GrpcMessageBuilder::new(request)
+            .headers(request_headers)
+            .build();
+
         let task = async move {
-            grpc_service
+            let ret = grpc_service
                 .unary_call_async::<InstanceRequest, InstanceResponse>(grpc_message)
-                .await
+                .await;
+            if ret.is_none() {
+                return Err(NamingRegisterServiceFailed("empty response".to_string()));
+            }
+            let ret = ret.unwrap();
+            let body = ret.body();
+            if !body.is_success() {
+                let message = body.message();
+                if message.is_none() {
+                    return Err(NamingRegisterServiceFailed(
+                        "register failed and the server side didn't return any error message"
+                            .to_string(),
+                    ));
+                }
+                let message = message.unwrap();
+                return Err(NamingRegisterServiceFailed(message));
+            }
+
+            return Ok(());
         };
-        task
+
+        Box::new(Box::pin(task))
     }
 }
 
 #[cfg(test)]
 pub(crate) mod tests {
 
-    use crate::common::executor;
+    use core::time;
+    use std::thread;
+
     use tracing::info;
 
     use super::*;
@@ -125,8 +123,10 @@ pub(crate) mod tests {
             .namespace("1c8beea4-810d-44c8-93cb-72997f71cb42")
             .app_name("rust-client");
 
-        let naming_service = NamingService::new(props);
-        let service_instance = ServiceInstance::new("127.0.0.1".to_string(), 9090);
+        let naming_service = NacosNamingService::new(props);
+        let service_instance = ServiceInstance::new("127.0.0.1".to_string(), 9090)
+            .add_meta_data("netType".to_string(), "external".to_string())
+            .add_meta_data("version".to_string(), "2.0".to_string());
 
         let collector = tracing_subscriber::fmt()
             .with_thread_names(true)
@@ -137,13 +137,15 @@ pub(crate) mod tests {
             .finish();
 
         tracing::subscriber::with_default(collector, || {
-            let taks = naming_service.register_service(
+            let ret = naming_service.register_service(
                 "test-service".to_string(),
-                DEFAULT_GROUP.to_string(),
+                Some(DEFAULT_GROUP.to_string()),
                 service_instance,
             );
-            let ret = executor::block_on(taks);
             info!("response. {:?}", ret);
         });
+
+        let ten_millis = time::Duration::from_secs(10);
+        thread::sleep(ten_millis);
     }
 }

@@ -41,6 +41,7 @@ impl GrpcService {
     fn new(address: String) -> Self {
         let (request_client, bi_request_stream_client, connection_id) =
             Self::init(address.as_str());
+
         let (bi_sender, bi_receiver) = Self::duplex_streaming(&bi_request_stream_client).unwrap();
         let bi_sender = Arc::new(bi_sender);
 
@@ -75,7 +76,9 @@ impl GrpcService {
 
     fn build_client(address: &str) -> (RequestClient, BiRequestStreamClient) {
         info!("init grpc client: {}", address);
-        let env = Arc::new(Environment::new(2));
+        let cpu_num = num_cpus::get();
+        info!("cpu number: {}", cpu_num);
+        let env = Arc::new(Environment::new(cpu_num));
         let channel = ChannelBuilder::new(env).connect(address);
         let bi_channel = channel.clone();
         let request_client = RequestClient::new(channel);
@@ -124,11 +127,12 @@ impl GrpcService {
 
     fn check_server(request_client: &RequestClient) -> Option<ServerCheckResponse> {
         info!("check server");
-        let request = ServerCheckRequest {};
+        let request = ServerCheckRequest::new();
         let request = GrpcMessageBuilder::new(request).build();
         let request = request.to_payload();
-        if request.is_none() {
-            error!("request message connot convert to payload");
+        if request.is_err() {
+            let error = request.unwrap_err();
+            error!("check server error:{:?}", error);
             return None;
         }
         let request = request.unwrap();
@@ -169,9 +173,7 @@ impl GrpcService {
         let message = GrpcMessageBuilder::new(setup_request).build();
         let message = message.to_payload().unwrap();
         let sender = self.bi_sender.clone();
-        executor::spawn(async move {
-            sender.send(message).await;
-        });
+        let _ = executor::spawn(async move { sender.send(message).await });
 
         // wait for 300 millis
         std::thread::sleep(core::time::Duration::from_millis(300));
@@ -232,8 +234,9 @@ impl GrpcService {
         P: GrpcMessageBody,
     {
         let request_payload = message.to_payload();
-        if request_payload.is_none() {
-            error!("grpc message convert to payload error");
+        if request_payload.is_err() {
+            let error = request_payload.unwrap_err();
+            error!("unary_call_async error:{:?}", error);
             return None;
         }
         let request_payload = request_payload.unwrap();
@@ -279,7 +282,7 @@ impl GrpcService {
             return;
         }
         let mut write = write.unwrap();
-        write.insert(T::type_url().to_string(), handler);
+        write.insert(T::identity().to_string(), handler);
     }
 }
 
