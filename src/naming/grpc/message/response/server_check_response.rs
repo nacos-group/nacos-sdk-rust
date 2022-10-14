@@ -1,10 +1,6 @@
-use crate::naming::grpc::message::GrpcMessageBody;
-use nacos_macro::GrpcMessageBody;
-use serde::{Deserialize, Serialize};
+use nacos_macro::response;
 
-#[derive(Clone, Debug, Serialize, Deserialize, GrpcMessageBody)]
-#[message_attr(request_type = "serverCheckResponse")]
+#[response(identity = "serverCheckResponse")]
 pub struct ServerCheckResponse {
-    #[serde(rename = "connectionId")]
     pub connection_id: String,
 }

@@ -1,7 +1,4 @@
-use crate::naming::grpc::message::GrpcMessageBody;
-use nacos_macro::GrpcMessageBody;
-use serde::{Deserialize, Serialize};
+use nacos_macro::request;
 
-#[derive(Clone, Debug, Serialize, Deserialize, GrpcMessageBody)]
-#[message_attr(request_type = "ServerCheckRequest")]
+#[request(identity = "ServerCheckRequest")]
 pub(crate) struct ServerCheckRequest {}

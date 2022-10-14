@@ -4,3 +4,6 @@ pub mod props;
 
 #[cfg(feature = "config")]
 pub mod config;
+
+#[cfg(feature = "naming")]
+pub mod naming;

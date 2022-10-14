@@ -44,4 +44,13 @@ pub enum Error {
 
     #[error("tokio oneshot receive failed: {0}")]
     TokioOneshotRecv(#[from] tokio::sync::oneshot::error::RecvError),
+
+    #[error("grpc payload metadata is empty")]
+    GrpcPayloadMetaDataEmpty,
+
+    #[error("grpc payload body is empty")]
+    GrpcPayloadBodyEmpty,
+
+    #[error("naming service register service failed: {0}")]
+    NamingRegisterServiceFailed(String),
 }
