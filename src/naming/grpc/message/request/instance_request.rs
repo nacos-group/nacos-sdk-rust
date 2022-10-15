@@ -5,10 +5,9 @@ use crate::naming::ServiceInstance;
 #[request(identity = "InstanceRequest")]
 pub(crate) struct InstanceRequest {
     #[serde(rename = "type")]
-    r_type: String,
-    instance: ServiceInstance,
-    namespace: String,
-    service_name: String,
-
-    group_name: String,
+    pub r_type: String,
+    pub instance: ServiceInstance,
+    pub namespace: String,
+    pub service_name: String,
+    pub group_name: String,
 }

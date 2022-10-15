@@ -6,11 +6,11 @@ use crate::naming::grpc::client_abilities::ClientAbilities;
 
 #[request(identity = "ConnectionSetupRequest")]
 pub(crate) struct ConnectionSetupRequest {
-    client_version: String,
+    pub client_version: String,
 
-    abilities: ClientAbilities,
+    pub abilities: ClientAbilities,
 
-    tenant: String,
+    pub tenant: String,
 
-    labels: HashMap<String, String>,
+    pub labels: HashMap<String, String>,
 }

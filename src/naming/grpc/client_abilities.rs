@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub(crate) struct ClientAbilities {
     #[serde(rename = "remoteAbility")]
     remote_ability: ClientRemoteAbility,
@@ -38,7 +38,7 @@ impl ClientAbilities {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
 struct ClientRemoteAbility {
     #[serde(rename = "supportRemoteConnection")]
     support_remote_connection: bool,
@@ -56,7 +56,7 @@ impl ClientRemoteAbility {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
 struct ClientConfigAbility {
     #[serde(rename = "supportRemoteMetrics")]
     support_remote_metrics: bool,
@@ -74,7 +74,7 @@ impl ClientConfigAbility {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
 struct ClientNamingAbility {
     #[serde(rename = "supportDeltaPush")]
     support_delta_push: bool,

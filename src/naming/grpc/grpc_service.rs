@@ -21,7 +21,7 @@ use crate::naming::grpc::message::request::ConnectionSetupRequest;
 use crate::naming::grpc::message::request::ServerCheckRequest;
 use crate::naming::grpc::message::response::ServerCheckResponse;
 use crate::naming::grpc::message::GrpcMessageBuilder;
-use crate::naming::grpc::message::{GrpcMessage, GrpcMessageBody};
+use crate::naming::grpc::message::{GrpcMessage, GrpcMessageData};
 
 use super::client_abilities::ClientAbilities;
 use super::handler::DefaultHandler;
@@ -111,14 +111,13 @@ impl GrpcService {
                 let read = read.unwrap();
                 let handler = read.get(type_url);
 
-                if handler.is_none() {
-                    let default_handler = DefaultHandler;
-                    let hand_task = default_handler.hand(bi_sender.clone(), payload);
-                    executor::spawn(hand_task);
-                } else {
-                    let handler = handler.unwrap();
+                if let Some(handler) = handler {
                     payload.metadata = Some(metadata);
                     let hand_task = handler.hand(bi_sender.clone(), payload);
+                    executor::spawn(hand_task);
+                } else {
+                    let default_handler = DefaultHandler;
+                    let hand_task = default_handler.hand(bi_sender.clone(), payload);
                     executor::spawn(hand_task);
                 }
             }
@@ -127,14 +126,15 @@ impl GrpcService {
 
     fn check_server(request_client: &RequestClient) -> Option<ServerCheckResponse> {
         info!("check server");
-        let request = ServerCheckRequest::new();
+        let request = ServerCheckRequest::default();
         let request = GrpcMessageBuilder::new(request).build();
-        let request = request.to_payload();
-        if request.is_err() {
-            let error = request.unwrap_err();
+        let request = request.into_payload();
+
+        if let Err(error) = request {
             error!("check server error:{:?}", error);
             return None;
         }
+
         let request = request.unwrap();
         let response = request_client.request(&request);
         if let Err(error) = response {
@@ -169,9 +169,15 @@ impl GrpcService {
         abilities: ClientAbilities,
         tenant: String,
     ) {
-        let setup_request = ConnectionSetupRequest::new(client_version, abilities, tenant, labels);
+        let setup_request = ConnectionSetupRequest {
+            client_version,
+            abilities,
+            tenant,
+            labels,
+            ..Default::default()
+        };
         let message = GrpcMessageBuilder::new(setup_request).build();
-        let message = message.to_payload().unwrap();
+        let message = message.into_payload().unwrap();
         let sender = self.bi_sender.clone();
         let _ = executor::spawn(async move { sender.send(message).await });
 
@@ -230,10 +236,10 @@ impl GrpcService {
         message: GrpcMessage<R>,
     ) -> Option<GrpcMessage<P>>
     where
-        R: GrpcMessageBody,
-        P: GrpcMessageBody,
+        R: GrpcMessageData,
+        P: GrpcMessageData,
     {
-        let request_payload = message.to_payload();
+        let request_payload = message.into_payload();
         if request_payload.is_err() {
             let error = request_payload.unwrap_err();
             error!("unary_call_async error:{:?}", error);
@@ -274,7 +280,7 @@ impl GrpcService {
 
     pub(crate) fn register_bi_call_handler<T, H>(&self, handler: Box<dyn GrpcPayloadHandler>)
     where
-        T: GrpcMessageBody,
+        T: GrpcMessageData,
     {
         let write = self.bi_hander_map.write();
         if let Err(error) = write {
@@ -301,9 +307,7 @@ pub(crate) struct GrpcServiceBuilder {
 impl GrpcServiceBuilder {
     pub(crate) fn new() -> Self {
         let labels = HashMap::<String, String>::new();
-        let mut abilities = ClientAbilities::new();
-        abilities.support_remote_connection(true);
-        abilities.support_remote_metrics(true);
+        let abilities = ClientAbilities::new();
 
         GrpcServiceBuilder {
             address: "localhost:9848".to_string(),
@@ -331,6 +335,11 @@ impl GrpcServiceBuilder {
 
     pub(crate) fn add_label(mut self, key: String, value: String) -> Self {
         self.labels.insert(key, value);
+        self
+    }
+
+    pub(crate) fn add_labels(mut self, labels: HashMap<String, String>) -> Self {
+        self.labels.extend(labels);
         self
     }
 
