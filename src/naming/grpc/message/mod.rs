@@ -19,7 +19,7 @@ pub mod response;
 #[derive(Debug)]
 pub(crate) struct GrpcMessage<T>
 where
-    T: GrpcMessageBody,
+    T: GrpcMessageData,
 {
     headers: HashMap<String, String>,
     body: T,
@@ -28,30 +28,27 @@ where
 
 impl<T> GrpcMessage<T>
 where
-    T: GrpcMessageBody,
+    T: GrpcMessageData,
 {
     pub(crate) fn body(&self) -> &T {
         &self.body
     }
 
-    pub(crate) fn headers(&self) -> &HashMap<String, String> {
-        &self.headers
+    pub(crate) fn into_body(self) -> T {
+        self.body
     }
 
-    pub(crate) fn client_ip(&self) -> &String {
-        &self.client_ip
-    }
-
-    pub(crate) fn to_payload(self) -> Result<Payload> {
+    pub(crate) fn into_payload(self) -> Result<Payload> {
         let mut payload = Payload::default();
-        let mut meta_data = Metadata::default();
-        meta_data.r#type = T::identity().to_string();
-        meta_data.client_ip = self.client_ip.to_string();
-        meta_data.headers = self.headers;
+        let meta_data = Metadata {
+            r#type: T::identity().to_string(),
+            client_ip: self.client_ip.to_string(),
+            headers: self.headers,
+        };
 
         let body = self.body.to_proto_any();
-        if body.is_err() {
-            let error = body.unwrap_err();
+
+        if let Err(error) = body {
             error!("Serialize GrpcMessageBody occur an error: {:?}", error);
             return Err(error);
         }
@@ -101,14 +98,16 @@ where
     }
 }
 
-pub(crate) trait GrpcMessageBody:
+pub(crate) trait GrpcMessageData:
     Debug + Clone + Serialize + DeserializeOwned + Send
 {
     fn identity<'a>() -> std::borrow::Cow<'a, str>;
 
     fn to_proto_any(&self) -> Result<Any> {
-        let mut any = Any::default();
-        any.type_url = Self::identity().to_string();
+        let mut any = Any {
+            type_url: Self::identity().to_string(),
+            ..Default::default()
+        };
         let byte_data = serde_json::to_vec(self);
         if let Err(error) = byte_data {
             return Err(Serialization(error));
@@ -117,7 +116,7 @@ pub(crate) trait GrpcMessageBody:
         Ok(any)
     }
 
-    fn from_proto_any<T: GrpcMessageBody>(any: Any) -> Result<T> {
+    fn from_proto_any<T: GrpcMessageData>(any: Any) -> Result<T> {
         let body: serde_json::Result<T> = serde_json::from_slice(&any.value);
         if let Err(error) = body {
             return Err(Serialization(error));
@@ -127,9 +126,33 @@ pub(crate) trait GrpcMessageBody:
     }
 }
 
+pub(crate) trait GrpcRequestMessage: GrpcMessageData {
+    fn header(&self, key: &str) -> Option<&String>;
+
+    fn headers(&self) -> &HashMap<String, String>;
+
+    fn take_headers(&mut self) -> HashMap<String, String>;
+
+    fn request_id(&self) -> Option<&String>;
+
+    fn module(&self) -> Option<&String>;
+}
+
+pub(crate) trait GrpcResponseMessage: GrpcMessageData {
+    fn request_id(&self) -> Option<&String>;
+
+    fn result_code(&self) -> i32;
+
+    fn error_code(&self) -> i32;
+
+    fn message(&self) -> Option<&String>;
+
+    fn is_success(&self) -> bool;
+}
+
 pub(crate) struct GrpcMessageBuilder<T>
 where
-    T: GrpcMessageBody,
+    T: GrpcMessageData,
 {
     headers: HashMap<String, String>,
     body: T,
@@ -142,7 +165,7 @@ lazy_static! {
 
 impl<T> GrpcMessageBuilder<T>
 where
-    T: GrpcMessageBody,
+    T: GrpcMessageData,
 {
     pub(crate) fn new(body: T) -> Self {
         GrpcMessageBuilder {

@@ -10,18 +10,24 @@ pub struct ClientProps {
     pub(crate) app_name: Option<String>,
     /// metadata
     pub(crate) labels: HashMap<String, String>,
+    // client_version
+    pub(crate) client_version: String,
 }
 
 #[allow(clippy::new_without_default)]
 impl ClientProps {
     /// Creates a new `ClientConfig`.
     pub fn new() -> Self {
+        let env_project_version = env!("CARGO_PKG_VERSION");
+        let client_version = format!("Nacos-Rust-Client:{}", env_project_version);
+
         ClientProps {
             server_addr: String::from(crate::api::constants::DEFAULT_SERVER_ADDR),
             /// public is "", Should define a more meaningful namespace
             namespace: String::from(""),
             app_name: None,
             labels: HashMap::default(),
+            client_version,
         }
     }
 

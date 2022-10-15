@@ -1,8 +1,12 @@
 use std::sync::Arc;
 
+use futures::Future;
+
+use crate::api::error::Error::NamingDeregisterServiceFailed;
 use crate::api::error::Error::NamingRegisterServiceFailed;
+use crate::api::error::Error::ServerNoResponse;
 use crate::api::error::Result;
-use crate::api::naming::{NamingService, RegisterFuture, ServiceInstance};
+use crate::api::naming::{AsyncFuture, NamingService, ServiceInstance};
 use crate::api::props::ClientProps;
 
 use crate::common::executor;
@@ -11,41 +15,137 @@ use crate::naming::grpc::message::response::InstanceResponse;
 use crate::naming::grpc::{GrpcService, GrpcServiceBuilder};
 
 use self::grpc::message::GrpcMessageBuilder;
+use self::grpc::message::GrpcRequestMessage;
+use self::grpc::message::GrpcResponseMessage;
 
 mod grpc;
 
-const LABEL_SOURCE: &str = "source";
+pub(self) mod constants {
 
-const LABEL_SOURCE_SDK: &str = "sdk";
+    pub const LABEL_SOURCE: &str = "source";
 
-const LABEL_MODULE: &str = "module";
+    pub const LABEL_SOURCE_SDK: &str = "sdk";
 
-const LABEL_MODULE_NAMING: &str = "naming";
+    pub const LABEL_MODULE: &str = "module";
 
-const DEFAULT_GROUP: &str = "DEFAULT_GROUP";
+    pub const LABEL_MODULE_NAMING: &str = "naming";
+
+    pub const DEFAULT_GROUP: &str = "DEFAULT_GROUP";
+
+    pub const DEFAULT_TENANT: &str = "public";
+
+    pub const APP_FILED: &str = "app";
+
+    pub const DEFAULT_APP_NAME: &str = "unknown";
+
+    pub mod request {
+        pub const INSTANCE_REQUEST_REGISTER: &str = "registerInstance";
+        pub const DE_REGISTER_INSTANCE: &str = "deregisterInstance";
+    }
+}
 
 pub(crate) struct NacosNamingService {
     grpc_service: Arc<GrpcService>,
-    client_props: ClientProps,
+    namespace: String,
+    app_name: String,
 }
 
 impl NacosNamingService {
     pub(crate) fn new(client_props: ClientProps) -> Self {
+        let app_name = client_props
+            .app_name
+            .unwrap_or_else(|| self::constants::DEFAULT_APP_NAME.to_owned());
+        let mut tenant = client_props.namespace;
+        if tenant == "" {
+            tenant = self::constants::DEFAULT_TENANT.to_owned();
+        }
+
         let grpc_service = GrpcServiceBuilder::new()
-            .address(client_props.server_addr.clone())
-            .tenant(client_props.namespace.clone())
-            .add_label(LABEL_SOURCE.to_owned(), LABEL_SOURCE_SDK.to_owned())
-            .add_label(LABEL_MODULE.to_owned(), LABEL_MODULE_NAMING.to_owned())
+            .address(client_props.server_addr)
+            .tenant(tenant.clone())
+            .client_version(client_props.client_version)
+            .support_remote_connection(true)
+            .support_remote_metrics(true)
+            .support_delta_push(false)
+            .support_remote_metric(false)
+            .add_label(
+                self::constants::LABEL_SOURCE.to_owned(),
+                self::constants::LABEL_SOURCE_SDK.to_owned(),
+            )
+            .add_label(
+                self::constants::LABEL_MODULE.to_owned(),
+                self::constants::LABEL_MODULE_NAMING.to_owned(),
+            )
+            .add_labels(client_props.labels)
             .build();
         let grpc_service = Arc::new(grpc_service);
         NacosNamingService {
             grpc_service,
-            client_props,
+            namespace: tenant,
+            app_name,
         }
+    }
+
+    fn request_to_server<R, P>(
+        &self,
+        mut request: R,
+    ) -> Box<dyn Future<Output = Result<P>> + Send + Unpin + 'static>
+    where
+        R: GrpcRequestMessage + 'static,
+        P: GrpcResponseMessage + 'static,
+    {
+        let request_headers = request.take_headers();
+        let grpc_service = self.grpc_service.clone();
+
+        let grpc_message = GrpcMessageBuilder::new(request)
+            .header(self::constants::APP_FILED.to_owned(), self.app_name.clone())
+            .headers(request_headers)
+            .build();
+
+        let task = async move {
+            let ret = grpc_service.unary_call_async::<R, P>(grpc_message).await;
+            if ret.is_none() {
+                return Err(ServerNoResponse);
+            }
+            let ret = ret.unwrap();
+            let body = ret.into_body();
+            Ok(body)
+        };
+
+        Box::new(Box::pin(task))
+    }
+
+    fn instance_opt(
+        &self,
+        service_name: String,
+        group_name: Option<String>,
+        service_instance: ServiceInstance,
+        r_type: String,
+    ) -> Box<dyn Future<Output = Result<InstanceResponse>> + Send + Unpin + 'static> {
+        let group_name = group_name.unwrap_or_else(|| self::constants::DEFAULT_GROUP.to_owned());
+        let request = InstanceRequest {
+            r_type,
+            instance: service_instance,
+            namespace: self.namespace.clone(),
+            service_name,
+            group_name,
+            ..Default::default()
+        };
+
+        let reqeust_to_server_task =
+            self.request_to_server::<InstanceRequest, InstanceResponse>(request);
+        Box::new(Box::pin(async move {
+            let response = reqeust_to_server_task.await;
+            if let Err(e) = response {
+                return Err(e);
+            }
+
+            let body = response.unwrap();
+            Ok(body)
+        }))
     }
 }
 
-const INSTANCE_REQUEST_REGISTER: &str = "registerInstance";
 impl NamingService for NacosNamingService {
     fn register_service(
         &self,
@@ -62,47 +162,85 @@ impl NamingService for NacosNamingService {
         service_name: String,
         group_name: Option<String>,
         service_instance: ServiceInstance,
-    ) -> RegisterFuture {
-        let group_name = group_name.unwrap_or(DEFAULT_GROUP.to_string());
-        let request = InstanceRequest::new(
-            INSTANCE_REQUEST_REGISTER.to_string(),
-            service_instance,
-            self.client_props.namespace.clone(),
+    ) -> AsyncFuture {
+        let instance_opt_task = self.instance_opt(
             service_name,
             group_name,
+            service_instance,
+            self::constants::request::INSTANCE_REQUEST_REGISTER.to_owned(),
         );
 
-        let request_headers = request.get_headers();
-        let grpc_service = self.grpc_service.clone();
-        let grpc_message = GrpcMessageBuilder::new(request)
-            .headers(request_headers)
-            .build();
-
-        let task = async move {
-            let ret = grpc_service
-                .unary_call_async::<InstanceRequest, InstanceResponse>(grpc_message)
-                .await;
-            if ret.is_none() {
-                return Err(NamingRegisterServiceFailed("empty response".to_string()));
+        Box::new(Box::pin(async move {
+            let response = instance_opt_task.await;
+            if let Err(e) = response {
+                return Err(e);
             }
-            let ret = ret.unwrap();
-            let body = ret.body();
+
+            let body = response.unwrap();
             if !body.is_success() {
-                let message = body.message();
-                if message.is_none() {
-                    return Err(NamingRegisterServiceFailed(
-                        "register failed and the server side didn't return any error message"
-                            .to_string(),
-                    ));
-                }
-                let message = message.unwrap();
-                return Err(NamingRegisterServiceFailed(message));
+                let InstanceResponse {
+                    result_code,
+                    error_code,
+                    message,
+                    ..
+                } = body;
+                return Err(NamingRegisterServiceFailed(
+                    result_code,
+                    error_code,
+                    message.unwrap_or_default(),
+                ));
             }
 
-            return Ok(());
-        };
+            Ok(())
+        }))
+    }
 
-        Box::new(Box::pin(task))
+    fn deregister_instance(
+        &self,
+        service_name: String,
+        group_name: Option<String>,
+        service_instance: ServiceInstance,
+    ) -> Result<()> {
+        let future = self.deregister_instance_async(service_name, group_name, service_instance);
+        executor::block_on(future)
+    }
+
+    fn deregister_instance_async(
+        &self,
+        service_name: String,
+        group_name: Option<String>,
+        service_instance: ServiceInstance,
+    ) -> AsyncFuture {
+        let instance_opt_task = self.instance_opt(
+            service_name,
+            group_name,
+            service_instance,
+            self::constants::request::DE_REGISTER_INSTANCE.to_owned(),
+        );
+
+        Box::new(Box::pin(async move {
+            let response = instance_opt_task.await;
+            if let Err(e) = response {
+                return Err(e);
+            }
+
+            let body = response.unwrap();
+            if !body.is_success() {
+                let InstanceResponse {
+                    result_code,
+                    error_code,
+                    message,
+                    ..
+                } = body;
+                return Err(NamingDeregisterServiceFailed(
+                    result_code,
+                    error_code,
+                    message.unwrap_or_default(),
+                ));
+            }
+
+            Ok(())
+        }))
     }
 }
 
@@ -118,10 +256,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_register_service() {
-        let props = ClientProps::new()
-            .server_addr("127.0.0.1:9848")
-            .namespace("1c8beea4-810d-44c8-93cb-72997f71cb42")
-            .app_name("rust-client");
+        let props = ClientProps::new().server_addr("127.0.0.1:9848");
 
         let naming_service = NacosNamingService::new(props);
         let service_instance = ServiceInstance::new("127.0.0.1".to_string(), 9090)
@@ -139,13 +274,53 @@ pub(crate) mod tests {
         tracing::subscriber::with_default(collector, || {
             let ret = naming_service.register_service(
                 "test-service".to_string(),
-                Some(DEFAULT_GROUP.to_string()),
+                Some(constants::DEFAULT_GROUP.to_string()),
                 service_instance,
             );
             info!("response. {:?}", ret);
         });
 
-        let ten_millis = time::Duration::from_secs(10);
+        let ten_millis = time::Duration::from_secs(100);
         thread::sleep(ten_millis);
+    }
+
+    #[test]
+    fn test_register_and_deregister_service() {
+        let props = ClientProps::new().server_addr("127.0.0.1:9848");
+
+        let naming_service = NacosNamingService::new(props);
+        let service_instance = ServiceInstance::new("127.0.0.1".to_string(), 9090)
+            .add_meta_data("netType".to_string(), "external".to_string())
+            .add_meta_data("version".to_string(), "2.0".to_string());
+
+        let collector = tracing_subscriber::fmt()
+            .with_thread_names(true)
+            .with_file(true)
+            .with_level(true)
+            .with_line_number(true)
+            .with_thread_ids(true)
+            .finish();
+
+        tracing::subscriber::with_default(collector, || {
+            let ret = naming_service.register_service(
+                "test-service".to_string(),
+                Some(constants::DEFAULT_GROUP.to_string()),
+                service_instance.clone(),
+            );
+            info!("response. {:?}", ret);
+
+            let ten_millis = time::Duration::from_secs(10);
+            thread::sleep(ten_millis);
+
+            let ret = naming_service.deregister_instance(
+                "test-service".to_string(),
+                Some(constants::DEFAULT_GROUP.to_string()),
+                service_instance,
+            );
+            info!("response. {:?}", ret);
+
+            let ten_millis = time::Duration::from_secs(10);
+            thread::sleep(ten_millis);
+        });
     }
 }

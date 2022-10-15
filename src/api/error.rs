@@ -51,6 +51,14 @@ pub enum Error {
     #[error("grpc payload body is empty")]
     GrpcPayloadBodyEmpty,
 
-    #[error("naming service register service failed: {0}")]
-    NamingRegisterServiceFailed(String),
+    #[error("No response returned")]
+    ServerNoResponse,
+
+    #[error("naming service register service failed: resultCode: {0}, errorCode:{1}, message:{2}")]
+    NamingRegisterServiceFailed(i32, i32, String),
+
+    #[error(
+        "naming service deregister service failed: resultCode: {0}, errorCode:{1}, message:{2}"
+    )]
+    NamingDeregisterServiceFailed(i32, i32, String),
 }

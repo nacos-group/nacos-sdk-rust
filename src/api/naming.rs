@@ -8,7 +8,7 @@ use super::props::ClientProps;
 
 const DEFAULT_CLUSTER_NAME: &str = "DEFAULT";
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct ServiceInstance {
     instance_id: Option<String>,
 
@@ -83,7 +83,7 @@ impl ServiceInstance {
     }
 }
 
-pub type RegisterFuture = Box<dyn Future<Output = Result<()>> + Send + Unpin + 'static>;
+pub type AsyncFuture = Box<dyn Future<Output = Result<()>> + Send + Unpin + 'static>;
 pub trait NamingService {
     fn register_service(
         &self,
@@ -97,7 +97,21 @@ pub trait NamingService {
         service_name: String,
         group_name: Option<String>,
         service_instance: ServiceInstance,
-    ) -> RegisterFuture;
+    ) -> AsyncFuture;
+
+    fn deregister_instance(
+        &self,
+        service_name: String,
+        group_name: Option<String>,
+        service_instance: ServiceInstance,
+    ) -> Result<()>;
+
+    fn deregister_instance_async(
+        &self,
+        service_name: String,
+        group_name: Option<String>,
+        service_instance: ServiceInstance,
+    ) -> AsyncFuture;
 }
 
 pub struct NamingServiceBuilder {
@@ -113,8 +127,8 @@ impl NamingServiceBuilder {
         NacosNamingService::new(self.client_props)
     }
 
-    pub fn build_async(self) -> impl Future<Output = impl NamingService> + Send + 'static {
-        async move { NacosNamingService::new(self.client_props) }
+    pub async fn build_async(self) -> impl NamingService {
+        NacosNamingService::new(self.client_props)
     }
 }
 
