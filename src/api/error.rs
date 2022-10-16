@@ -73,6 +73,9 @@ pub enum Error {
     #[error("naming service query services failed: resultCode: {0}, errorCode:{1}, message:{2}")]
     NamingQueryServiceFailed(i32, i32, String),
 
+    #[error("naming service list services failed: resultCode: {0}, errorCode:{1}, message:{2}")]
+    NamingServiceListFailed(i32, i32, String),
+
     #[error("Cumulative Weight calculate wrong , the sum of probabilities does not equals 1.")]
     WeightCalculateFailed,
 

@@ -187,6 +187,20 @@ pub trait NamingService {
         clusters: Vec<String>,
         subscribe: bool,
     ) -> AsyncFuture<ServiceInstance>;
+
+    fn get_service_list(
+        &self,
+        page_no: i32,
+        page_size: i32,
+        group_name: Option<String>,
+    ) -> Result<(Vec<String>, i32)>;
+
+    fn get_service_list_async(
+        &self,
+        page_no: i32,
+        page_size: i32,
+        group_name: Option<String>,
+    ) -> AsyncFuture<(Vec<String>, i32)>;
 }
 
 pub struct NamingServiceBuilder {

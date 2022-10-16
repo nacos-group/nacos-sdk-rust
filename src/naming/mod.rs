@@ -6,6 +6,7 @@ use crate::api::error::Error::NamingBatchRegisterServiceFailed;
 use crate::api::error::Error::NamingDeregisterServiceFailed;
 use crate::api::error::Error::NamingQueryServiceFailed;
 use crate::api::error::Error::NamingRegisterServiceFailed;
+use crate::api::error::Error::NamingServiceListFailed;
 use crate::api::error::Error::NoAvailableServiceInstance;
 use crate::api::error::Result;
 use crate::api::naming::InstanceChooser;
@@ -15,10 +16,12 @@ use crate::api::props::ClientProps;
 use crate::common::executor;
 use crate::naming::grpc::message::request::BatchInstanceRequest;
 use crate::naming::grpc::message::request::InstanceRequest;
+use crate::naming::grpc::message::request::ServiceListRequest;
 use crate::naming::grpc::message::request::ServiceQueryRequest;
 use crate::naming::grpc::message::response::BatchInstanceResponse;
 use crate::naming::grpc::message::response::InstanceResponse;
 use crate::naming::grpc::message::response::QueryServiceResponse;
+use crate::naming::grpc::message::response::ServiceListResponse;
 
 use crate::naming::grpc::{GrpcService, GrpcServiceBuilder};
 
@@ -423,6 +426,53 @@ impl NamingService for NacosNamingService {
             Ok(instance)
         }))
     }
+
+    fn get_service_list(
+        &self,
+        page_no: i32,
+        page_size: i32,
+        group_name: Option<String>,
+    ) -> Result<(Vec<String>, i32)> {
+        let future = self.get_service_list_async(page_no, page_size, group_name);
+        executor::block_on(future)
+    }
+
+    fn get_service_list_async(
+        &self,
+        page_no: i32,
+        page_size: i32,
+        group_name: Option<String>,
+    ) -> AsyncFuture<(Vec<String>, i32)> {
+        let group_name = group_name.unwrap_or_else(|| self::constants::DEFAULT_GROUP.to_owned());
+        let request = ServiceListRequest {
+            page_no,
+            page_size,
+            group_name,
+            namespace: self.namespace.clone(),
+            ..Default::default()
+        };
+        let request_task =
+            self.request_to_server::<ServiceListRequest, ServiceListResponse>(request);
+
+        Box::new(Box::pin(async move {
+            let response = request_task.await?;
+            if !response.is_success() {
+                let ServiceListResponse {
+                    result_code,
+                    error_code,
+                    message,
+                    ..
+                } = response;
+                return Err(NamingServiceListFailed(
+                    result_code,
+                    error_code,
+                    message.unwrap_or_default(),
+                ));
+            }
+
+            Ok((response.service_names, response.count))
+        }))
+    }
 }
 
 #[cfg(test)]
@@ -756,6 +806,63 @@ pub(crate) mod tests {
                 );
                 info!("response. {:?}", all_instances);
             }
+
+            thread::sleep(ten_millis);
+        });
+    }
+
+    #[test]
+    fn test_get_service_list() {
+        let props = ClientProps::new().server_addr("127.0.0.1:9848");
+
+        let mut metadata = HashMap::<String, String>::new();
+        metadata.insert("netType".to_string(), "external".to_string());
+        metadata.insert("version".to_string(), "2.0".to_string());
+
+        let naming_service = NacosNamingService::new(props);
+        let service_instance1 = ServiceInstance {
+            ip: "127.0.0.1".to_string(),
+            port: 9090,
+            metadata: metadata.clone(),
+            ..Default::default()
+        };
+
+        let service_instance2 = ServiceInstance {
+            ip: "192.168.1.1".to_string(),
+            port: 8888,
+            metadata: metadata.clone(),
+            ..Default::default()
+        };
+
+        let service_instance3 = ServiceInstance {
+            ip: "172.0.2.1".to_string(),
+            port: 6666,
+            metadata: metadata.clone(),
+            ..Default::default()
+        };
+        let instance_vec = vec![service_instance1, service_instance2, service_instance3];
+
+        let collector = tracing_subscriber::fmt()
+            .with_thread_names(true)
+            .with_file(true)
+            .with_level(true)
+            .with_line_number(true)
+            .with_thread_ids(true)
+            .finish();
+
+        tracing::subscriber::with_default(collector, || {
+            let ret = naming_service.batch_register_instance(
+                "test-service".to_string(),
+                Some(constants::DEFAULT_GROUP.to_string()),
+                instance_vec,
+            );
+            info!("response. {:?}", ret);
+
+            let ten_millis = time::Duration::from_secs(10);
+            thread::sleep(ten_millis);
+
+            let service_list = naming_service.get_service_list(1, 50, None);
+            info!("response. {:?}", service_list);
 
             thread::sleep(ten_millis);
         });
