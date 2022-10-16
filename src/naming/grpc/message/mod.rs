@@ -135,7 +135,7 @@ pub(crate) trait GrpcRequestMessage: GrpcMessageData {
 
     fn request_id(&self) -> Option<&String>;
 
-    fn module(&self) -> Option<&String>;
+    fn module(&self) -> &str;
 }
 
 pub(crate) trait GrpcResponseMessage: GrpcMessageData {
