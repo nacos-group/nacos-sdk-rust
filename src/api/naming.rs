@@ -8,79 +8,90 @@ use super::props::ClientProps;
 
 const DEFAULT_CLUSTER_NAME: &str = "DEFAULT";
 
-#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ServiceInstance {
-    instance_id: Option<String>,
+    pub instance_id: Option<String>,
 
-    ip: String,
+    pub ip: String,
 
-    port: i32,
+    pub port: i32,
 
-    weight: f64,
+    pub weight: f64,
 
-    healthy: bool,
+    pub healthy: bool,
 
-    enabled: bool,
+    pub enabled: bool,
 
-    ephemeral: bool,
+    pub ephemeral: bool,
 
-    cluster_name: Option<String>,
+    pub cluster_name: Option<String>,
 
-    service_name: Option<String>,
+    pub service_name: Option<String>,
 
-    metadata: HashMap<String, String>,
+    pub metadata: HashMap<String, String>,
 }
 
 impl ServiceInstance {
-    pub fn new(ip: String, port: i32) -> Self {
-        ServiceInstance {
-            ip,
-            port,
-            instance_id: None,
+    pub fn instance_id(&self) -> Option<&String> {
+        self.instance_id.as_ref()
+    }
+
+    pub fn ip(&self) -> &str {
+        &self.ip
+    }
+
+    pub fn port(&self) -> i32 {
+        self.port
+    }
+
+    pub fn weight(&self) -> f64 {
+        self.weight
+    }
+
+    pub fn healthy(&self) -> bool {
+        self.healthy
+    }
+
+    pub fn enabled(&self) -> bool {
+        self.enabled
+    }
+
+    pub fn ephemeral(&self) -> bool {
+        self.ephemeral
+    }
+
+    pub fn cluster_name(&self) -> Option<&String> {
+        self.cluster_name.as_ref()
+    }
+
+    pub fn service_name(&self) -> Option<&String> {
+        self.service_name.as_ref()
+    }
+
+    pub fn metadata(&self) -> &HashMap<String, String> {
+        &self.metadata
+    }
+}
+
+impl Default for ServiceInstance {
+    fn default() -> Self {
+        Self {
+            instance_id: Default::default(),
+            ip: Default::default(),
+            port: Default::default(),
             weight: 1.0,
             healthy: true,
             enabled: true,
             ephemeral: true,
             cluster_name: Some(DEFAULT_CLUSTER_NAME.to_owned()),
-            service_name: None,
-            metadata: HashMap::new(),
+            service_name: Default::default(),
+            metadata: Default::default(),
         }
     }
+}
 
-    pub fn instance_id(mut self, instance_id: String) -> Self {
-        self.instance_id = Some(instance_id);
-        self
-    }
-
-    pub fn weight(mut self, weight: f64) -> Self {
-        self.weight = weight;
-        self
-    }
-
-    pub fn enabled(mut self, enabled: bool) -> Self {
-        self.enabled = enabled;
-        self
-    }
-
-    pub fn ephemeral(mut self, ephemeral: bool) -> Self {
-        self.ephemeral = ephemeral;
-        self
-    }
-
-    pub fn cluster_name(mut self, cluster_name: String) -> Self {
-        self.cluster_name = Some(cluster_name);
-        self
-    }
-
-    pub fn service_name(mut self, service_name: String) -> Self {
-        self.service_name = Some(service_name);
-        self
-    }
-
-    pub fn add_meta_data(mut self, key: String, value: String) -> Self {
-        self.metadata.insert(key, value);
-        self
-    }
+pub trait InstanceChooser {
+    fn choose(self) -> Option<ServiceInstance>;
 }
 
 pub type AsyncFuture<T> = Box<dyn Future<Output = Result<T>> + Send + Unpin + 'static>;
@@ -142,6 +153,40 @@ pub trait NamingService {
         clusters: Vec<String>,
         subscribe: bool,
     ) -> AsyncFuture<Vec<ServiceInstance>>;
+
+    fn select_instance(
+        &self,
+        service_name: String,
+        group_name: Option<String>,
+        clusters: Vec<String>,
+        subscribe: bool,
+        healthy: bool,
+    ) -> Result<Vec<ServiceInstance>>;
+
+    fn select_instance_async(
+        &self,
+        service_name: String,
+        group_name: Option<String>,
+        clusters: Vec<String>,
+        subscribe: bool,
+        healthy: bool,
+    ) -> AsyncFuture<Vec<ServiceInstance>>;
+
+    fn select_one_healthy_instance(
+        &self,
+        service_name: String,
+        group_name: Option<String>,
+        clusters: Vec<String>,
+        subscribe: bool,
+    ) -> Result<ServiceInstance>;
+
+    fn select_one_healthy_instance_async(
+        &self,
+        service_name: String,
+        group_name: Option<String>,
+        clusters: Vec<String>,
+        subscribe: bool,
+    ) -> AsyncFuture<ServiceInstance>;
 }
 
 pub struct NamingServiceBuilder {
