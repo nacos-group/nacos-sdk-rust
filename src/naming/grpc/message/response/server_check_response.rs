@@ -1,6 +1,6 @@
 use nacos_macro::response;
 
-#[response(identity = "serverCheckResponse", module = "naming")]
+#[response(identity = "ServerCheckResponse", module = "internal")]
 pub struct ServerCheckResponse {
     pub connection_id: String,
 }

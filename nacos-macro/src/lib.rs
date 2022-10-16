@@ -20,6 +20,7 @@ pub(crate) struct MacroArgs {
 enum Module {
     Config,
     Naming,
+    Internal,
 }
 
 impl Module {
@@ -27,6 +28,7 @@ impl Module {
         match self {
             Module::Config => "config",
             Module::Naming => "naming",
+            Module::Internal => "internal",
         }
     }
 }
