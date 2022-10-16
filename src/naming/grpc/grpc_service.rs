@@ -6,7 +6,6 @@ use futures::SinkExt;
 use futures::TryStreamExt;
 use grpcio::WriteFlags;
 use grpcio::{ChannelBuilder, Environment};
-use tokio::sync::mpsc::error::SendError;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 
 use tracing::error;
@@ -22,6 +21,9 @@ use crate::naming::grpc::message::request::ServerCheckRequest;
 use crate::naming::grpc::message::response::ServerCheckResponse;
 use crate::naming::grpc::message::GrpcMessageBuilder;
 use crate::naming::grpc::message::{GrpcMessage, GrpcMessageData};
+
+use crate::api::error::Error::GrpcioJoin;
+use crate::api::error::Result;
 
 use super::client_abilities::ClientAbilities;
 use super::handler::DefaultHandler;
@@ -167,12 +169,12 @@ impl GrpcService {
         labels: HashMap<String, String>,
         client_version: String,
         abilities: ClientAbilities,
-        tenant: String,
+        namespace: String,
     ) {
         let setup_request = ConnectionSetupRequest {
             client_version,
             abilities,
-            tenant,
+            namespace,
             labels,
             ..Default::default()
         };
@@ -234,7 +236,7 @@ impl GrpcService {
     pub(crate) async fn unary_call_async<R, P>(
         &self,
         message: GrpcMessage<R>,
-    ) -> Option<GrpcMessage<P>>
+    ) -> Result<GrpcMessage<P>>
     where
         R: GrpcMessageData,
         P: GrpcMessageData,
@@ -243,7 +245,7 @@ impl GrpcService {
         if request_payload.is_err() {
             let error = request_payload.unwrap_err();
             error!("unary_call_async error:{:?}", error);
-            return None;
+            return Err(error);
         }
         let request_payload = request_payload.unwrap();
 
@@ -251,14 +253,14 @@ impl GrpcService {
 
         if let Err(error) = response_payload {
             error!("receive grpc message occur an error. {:?}", error);
-            return None;
+            return Err(GrpcioJoin(error));
         }
 
         let response_payload = response_payload.unwrap().await;
 
         if let Err(error) = response_payload {
             error!("receive grpc message occur an error. {:?}", error);
-            return None;
+            return Err(GrpcioJoin(error));
         }
 
         let response_payload = response_payload.unwrap();
@@ -269,13 +271,13 @@ impl GrpcService {
                 "convert grpc payload to  message occur an error. {:?}",
                 error
             );
-            return None;
+            return Err(error);
         }
-        Some(message.unwrap())
+        Ok(message.unwrap())
     }
 
-    pub(crate) async fn bi_call(&self, payload: Payload) -> Result<(), SendError<Payload>> {
-        self.bi_sender.send(payload).await
+    pub(crate) async fn bi_call(&self, payload: Payload) -> Result<()> {
+        Ok(self.bi_sender.send(payload).await?)
     }
 
     pub(crate) fn register_bi_call_handler<T, H>(&self, handler: Box<dyn GrpcPayloadHandler>)
@@ -301,7 +303,7 @@ pub(crate) struct GrpcServiceBuilder {
 
     abilities: ClientAbilities,
 
-    tenant: String,
+    namespace: String,
 }
 
 impl GrpcServiceBuilder {
@@ -314,7 +316,7 @@ impl GrpcServiceBuilder {
             labels,
             abilities,
             client_version: "".to_string(),
-            tenant: "".to_string(),
+            namespace: "".to_string(),
         }
     }
 
@@ -328,8 +330,8 @@ impl GrpcServiceBuilder {
         self
     }
 
-    pub(crate) fn tenant(mut self, tenant: String) -> Self {
-        self.tenant = tenant;
+    pub(crate) fn namespace(mut self, namespace: String) -> Self {
+        self.namespace = namespace;
         self
     }
 
@@ -368,7 +370,7 @@ impl GrpcServiceBuilder {
             self.labels,
             self.client_version,
             self.abilities,
-            self.tenant,
+            self.namespace,
         );
         grpc_service
     }

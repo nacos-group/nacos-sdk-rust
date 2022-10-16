@@ -4,8 +4,8 @@ use futures::Future;
 
 use crate::api::error::Error::NamingBatchRegisterServiceFailed;
 use crate::api::error::Error::NamingDeregisterServiceFailed;
+use crate::api::error::Error::NamingQueryServiceFailed;
 use crate::api::error::Error::NamingRegisterServiceFailed;
-use crate::api::error::Error::ServerNoResponse;
 use crate::api::error::Result;
 use crate::api::naming::{AsyncFuture, NamingService, ServiceInstance};
 use crate::api::props::ClientProps;
@@ -13,8 +13,10 @@ use crate::api::props::ClientProps;
 use crate::common::executor;
 use crate::naming::grpc::message::request::BatchInstanceRequest;
 use crate::naming::grpc::message::request::InstanceRequest;
+use crate::naming::grpc::message::request::ServiceQueryRequest;
 use crate::naming::grpc::message::response::BatchInstanceResponse;
 use crate::naming::grpc::message::response::InstanceResponse;
+use crate::naming::grpc::message::response::QueryServiceResponse;
 
 use crate::naming::grpc::{GrpcService, GrpcServiceBuilder};
 
@@ -36,7 +38,7 @@ pub(self) mod constants {
 
     pub const DEFAULT_GROUP: &str = "DEFAULT_GROUP";
 
-    pub const DEFAULT_TENANT: &str = "public";
+    pub const DEFAULT_NAMESAPCE: &str = "public";
 
     pub const APP_FILED: &str = "app";
 
@@ -60,14 +62,14 @@ impl NacosNamingService {
         let app_name = client_props
             .app_name
             .unwrap_or_else(|| self::constants::DEFAULT_APP_NAME.to_owned());
-        let mut tenant = client_props.namespace;
-        if tenant.is_empty() {
-            tenant = self::constants::DEFAULT_TENANT.to_owned();
+        let mut namespace = client_props.namespace;
+        if namespace.is_empty() {
+            namespace = self::constants::DEFAULT_NAMESAPCE.to_owned();
         }
 
         let grpc_service = GrpcServiceBuilder::new()
             .address(client_props.server_addr)
-            .tenant(tenant.clone())
+            .namespace(namespace.clone())
             .client_version(client_props.client_version)
             .support_remote_connection(true)
             .support_remote_metrics(true)
@@ -86,7 +88,7 @@ impl NacosNamingService {
         let grpc_service = Arc::new(grpc_service);
         NacosNamingService {
             grpc_service,
-            namespace: tenant,
+            namespace,
             app_name,
         }
     }
@@ -108,11 +110,7 @@ impl NacosNamingService {
             .build();
 
         let task = async move {
-            let ret = grpc_service.unary_call_async::<R, P>(grpc_message).await;
-            if ret.is_none() {
-                return Err(ServerNoResponse);
-            }
-            let ret = ret.unwrap();
+            let ret = grpc_service.unary_call_async::<R, P>(grpc_message).await?;
             let body = ret.into_body();
             Ok(body)
         };
@@ -181,7 +179,7 @@ impl NamingService for NacosNamingService {
         service_name: String,
         group_name: Option<String>,
         service_instance: ServiceInstance,
-    ) -> AsyncFuture {
+    ) -> AsyncFuture<()> {
         let instance_opt_task = self.instance_opt(
             service_name,
             group_name,
@@ -190,9 +188,7 @@ impl NamingService for NacosNamingService {
         );
 
         Box::new(Box::pin(async move {
-            let response = instance_opt_task.await;
-
-            let body = response?;
+            let body = instance_opt_task.await?;
             if !body.is_success() {
                 let InstanceResponse {
                     result_code,
@@ -226,7 +222,7 @@ impl NamingService for NacosNamingService {
         service_name: String,
         group_name: Option<String>,
         service_instance: ServiceInstance,
-    ) -> AsyncFuture {
+    ) -> AsyncFuture<()> {
         let instance_opt_task = self.instance_opt(
             service_name,
             group_name,
@@ -235,9 +231,7 @@ impl NamingService for NacosNamingService {
         );
 
         Box::new(Box::pin(async move {
-            let response = instance_opt_task.await;
-
-            let body = response?;
+            let body = instance_opt_task.await?;
             if !body.is_success() {
                 let InstanceResponse {
                     result_code,
@@ -272,7 +266,7 @@ impl NamingService for NacosNamingService {
         service_name: String,
         group_name: Option<String>,
         service_instances: Vec<ServiceInstance>,
-    ) -> AsyncFuture {
+    ) -> AsyncFuture<()> {
         let batch_instance_opt_task = self.batch_instances_opt(
             service_name,
             group_name,
@@ -281,9 +275,7 @@ impl NamingService for NacosNamingService {
         );
 
         Box::new(Box::pin(async move {
-            let response = batch_instance_opt_task.await;
-
-            let body = response?;
+            let body = batch_instance_opt_task.await?;
             if !body.is_success() {
                 let BatchInstanceResponse {
                     result_code,
@@ -299,6 +291,60 @@ impl NamingService for NacosNamingService {
             }
 
             Ok(())
+        }))
+    }
+
+    fn get_all_instances(
+        &self,
+        service_name: String,
+        group_name: Option<String>,
+        clusters: Vec<String>,
+        subscribe: bool,
+    ) -> Result<Vec<ServiceInstance>> {
+        let future = self.get_all_instances_async(service_name, group_name, clusters, subscribe);
+        executor::block_on(future)
+    }
+
+    fn get_all_instances_async(
+        &self,
+        service_name: String,
+        group_name: Option<String>,
+        clusters: Vec<String>,
+        _subscribe: bool,
+    ) -> AsyncFuture<Vec<ServiceInstance>> {
+        let cluster = clusters.join(",");
+        let group_name = group_name.unwrap_or_else(|| self::constants::DEFAULT_GROUP.to_owned());
+        let request = ServiceQueryRequest {
+            cluster,
+            group_name,
+            healthy_only: false,
+            udp_port: 0,
+            namespace: self.namespace.clone(),
+            service_name,
+            ..Default::default()
+        };
+        let request_task =
+            self.request_to_server::<ServiceQueryRequest, QueryServiceResponse>(request);
+
+        Box::new(Box::pin(async move {
+            let response = request_task.await?;
+            if !response.is_success() {
+                let QueryServiceResponse {
+                    result_code,
+                    error_code,
+                    message,
+                    ..
+                } = response;
+                return Err(NamingQueryServiceFailed(
+                    result_code,
+                    error_code,
+                    message.unwrap_or_default(),
+                ));
+            }
+
+            let service_info = response.service_info;
+            let instances = service_info.hosts;
+            Ok(instances)
         }))
     }
 }
@@ -419,6 +465,56 @@ pub(crate) mod tests {
             info!("response. {:?}", ret);
 
             let ten_millis = time::Duration::from_secs(10);
+            thread::sleep(ten_millis);
+        });
+    }
+
+    #[test]
+    fn test_batch_register_service_and_query_all_instances() {
+        let props = ClientProps::new().server_addr("127.0.0.1:9848");
+
+        let naming_service = NacosNamingService::new(props);
+        let service_instance1 = ServiceInstance::new("127.0.0.1".to_string(), 9090)
+            .add_meta_data("netType".to_string(), "external".to_string())
+            .add_meta_data("version".to_string(), "2.0".to_string());
+
+        let service_instance2 = ServiceInstance::new("192.168.1.1".to_string(), 8080)
+            .add_meta_data("netType".to_string(), "external".to_string())
+            .add_meta_data("version".to_string(), "2.0".to_string());
+
+        let service_instance3 = ServiceInstance::new("192.168.1.2".to_string(), 8081)
+            .add_meta_data("netType".to_string(), "external".to_string())
+            .add_meta_data("version".to_string(), "2.0".to_string());
+
+        let instance_vec = vec![service_instance1, service_instance2, service_instance3];
+
+        let collector = tracing_subscriber::fmt()
+            .with_thread_names(true)
+            .with_file(true)
+            .with_level(true)
+            .with_line_number(true)
+            .with_thread_ids(true)
+            .finish();
+
+        tracing::subscriber::with_default(collector, || {
+            let ret = naming_service.batch_register_instance(
+                "test-service".to_string(),
+                Some(constants::DEFAULT_GROUP.to_string()),
+                instance_vec,
+            );
+            info!("response. {:?}", ret);
+
+            let ten_millis = time::Duration::from_secs(10);
+            thread::sleep(ten_millis);
+
+            let all_instances = naming_service.get_all_instances(
+                "test-service".to_string(),
+                Some(constants::DEFAULT_GROUP.to_string()),
+                Vec::default(),
+                false,
+            );
+            info!("response. {:?}", all_instances);
+
             thread::sleep(ten_millis);
         });
     }

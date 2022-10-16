@@ -4,7 +4,7 @@ use nacos_macro::request;
 
 use crate::naming::grpc::client_abilities::ClientAbilities;
 
-#[request(identity = "ConnectionSetupRequest", module = "naming")]
+#[request(identity = "ConnectionSetupRequest", module = "internal")]
 pub(crate) struct ConnectionSetupRequest {
     pub client_version: String,
 

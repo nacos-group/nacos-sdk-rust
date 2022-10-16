@@ -24,7 +24,7 @@ pub struct ServiceInstance {
 
     ephemeral: bool,
 
-    cluster_name: String,
+    cluster_name: Option<String>,
 
     service_name: Option<String>,
 
@@ -41,7 +41,7 @@ impl ServiceInstance {
             healthy: true,
             enabled: true,
             ephemeral: true,
-            cluster_name: DEFAULT_CLUSTER_NAME.to_owned(),
+            cluster_name: Some(DEFAULT_CLUSTER_NAME.to_owned()),
             service_name: None,
             metadata: HashMap::new(),
         }
@@ -68,7 +68,7 @@ impl ServiceInstance {
     }
 
     pub fn cluster_name(mut self, cluster_name: String) -> Self {
-        self.cluster_name = cluster_name;
+        self.cluster_name = Some(cluster_name);
         self
     }
 
@@ -83,7 +83,7 @@ impl ServiceInstance {
     }
 }
 
-pub type AsyncFuture = Box<dyn Future<Output = Result<()>> + Send + Unpin + 'static>;
+pub type AsyncFuture<T> = Box<dyn Future<Output = Result<T>> + Send + Unpin + 'static>;
 pub trait NamingService {
     fn register_service(
         &self,
@@ -97,7 +97,7 @@ pub trait NamingService {
         service_name: String,
         group_name: Option<String>,
         service_instance: ServiceInstance,
-    ) -> AsyncFuture;
+    ) -> AsyncFuture<()>;
 
     fn deregister_instance(
         &self,
@@ -111,7 +111,7 @@ pub trait NamingService {
         service_name: String,
         group_name: Option<String>,
         service_instance: ServiceInstance,
-    ) -> AsyncFuture;
+    ) -> AsyncFuture<()>;
 
     fn batch_register_instance(
         &self,
@@ -125,7 +125,23 @@ pub trait NamingService {
         service_name: String,
         group_name: Option<String>,
         service_instances: Vec<ServiceInstance>,
-    ) -> AsyncFuture;
+    ) -> AsyncFuture<()>;
+
+    fn get_all_instances(
+        &self,
+        service_name: String,
+        group_name: Option<String>,
+        clusters: Vec<String>,
+        subscribe: bool,
+    ) -> Result<Vec<ServiceInstance>>;
+
+    fn get_all_instances_async(
+        &self,
+        service_name: String,
+        group_name: Option<String>,
+        clusters: Vec<String>,
+        subscribe: bool,
+    ) -> AsyncFuture<Vec<ServiceInstance>>;
 }
 
 pub struct NamingServiceBuilder {

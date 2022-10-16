@@ -14,6 +14,8 @@
 // limitations under the License.
 //
 
+use crate::nacos_proto::v2::Payload;
+
 /// Nacos Sdk Rust Result.
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -45,6 +47,9 @@ pub enum Error {
     #[error("tokio oneshot receive failed: {0}")]
     TokioOneshotRecv(#[from] tokio::sync::oneshot::error::RecvError),
 
+    #[error("tokio mpsc send failed: {0}")]
+    TokioMpscSendPayloadFailed(#[from] tokio::sync::mpsc::error::SendError<Payload>),
+
     #[error("grpc payload metadata is empty")]
     GrpcPayloadMetaDataEmpty,
 
@@ -64,4 +69,7 @@ pub enum Error {
 
     #[error("naming service batch register services failed: resultCode: {0}, errorCode:{1}, message:{2}")]
     NamingBatchRegisterServiceFailed(i32, i32, String),
+
+    #[error("naming service query services failed: resultCode: {0}, errorCode:{1}, message:{2}")]
+    NamingQueryServiceFailed(i32, i32, String),
 }
