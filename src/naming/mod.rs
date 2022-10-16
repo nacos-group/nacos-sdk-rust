@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use futures::Future;
 
+use crate::api::error::Error::NamingBatchRegisterServiceFailed;
 use crate::api::error::Error::NamingDeregisterServiceFailed;
 use crate::api::error::Error::NamingRegisterServiceFailed;
 use crate::api::error::Error::ServerNoResponse;
@@ -10,8 +11,11 @@ use crate::api::naming::{AsyncFuture, NamingService, ServiceInstance};
 use crate::api::props::ClientProps;
 
 use crate::common::executor;
+use crate::naming::grpc::message::request::BatchInstanceRequest;
 use crate::naming::grpc::message::request::InstanceRequest;
+use crate::naming::grpc::message::response::BatchInstanceResponse;
 use crate::naming::grpc::message::response::InstanceResponse;
+
 use crate::naming::grpc::{GrpcService, GrpcServiceBuilder};
 
 use self::grpc::message::GrpcMessageBuilder;
@@ -41,6 +45,7 @@ pub(self) mod constants {
     pub mod request {
         pub const INSTANCE_REQUEST_REGISTER: &str = "registerInstance";
         pub const DE_REGISTER_INSTANCE: &str = "deregisterInstance";
+        pub const BATCH_REGISTER_INSTANCE: &str = "batchRegisterInstance";
     }
 }
 
@@ -56,7 +61,7 @@ impl NacosNamingService {
             .app_name
             .unwrap_or_else(|| self::constants::DEFAULT_APP_NAME.to_owned());
         let mut tenant = client_props.namespace;
-        if tenant == "" {
+        if tenant.is_empty() {
             tenant = self::constants::DEFAULT_TENANT.to_owned();
         }
 
@@ -134,15 +139,29 @@ impl NacosNamingService {
 
         let reqeust_to_server_task =
             self.request_to_server::<InstanceRequest, InstanceResponse>(request);
-        Box::new(Box::pin(async move {
-            let response = reqeust_to_server_task.await;
-            if let Err(e) = response {
-                return Err(e);
-            }
+        Box::new(Box::pin(async move { reqeust_to_server_task.await }))
+    }
 
-            let body = response.unwrap();
-            Ok(body)
-        }))
+    fn batch_instances_opt(
+        &self,
+        service_name: String,
+        group_name: Option<String>,
+        service_instances: Vec<ServiceInstance>,
+        r_type: String,
+    ) -> Box<dyn Future<Output = Result<BatchInstanceResponse>> + Send + Unpin + 'static> {
+        let group_name = group_name.unwrap_or_else(|| self::constants::DEFAULT_GROUP.to_owned());
+        let request = BatchInstanceRequest {
+            r_type,
+            instances: service_instances,
+            namespace: self.namespace.clone(),
+            service_name,
+            group_name,
+            ..Default::default()
+        };
+
+        let reqeust_to_server_task =
+            self.request_to_server::<BatchInstanceRequest, BatchInstanceResponse>(request);
+        Box::new(Box::pin(async move { reqeust_to_server_task.await }))
     }
 }
 
@@ -172,11 +191,8 @@ impl NamingService for NacosNamingService {
 
         Box::new(Box::pin(async move {
             let response = instance_opt_task.await;
-            if let Err(e) = response {
-                return Err(e);
-            }
 
-            let body = response.unwrap();
+            let body = response?;
             if !body.is_success() {
                 let InstanceResponse {
                     result_code,
@@ -220,11 +236,8 @@ impl NamingService for NacosNamingService {
 
         Box::new(Box::pin(async move {
             let response = instance_opt_task.await;
-            if let Err(e) = response {
-                return Err(e);
-            }
 
-            let body = response.unwrap();
+            let body = response?;
             if !body.is_success() {
                 let InstanceResponse {
                     result_code,
@@ -233,6 +246,52 @@ impl NamingService for NacosNamingService {
                     ..
                 } = body;
                 return Err(NamingDeregisterServiceFailed(
+                    result_code,
+                    error_code,
+                    message.unwrap_or_default(),
+                ));
+            }
+
+            Ok(())
+        }))
+    }
+
+    fn batch_register_instance(
+        &self,
+        service_name: String,
+        group_name: Option<String>,
+        service_instances: Vec<ServiceInstance>,
+    ) -> Result<()> {
+        let future =
+            self.batch_register_instance_async(service_name, group_name, service_instances);
+        executor::block_on(future)
+    }
+
+    fn batch_register_instance_async(
+        &self,
+        service_name: String,
+        group_name: Option<String>,
+        service_instances: Vec<ServiceInstance>,
+    ) -> AsyncFuture {
+        let batch_instance_opt_task = self.batch_instances_opt(
+            service_name,
+            group_name,
+            service_instances,
+            self::constants::request::BATCH_REGISTER_INSTANCE.to_owned(),
+        );
+
+        Box::new(Box::pin(async move {
+            let response = batch_instance_opt_task.await;
+
+            let body = response?;
+            if !body.is_success() {
+                let BatchInstanceResponse {
+                    result_code,
+                    error_code,
+                    message,
+                    ..
+                } = body;
+                return Err(NamingBatchRegisterServiceFailed(
                     result_code,
                     error_code,
                     message.unwrap_or_default(),
@@ -316,6 +375,46 @@ pub(crate) mod tests {
                 "test-service".to_string(),
                 Some(constants::DEFAULT_GROUP.to_string()),
                 service_instance,
+            );
+            info!("response. {:?}", ret);
+
+            let ten_millis = time::Duration::from_secs(10);
+            thread::sleep(ten_millis);
+        });
+    }
+
+    #[test]
+    fn test_batch_register_service() {
+        let props = ClientProps::new().server_addr("127.0.0.1:9848");
+
+        let naming_service = NacosNamingService::new(props);
+        let service_instance1 = ServiceInstance::new("127.0.0.1".to_string(), 9090)
+            .add_meta_data("netType".to_string(), "external".to_string())
+            .add_meta_data("version".to_string(), "2.0".to_string());
+
+        let service_instance2 = ServiceInstance::new("192.168.1.1".to_string(), 8080)
+            .add_meta_data("netType".to_string(), "external".to_string())
+            .add_meta_data("version".to_string(), "2.0".to_string());
+
+        let service_instance3 = ServiceInstance::new("192.168.1.2".to_string(), 8081)
+            .add_meta_data("netType".to_string(), "external".to_string())
+            .add_meta_data("version".to_string(), "2.0".to_string());
+
+        let instance_vec = vec![service_instance1, service_instance2, service_instance3];
+
+        let collector = tracing_subscriber::fmt()
+            .with_thread_names(true)
+            .with_file(true)
+            .with_level(true)
+            .with_line_number(true)
+            .with_thread_ids(true)
+            .finish();
+
+        tracing::subscriber::with_default(collector, || {
+            let ret = naming_service.batch_register_instance(
+                "test-service".to_string(),
+                Some(constants::DEFAULT_GROUP.to_string()),
+                instance_vec,
             );
             info!("response. {:?}", ret);
 

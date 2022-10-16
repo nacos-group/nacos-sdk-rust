@@ -9,6 +9,7 @@ pub(crate) fn grpc_request(
     macro_args: MacroArgs,
     mut item_struct: ItemStruct,
 ) -> proc_macro2::TokenStream {
+    let module = macro_args.module.to_string();
     let identity = macro_args.identity;
     let name = &item_struct.ident;
 
@@ -44,8 +45,8 @@ pub(crate) fn grpc_request(
                 self.request_id.as_ref()
             }
 
-            fn module(&self) -> Option<&String> {
-                self.module.as_ref()
+            fn module(&self) -> &str {
+                #module
             }
         }
 
@@ -63,15 +64,9 @@ pub(crate) fn grpc_request(
                 pub request_id: Option<String>
             })
             .unwrap();
-        let module_field = syn::Field::parse_named
-            .parse2(quote! {
-                pub module: Option<String>
-            })
-            .unwrap();
 
         fields.named.push(headers_field);
         fields.named.push(request_id_field);
-        fields.named.push(module_field);
     }
 
     let derive_paths: Vec<Path> = vec![
@@ -91,9 +86,38 @@ pub(crate) fn grpc_request(
         #[serde(rename_all = "camelCase")]
     ));
 
+    // naming request
+    naming_request(&mut item_struct);
+
     quote! {
         #item_struct
         #grpc_message_body
         #grpc_message_request
+    }
+}
+
+fn naming_request(item_struct: &mut ItemStruct) {
+    // add fields
+    if let syn::Fields::Named(ref mut fields) = item_struct.fields {
+        let namespace_field = syn::Field::parse_named
+            .parse2(quote! {
+                pub namespace: String
+            })
+            .unwrap();
+        let service_name_field = syn::Field::parse_named
+            .parse2(quote! {
+                pub service_name: String
+            })
+            .unwrap();
+
+        let group_name_field = syn::Field::parse_named
+            .parse2(quote! {
+                pub group_name: String
+            })
+            .unwrap();
+
+        fields.named.push(namespace_field);
+        fields.named.push(service_name_field);
+        fields.named.push(group_name_field);
     }
 }

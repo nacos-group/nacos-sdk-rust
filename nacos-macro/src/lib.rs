@@ -12,6 +12,23 @@ pub(crate) struct MacroArgs {
 
     #[darling(default)]
     crates: Crates,
+
+    module: Module,
+}
+
+#[derive(Debug, FromMeta)]
+enum Module {
+    Config,
+    Naming,
+}
+
+impl Module {
+    fn to_string(&self) -> &str {
+        match self {
+            Module::Config => "config",
+            Module::Naming => "naming",
+        }
+    }
 }
 
 #[derive(Debug, FromMeta)]

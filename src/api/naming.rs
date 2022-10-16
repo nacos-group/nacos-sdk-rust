@@ -112,6 +112,20 @@ pub trait NamingService {
         group_name: Option<String>,
         service_instance: ServiceInstance,
     ) -> AsyncFuture;
+
+    fn batch_register_instance(
+        &self,
+        service_name: String,
+        group_name: Option<String>,
+        service_instances: Vec<ServiceInstance>,
+    ) -> Result<()>;
+
+    fn batch_register_instance_async(
+        &self,
+        service_name: String,
+        group_name: Option<String>,
+        service_instances: Vec<ServiceInstance>,
+    ) -> AsyncFuture;
 }
 
 pub struct NamingServiceBuilder {

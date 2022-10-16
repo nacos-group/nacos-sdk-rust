@@ -61,4 +61,7 @@ pub enum Error {
         "naming service deregister service failed: resultCode: {0}, errorCode:{1}, message:{2}"
     )]
     NamingDeregisterServiceFailed(i32, i32, String),
+
+    #[error("naming service batch register services failed: resultCode: {0}, errorCode:{1}, message:{2}")]
+    NamingBatchRegisterServiceFailed(i32, i32, String),
 }
