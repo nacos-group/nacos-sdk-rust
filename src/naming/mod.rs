@@ -6,24 +6,31 @@ use crate::api::error::Error::NamingBatchRegisterServiceFailed;
 use crate::api::error::Error::NamingDeregisterServiceFailed;
 use crate::api::error::Error::NamingQueryServiceFailed;
 use crate::api::error::Error::NamingRegisterServiceFailed;
+use crate::api::error::Error::NamingServiceListFailed;
+use crate::api::error::Error::NoAvailableServiceInstance;
 use crate::api::error::Result;
+use crate::api::naming::InstanceChooser;
 use crate::api::naming::{AsyncFuture, NamingService, ServiceInstance};
 use crate::api::props::ClientProps;
 
 use crate::common::executor;
 use crate::naming::grpc::message::request::BatchInstanceRequest;
 use crate::naming::grpc::message::request::InstanceRequest;
+use crate::naming::grpc::message::request::ServiceListRequest;
 use crate::naming::grpc::message::request::ServiceQueryRequest;
 use crate::naming::grpc::message::response::BatchInstanceResponse;
 use crate::naming::grpc::message::response::InstanceResponse;
 use crate::naming::grpc::message::response::QueryServiceResponse;
+use crate::naming::grpc::message::response::ServiceListResponse;
 
 use crate::naming::grpc::{GrpcService, GrpcServiceBuilder};
 
+use self::chooser::RandomWeightChooser;
 use self::grpc::message::GrpcMessageBuilder;
 use self::grpc::message::GrpcRequestMessage;
 use self::grpc::message::GrpcResponseMessage;
 
+mod chooser;
 mod grpc;
 
 pub(self) mod constants {
@@ -312,6 +319,7 @@ impl NamingService for NacosNamingService {
         clusters: Vec<String>,
         _subscribe: bool,
     ) -> AsyncFuture<Vec<ServiceInstance>> {
+        //TODO add subscribe logic
         let cluster = clusters.join(",");
         let group_name = group_name.unwrap_or_else(|| self::constants::DEFAULT_GROUP.to_owned());
         let request = ServiceQueryRequest {
@@ -347,13 +355,131 @@ impl NamingService for NacosNamingService {
             Ok(instances)
         }))
     }
+
+    fn select_instance(
+        &self,
+        service_name: String,
+        group_name: Option<String>,
+        clusters: Vec<String>,
+        subscribe: bool,
+        healthy: bool,
+    ) -> Result<Vec<ServiceInstance>> {
+        let future =
+            self.select_instance_async(service_name, group_name, clusters, subscribe, healthy);
+        executor::block_on(future)
+    }
+
+    fn select_instance_async(
+        &self,
+        service_name: String,
+        group_name: Option<String>,
+        clusters: Vec<String>,
+        subscribe: bool,
+        healthy: bool,
+    ) -> AsyncFuture<Vec<ServiceInstance>> {
+        let get_all_instances_task =
+            self.get_all_instances_async(service_name, group_name, clusters, subscribe);
+
+        Box::new(Box::pin(async move {
+            let all_instance = get_all_instances_task.await?;
+            let ret: Vec<ServiceInstance> = all_instance
+                .into_iter()
+                .filter(|instance| {
+                    healthy == instance.healthy && instance.enabled && instance.weight > 0.0
+                })
+                .collect();
+            Ok(ret)
+        }))
+    }
+
+    fn select_one_healthy_instance(
+        &self,
+        service_name: String,
+        group_name: Option<String>,
+        clusters: Vec<String>,
+        subscribe: bool,
+    ) -> Result<ServiceInstance> {
+        let future =
+            self.select_one_healthy_instance_async(service_name, group_name, clusters, subscribe);
+        executor::block_on(future)
+    }
+
+    fn select_one_healthy_instance_async(
+        &self,
+        service_name: String,
+        group_name: Option<String>,
+        clusters: Vec<String>,
+        subscribe: bool,
+    ) -> AsyncFuture<ServiceInstance> {
+        let service_name_for_tip = service_name.clone();
+        let select_task =
+            self.select_instance_async(service_name, group_name, clusters, subscribe, true);
+
+        Box::new(Box::pin(async move {
+            let ret = select_task.await?;
+            let chooser = RandomWeightChooser::new(service_name_for_tip.clone(), ret)?;
+            let instance = chooser.choose();
+            if instance.is_none() {
+                return Err(NoAvailableServiceInstance(service_name_for_tip));
+            }
+            let instance = instance.unwrap();
+            Ok(instance)
+        }))
+    }
+
+    fn get_service_list(
+        &self,
+        page_no: i32,
+        page_size: i32,
+        group_name: Option<String>,
+    ) -> Result<(Vec<String>, i32)> {
+        let future = self.get_service_list_async(page_no, page_size, group_name);
+        executor::block_on(future)
+    }
+
+    fn get_service_list_async(
+        &self,
+        page_no: i32,
+        page_size: i32,
+        group_name: Option<String>,
+    ) -> AsyncFuture<(Vec<String>, i32)> {
+        let group_name = group_name.unwrap_or_else(|| self::constants::DEFAULT_GROUP.to_owned());
+        let request = ServiceListRequest {
+            page_no,
+            page_size,
+            group_name,
+            namespace: self.namespace.clone(),
+            ..Default::default()
+        };
+        let request_task =
+            self.request_to_server::<ServiceListRequest, ServiceListResponse>(request);
+
+        Box::new(Box::pin(async move {
+            let response = request_task.await?;
+            if !response.is_success() {
+                let ServiceListResponse {
+                    result_code,
+                    error_code,
+                    message,
+                    ..
+                } = response;
+                return Err(NamingServiceListFailed(
+                    result_code,
+                    error_code,
+                    message.unwrap_or_default(),
+                ));
+            }
+
+            Ok((response.service_names, response.count))
+        }))
+    }
 }
 
 #[cfg(test)]
 pub(crate) mod tests {
 
     use core::time;
-    use std::thread;
+    use std::{collections::HashMap, thread};
 
     use tracing::info;
 
@@ -363,10 +489,17 @@ pub(crate) mod tests {
     fn test_register_service() {
         let props = ClientProps::new().server_addr("127.0.0.1:9848");
 
+        let mut metadata = HashMap::<String, String>::new();
+        metadata.insert("netType".to_string(), "external".to_string());
+        metadata.insert("version".to_string(), "2.0".to_string());
+
         let naming_service = NacosNamingService::new(props);
-        let service_instance = ServiceInstance::new("127.0.0.1".to_string(), 9090)
-            .add_meta_data("netType".to_string(), "external".to_string())
-            .add_meta_data("version".to_string(), "2.0".to_string());
+        let service_instance = ServiceInstance {
+            ip: "127.0.0.1".to_string(),
+            port: 9090,
+            metadata,
+            ..Default::default()
+        };
 
         let collector = tracing_subscriber::fmt()
             .with_thread_names(true)
@@ -393,10 +526,17 @@ pub(crate) mod tests {
     fn test_register_and_deregister_service() {
         let props = ClientProps::new().server_addr("127.0.0.1:9848");
 
+        let mut metadata = HashMap::<String, String>::new();
+        metadata.insert("netType".to_string(), "external".to_string());
+        metadata.insert("version".to_string(), "2.0".to_string());
+
         let naming_service = NacosNamingService::new(props);
-        let service_instance = ServiceInstance::new("127.0.0.1".to_string(), 9090)
-            .add_meta_data("netType".to_string(), "external".to_string())
-            .add_meta_data("version".to_string(), "2.0".to_string());
+        let service_instance = ServiceInstance {
+            ip: "127.0.0.1".to_string(),
+            port: 9090,
+            metadata,
+            ..Default::default()
+        };
 
         let collector = tracing_subscriber::fmt()
             .with_thread_names(true)
@@ -433,18 +573,31 @@ pub(crate) mod tests {
     fn test_batch_register_service() {
         let props = ClientProps::new().server_addr("127.0.0.1:9848");
 
+        let mut metadata = HashMap::<String, String>::new();
+        metadata.insert("netType".to_string(), "external".to_string());
+        metadata.insert("version".to_string(), "2.0".to_string());
+
         let naming_service = NacosNamingService::new(props);
-        let service_instance1 = ServiceInstance::new("127.0.0.1".to_string(), 9090)
-            .add_meta_data("netType".to_string(), "external".to_string())
-            .add_meta_data("version".to_string(), "2.0".to_string());
+        let service_instance1 = ServiceInstance {
+            ip: "127.0.0.1".to_string(),
+            port: 9090,
+            metadata: metadata.clone(),
+            ..Default::default()
+        };
 
-        let service_instance2 = ServiceInstance::new("192.168.1.1".to_string(), 8080)
-            .add_meta_data("netType".to_string(), "external".to_string())
-            .add_meta_data("version".to_string(), "2.0".to_string());
+        let service_instance2 = ServiceInstance {
+            ip: "192.168.1.1".to_string(),
+            port: 8888,
+            metadata: metadata.clone(),
+            ..Default::default()
+        };
 
-        let service_instance3 = ServiceInstance::new("192.168.1.2".to_string(), 8081)
-            .add_meta_data("netType".to_string(), "external".to_string())
-            .add_meta_data("version".to_string(), "2.0".to_string());
+        let service_instance3 = ServiceInstance {
+            ip: "172.0.2.1".to_string(),
+            port: 6666,
+            metadata: metadata.clone(),
+            ..Default::default()
+        };
 
         let instance_vec = vec![service_instance1, service_instance2, service_instance3];
 
@@ -473,19 +626,31 @@ pub(crate) mod tests {
     fn test_batch_register_service_and_query_all_instances() {
         let props = ClientProps::new().server_addr("127.0.0.1:9848");
 
+        let mut metadata = HashMap::<String, String>::new();
+        metadata.insert("netType".to_string(), "external".to_string());
+        metadata.insert("version".to_string(), "2.0".to_string());
+
         let naming_service = NacosNamingService::new(props);
-        let service_instance1 = ServiceInstance::new("127.0.0.1".to_string(), 9090)
-            .add_meta_data("netType".to_string(), "external".to_string())
-            .add_meta_data("version".to_string(), "2.0".to_string());
+        let service_instance1 = ServiceInstance {
+            ip: "127.0.0.1".to_string(),
+            port: 9090,
+            metadata: metadata.clone(),
+            ..Default::default()
+        };
 
-        let service_instance2 = ServiceInstance::new("192.168.1.1".to_string(), 8080)
-            .add_meta_data("netType".to_string(), "external".to_string())
-            .add_meta_data("version".to_string(), "2.0".to_string());
+        let service_instance2 = ServiceInstance {
+            ip: "192.168.1.1".to_string(),
+            port: 8888,
+            metadata: metadata.clone(),
+            ..Default::default()
+        };
 
-        let service_instance3 = ServiceInstance::new("192.168.1.2".to_string(), 8081)
-            .add_meta_data("netType".to_string(), "external".to_string())
-            .add_meta_data("version".to_string(), "2.0".to_string());
-
+        let service_instance3 = ServiceInstance {
+            ip: "172.0.2.1".to_string(),
+            port: 6666,
+            metadata: metadata.clone(),
+            ..Default::default()
+        };
         let instance_vec = vec![service_instance1, service_instance2, service_instance3];
 
         let collector = tracing_subscriber::fmt()
@@ -514,6 +679,190 @@ pub(crate) mod tests {
                 false,
             );
             info!("response. {:?}", all_instances);
+
+            thread::sleep(ten_millis);
+        });
+    }
+
+    #[test]
+    fn test_select_instance() {
+        let props = ClientProps::new().server_addr("127.0.0.1:9848");
+
+        let mut metadata = HashMap::<String, String>::new();
+        metadata.insert("netType".to_string(), "external".to_string());
+        metadata.insert("version".to_string(), "2.0".to_string());
+
+        let naming_service = NacosNamingService::new(props);
+        let service_instance1 = ServiceInstance {
+            ip: "127.0.0.1".to_string(),
+            port: 9090,
+            metadata: metadata.clone(),
+            ..Default::default()
+        };
+
+        let service_instance2 = ServiceInstance {
+            ip: "192.168.1.1".to_string(),
+            port: 8888,
+            metadata: metadata.clone(),
+            ..Default::default()
+        };
+
+        let service_instance3 = ServiceInstance {
+            ip: "172.0.2.1".to_string(),
+            port: 6666,
+            metadata: metadata.clone(),
+            ..Default::default()
+        };
+        let instance_vec = vec![service_instance1, service_instance2, service_instance3];
+
+        let collector = tracing_subscriber::fmt()
+            .with_thread_names(true)
+            .with_file(true)
+            .with_level(true)
+            .with_line_number(true)
+            .with_thread_ids(true)
+            .finish();
+
+        tracing::subscriber::with_default(collector, || {
+            let ret = naming_service.batch_register_instance(
+                "test-service".to_string(),
+                Some(constants::DEFAULT_GROUP.to_string()),
+                instance_vec,
+            );
+            info!("response. {:?}", ret);
+
+            let ten_millis = time::Duration::from_secs(10);
+            thread::sleep(ten_millis);
+
+            let all_instances = naming_service.select_instance(
+                "test-service".to_string(),
+                Some(constants::DEFAULT_GROUP.to_string()),
+                Vec::default(),
+                false,
+                true,
+            );
+            info!("response. {:?}", all_instances);
+
+            thread::sleep(ten_millis);
+        });
+    }
+
+    #[test]
+    fn test_select_one_healthy_instance() {
+        let props = ClientProps::new().server_addr("127.0.0.1:9848");
+
+        let mut metadata = HashMap::<String, String>::new();
+        metadata.insert("netType".to_string(), "external".to_string());
+        metadata.insert("version".to_string(), "2.0".to_string());
+
+        let naming_service = NacosNamingService::new(props);
+        let service_instance1 = ServiceInstance {
+            ip: "127.0.0.1".to_string(),
+            port: 9090,
+            metadata: metadata.clone(),
+            ..Default::default()
+        };
+
+        let service_instance2 = ServiceInstance {
+            ip: "192.168.1.1".to_string(),
+            port: 8888,
+            metadata: metadata.clone(),
+            ..Default::default()
+        };
+
+        let service_instance3 = ServiceInstance {
+            ip: "172.0.2.1".to_string(),
+            port: 6666,
+            metadata: metadata.clone(),
+            ..Default::default()
+        };
+        let instance_vec = vec![service_instance1, service_instance2, service_instance3];
+
+        let collector = tracing_subscriber::fmt()
+            .with_thread_names(true)
+            .with_file(true)
+            .with_level(true)
+            .with_line_number(true)
+            .with_thread_ids(true)
+            .finish();
+
+        tracing::subscriber::with_default(collector, || {
+            let ret = naming_service.batch_register_instance(
+                "test-service".to_string(),
+                Some(constants::DEFAULT_GROUP.to_string()),
+                instance_vec,
+            );
+            info!("response. {:?}", ret);
+
+            let ten_millis = time::Duration::from_secs(10);
+            thread::sleep(ten_millis);
+
+            for _ in 0..3 {
+                let all_instances = naming_service.select_one_healthy_instance(
+                    "test-service".to_string(),
+                    Some(constants::DEFAULT_GROUP.to_string()),
+                    Vec::default(),
+                    false,
+                );
+                info!("response. {:?}", all_instances);
+            }
+
+            thread::sleep(ten_millis);
+        });
+    }
+
+    #[test]
+    fn test_get_service_list() {
+        let props = ClientProps::new().server_addr("127.0.0.1:9848");
+
+        let mut metadata = HashMap::<String, String>::new();
+        metadata.insert("netType".to_string(), "external".to_string());
+        metadata.insert("version".to_string(), "2.0".to_string());
+
+        let naming_service = NacosNamingService::new(props);
+        let service_instance1 = ServiceInstance {
+            ip: "127.0.0.1".to_string(),
+            port: 9090,
+            metadata: metadata.clone(),
+            ..Default::default()
+        };
+
+        let service_instance2 = ServiceInstance {
+            ip: "192.168.1.1".to_string(),
+            port: 8888,
+            metadata: metadata.clone(),
+            ..Default::default()
+        };
+
+        let service_instance3 = ServiceInstance {
+            ip: "172.0.2.1".to_string(),
+            port: 6666,
+            metadata: metadata.clone(),
+            ..Default::default()
+        };
+        let instance_vec = vec![service_instance1, service_instance2, service_instance3];
+
+        let collector = tracing_subscriber::fmt()
+            .with_thread_names(true)
+            .with_file(true)
+            .with_level(true)
+            .with_line_number(true)
+            .with_thread_ids(true)
+            .finish();
+
+        tracing::subscriber::with_default(collector, || {
+            let ret = naming_service.batch_register_instance(
+                "test-service".to_string(),
+                Some(constants::DEFAULT_GROUP.to_string()),
+                instance_vec,
+            );
+            info!("response. {:?}", ret);
+
+            let ten_millis = time::Duration::from_secs(10);
+            thread::sleep(ten_millis);
+
+            let service_list = naming_service.get_service_list(1, 50, None);
+            info!("response. {:?}", service_list);
 
             thread::sleep(ten_millis);
         });
