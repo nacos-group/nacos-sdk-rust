@@ -43,7 +43,7 @@ impl ConfigService for NacosConfigService {
         &mut self,
         data_id: String,
         group: String,
-        listener: std::sync::Arc<crate::api::config::ConfigChangeListener>,
+        listener: std::sync::Arc<dyn crate::api::config::ConfigChangeListener>,
     ) -> crate::api::error::Result<()> {
         self.client_worker.add_listener(
             data_id,
@@ -52,47 +52,5 @@ impl ConfigService for NacosConfigService {
             listener,
         );
         Ok(())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::api::config::ConfigService;
-    use crate::api::props::ClientProps;
-    use crate::config::NacosConfigService;
-    use std::time::Duration;
-    use tokio::time::sleep;
-
-    // #[tokio::test]
-    async fn test_config_service() {
-        tracing_subscriber::fmt()
-            .with_max_level(tracing::Level::DEBUG)
-            .init();
-        let mut config_service = NacosConfigService::new(
-            ClientProps::new()
-                .server_addr("0.0.0.0:9848".to_string())
-                .app_name("test-app-name"),
-        );
-        config_service.start().await;
-        let config =
-            config_service.get_config("hongwen.properties".to_string(), "LOVE".to_string());
-        match config {
-            Ok(config) => tracing::info!("get the config {}", config),
-            Err(err) => tracing::error!("get the config {:?}", err),
-        }
-
-        let _listen = config_service.add_listener(
-            "hongwen.properties".to_string(),
-            "LOVE".to_string(),
-            std::sync::Arc::new(|config_resp| {
-                tracing::info!("listen the config {}", config_resp.content());
-            }),
-        );
-        match _listen {
-            Ok(_) => tracing::info!("listening the config"),
-            Err(err) => tracing::error!("listen config error {:?}", err),
-        }
-
-        sleep(Duration::from_secs(30)).await;
     }
 }

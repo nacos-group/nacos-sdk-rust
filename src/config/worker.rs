@@ -155,7 +155,7 @@ impl ConfigWorker {
         data_id: String,
         group: String,
         tenant: String,
-        listener: Arc<crate::api::config::ConfigChangeListener>,
+        listener: Arc<dyn crate::api::config::ConfigChangeListener>,
     ) {
         let group_key = util::group_key(&data_id, &group, &tenant);
         if let Ok(mut mutex) = self.cache_data_map.lock() {
@@ -197,7 +197,7 @@ impl ConfigWorker {
         data_id: String,
         group: String,
         tenant: String,
-        listener: Arc<crate::api::config::ConfigChangeListener>,
+        listener: Arc<dyn crate::api::config::ConfigChangeListener>,
     ) {
         let group_key = util::group_key(&data_id, &group, &tenant);
         if let Ok(mut mutex) = self.cache_data_map.lock() {
@@ -421,7 +421,7 @@ impl CacheData {
     }
 
     /// Add listener.
-    fn add_listener(&mut self, listener: Arc<crate::api::config::ConfigChangeListener>) {
+    fn add_listener(&mut self, listener: Arc<dyn crate::api::config::ConfigChangeListener>) {
         if let Ok(mut mutex) = self.listeners.lock() {
             if Self::index_of_listener(mutex.deref(), Arc::clone(&listener)).is_some() {
                 return;
@@ -431,7 +431,7 @@ impl CacheData {
     }
 
     /// Remove listener.
-    fn remove_listener(&mut self, listener: Arc<crate::api::config::ConfigChangeListener>) {
+    fn remove_listener(&mut self, listener: Arc<dyn crate::api::config::ConfigChangeListener>) {
         if let Ok(mut mutex) = self.listeners.lock() {
             if let Some(idx) = Self::index_of_listener(mutex.deref(), Arc::clone(&listener)) {
                 mutex.swap_remove(idx);
@@ -442,7 +442,7 @@ impl CacheData {
     /// fn inner, return idx if existed, else return None.
     fn index_of_listener(
         listen_warp_vec: &[ListenerWrapper],
-        listener: Arc<crate::api::config::ConfigChangeListener>,
+        listener: Arc<dyn crate::api::config::ConfigChangeListener>,
     ) -> Option<usize> {
         for (idx, listen_warp) in listen_warp_vec.iter().enumerate() {
             #[warn(clippy::vtable_address_comparisons)]
@@ -456,19 +456,19 @@ impl CacheData {
     /// Notify listener. when last-md5 not equals the-newest-md5
     fn notify_listener(&mut self) {
         if let Ok(mut mutex) = self.listeners.lock() {
-            for listen in mutex.iter_mut() {
-                if listen.last_md5.eq(&self.md5) {
+            for listen_wrap in mutex.iter_mut() {
+                if listen_wrap.last_md5.eq(&self.md5) {
                     continue;
                 }
                 // Notify when last-md5 not equals the-newest-md5, todo Notify in independent thread.
-                (listen.listener)(ConfigResponse::new(
+                listen_wrap.listener.notify(ConfigResponse::new(
                     self.data_id.clone(),
                     self.group.clone(),
                     self.tenant.clone(),
                     self.content.clone(),
                     self.content_type.clone(),
                 ));
-                listen.last_md5 = self.md5.clone();
+                listen_wrap.last_md5 = self.md5.clone();
                 tracing::info!(
                     "notify_listener success, dataId={},group={},namespace={},md5={}",
                     self.data_id,
@@ -518,11 +518,11 @@ impl std::fmt::Display for CacheData {
 struct ListenerWrapper {
     /// last md5 be notified
     last_md5: String,
-    listener: Arc<crate::api::config::ConfigChangeListener>,
+    listener: Arc<dyn crate::api::config::ConfigChangeListener>,
 }
 
 impl ListenerWrapper {
-    fn new(listener: Arc<crate::api::config::ConfigChangeListener>) -> Self {
+    fn new(listener: Arc<dyn crate::api::config::ConfigChangeListener>) -> Self {
         Self {
             last_md5: "".to_string(),
             listener,
