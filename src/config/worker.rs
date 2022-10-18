@@ -532,10 +532,11 @@ impl ListenerWrapper {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
     use crate::api::config::{ConfigChangeListener, ConfigResponse};
     use crate::api::props::ClientProps;
+    use crate::config::util;
     use crate::config::worker::{CacheData, ConfigWorker};
+    use std::sync::Arc;
 
     #[test]
     fn test_client_worker_add_listener() {
@@ -552,6 +553,42 @@ mod tests {
         let _listen = client_worker.add_listener(d.clone(), g.clone(), t.clone(), lis2_arc.clone());
         // test add a listener2 again
         let _listen = client_worker.add_listener(d.clone(), g.clone(), t.clone(), lis2_arc);
+
+        let group_key = util::group_key(&d, &g, &t);
+        {
+            let cache_data_map_mutex = client_worker.cache_data_map.lock().unwrap();
+            let cache_data = cache_data_map_mutex.get(group_key.as_str()).unwrap();
+            let listen_mutex = cache_data.listeners.lock().unwrap();
+            assert_eq!(2, listen_mutex.len());
+        }
+    }
+
+    #[test]
+    fn test_client_worker_add_listener_then_remove() {
+        let mut client_worker = ConfigWorker::new(ClientProps::new());
+
+        let (d, g, t) = ("D".to_string(), "G".to_string(), "N".to_string());
+
+        // test add listener1
+        let lis1_arc = Arc::new(TestConfigChangeListener1 {});
+        let lis1_arc2 = Arc::clone(&lis1_arc);
+        let _listen = client_worker.add_listener(d.clone(), g.clone(), t.clone(), lis1_arc);
+
+        let group_key = util::group_key(&d, &g, &t);
+        {
+            let cache_data_map_mutex = client_worker.cache_data_map.lock().unwrap();
+            let cache_data = cache_data_map_mutex.get(group_key.as_str()).unwrap();
+            let listen_mutex = cache_data.listeners.lock().unwrap();
+            assert_eq!(1, listen_mutex.len());
+        }
+
+        client_worker.remove_listener(d.clone(), g.clone(), t.clone(), lis1_arc2);
+        {
+            let cache_data_map_mutex = client_worker.cache_data_map.lock().unwrap();
+            let cache_data = cache_data_map_mutex.get(group_key.as_str()).unwrap();
+            let listen_mutex = cache_data.listeners.lock().unwrap();
+            assert_eq!(0, listen_mutex.len());
+        }
     }
 
     #[test]
