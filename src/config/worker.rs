@@ -455,27 +455,34 @@ impl CacheData {
 
     /// Notify listener. when last-md5 not equals the-newest-md5
     fn notify_listener(&mut self) {
+        tracing::info!(
+            "notify_listener, dataId={},group={},namespace={},md5={}",
+            self.data_id,
+            self.group,
+            self.tenant,
+            self.md5
+        );
+
+        let config_resp = ConfigResponse::new(
+            self.data_id.clone(),
+            self.group.clone(),
+            self.tenant.clone(),
+            self.content.clone(),
+            self.content_type.clone(),
+        );
+
         if let Ok(mut mutex) = self.listeners.lock() {
             for listen_wrap in mutex.iter_mut() {
                 if listen_wrap.last_md5.eq(&self.md5) {
                     continue;
                 }
-                // Notify when last-md5 not equals the-newest-md5, todo Notify in independent thread.
-                listen_wrap.listener.notify(ConfigResponse::new(
-                    self.data_id.clone(),
-                    self.group.clone(),
-                    self.tenant.clone(),
-                    self.content.clone(),
-                    self.content_type.clone(),
-                ));
+                // Notify when last-md5 not equals the-newest-md5, Notify in independent thread.
+                let l_clone = listen_wrap.listener.clone();
+                let c_clone = config_resp.clone();
+                crate::common::executor::spawn(async move {
+                    l_clone.notify(c_clone);
+                });
                 listen_wrap.last_md5 = self.md5.clone();
-                tracing::info!(
-                    "notify_listener success, dataId={},group={},namespace={},md5={}",
-                    self.data_id,
-                    self.group,
-                    self.tenant,
-                    self.md5
-                );
             }
         }
     }
