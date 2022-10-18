@@ -53,4 +53,19 @@ impl ConfigService for NacosConfigService {
         );
         Ok(())
     }
+
+    fn remove_listener(
+        &mut self,
+        data_id: String,
+        group: String,
+        listener: std::sync::Arc<dyn crate::api::config::ConfigChangeListener>,
+    ) -> crate::api::error::Result<()> {
+        self.client_worker.remove_listener(
+            data_id,
+            group,
+            self.client_props.namespace.clone(),
+            listener,
+        );
+        Ok(())
+    }
 }
