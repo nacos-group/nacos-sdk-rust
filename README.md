@@ -33,14 +33,20 @@ nacos-sdk = { version = "0.1", features = ["default"] }
         Ok(config_resp) => tracing::info!("get the config {}", config_resp),
         Err(err) => tracing::error!("get the config {:?}", err),
     }
+
+    struct ExampleConfigChangeListener;
+
+    impl ConfigChangeListener for ExampleConfigChangeListener {
+        fn notify(&self, config_resp: ConfigResponse) {
+            tracing::info!("listen the config={:?}", config_resp);
+        }
+    }
     
     // example add a listener
     let _listen = config_service.add_listener(
         "todo-data-id".to_string(),
         "todo-group".to_string(),
-        Arc::new(|config_resp| {
-            tracing::info!("listen the config={:?}", config_resp);
-        }),
+        Arc::new(ExampleConfigChangeListener {}),
     );
     match _listen {
         Ok(_) => tracing::info!("listening the config success"),

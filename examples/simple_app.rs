@@ -1,5 +1,5 @@
-use nacos_sdk::api::config::ConfigService;
 use nacos_sdk::api::config::ConfigServiceBuilder;
+use nacos_sdk::api::config::{ConfigChangeListener, ConfigResponse, ConfigService};
 use nacos_sdk::api::props::ClientProps;
 use std::time::Duration;
 use tokio::time::sleep;
@@ -32,9 +32,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _listen = config_service.add_listener(
         "hongwen.properties".to_string(),
         "LOVE".to_string(),
-        std::sync::Arc::new(|config_resp| {
-            tracing::info!("listen the config={:?}", config_resp);
-        }),
+        std::sync::Arc::new(SimpleConfigChangeListener {}),
     );
     match _listen {
         Ok(_) => tracing::info!("listening the config success"),
@@ -44,4 +42,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     sleep(Duration::from_secs(300)).await;
 
     Ok(())
+}
+
+struct SimpleConfigChangeListener;
+
+impl ConfigChangeListener for SimpleConfigChangeListener {
+    fn notify(&self, config_resp: ConfigResponse) {
+        tracing::info!("listen the config={:?}", config_resp);
+    }
 }

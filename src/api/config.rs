@@ -1,8 +1,5 @@
 use crate::api::{error, props};
 
-/// Trait or Closure? Please refer to more sdk before deciding.
-pub(crate) type ConfigChangeListener = dyn Fn(ConfigResponse) + Send + Sync;
-
 /// Api [`ConfigService`].
 ///
 /// # Examples
@@ -28,10 +25,16 @@ pub trait ConfigService {
         &mut self,
         data_id: String,
         group: String,
-        listener: std::sync::Arc<ConfigChangeListener>,
+        listener: std::sync::Arc<dyn ConfigChangeListener>,
     ) -> error::Result<()>;
 }
 
+/// The ConfigChangeListener receive a notify of [`ConfigResponse`].
+pub trait ConfigChangeListener: Send + Sync {
+    fn notify(&self, config_resp: ConfigResponse);
+}
+
+/// ConfigResponse for api.
 #[derive(Debug, Clone)]
 pub struct ConfigResponse {
     /// Namespace/Tenant
@@ -150,8 +153,8 @@ impl ConfigServiceBuilder {
 
 #[cfg(test)]
 mod tests {
-    use crate::api::config::ConfigService;
     use crate::api::config::ConfigServiceBuilder;
+    use crate::api::config::{ConfigChangeListener, ConfigResponse, ConfigService};
     use std::time::Duration;
     use tokio::time::sleep;
 
@@ -171,12 +174,10 @@ mod tests {
         let _listen = config_service.add_listener(
             "hongwen.properties".to_string(),
             "LOVE".to_string(),
-            std::sync::Arc::new(|config_resp| {
-                tracing::info!("listen the config {}", config_resp.content());
-            }),
+            std::sync::Arc::new(TestConfigChangeListener {}),
         );
         match _listen {
-            Ok(_) => tracing::info!("listening the config"),
+            Ok(_) => tracing::info!("listening the config success"),
             Err(err) => tracing::error!("listen config error {:?}", err),
         }
 
@@ -192,9 +193,7 @@ mod tests {
         let _listen = config_service.add_listener(
             "todo-data-id".to_string(),
             "todo-group".to_string(),
-            std::sync::Arc::new(|config_resp| {
-                tracing::info!("listen the config={:?}", config_resp);
-            }),
+            std::sync::Arc::new(TestConfigChangeListener {}),
         );
         match _listen {
             Ok(_) => tracing::info!("listening the config success"),
@@ -202,5 +201,13 @@ mod tests {
         }
 
         sleep(Duration::from_secs(30)).await;
+    }
+
+    struct TestConfigChangeListener;
+
+    impl ConfigChangeListener for TestConfigChangeListener {
+        fn notify(&self, config_resp: ConfigResponse) {
+            tracing::info!("listen the config={:?}", config_resp);
+        }
     }
 }
