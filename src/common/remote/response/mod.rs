@@ -51,4 +51,10 @@ lazy_static! {
     /// com.alibaba.nacos.api.config.remote.response.ConfigChangeBatchListenResponse
     pub static ref TYPE_CONFIG_CHANGE_BATCH_LISTEN_RESPONSE: String = String::from("ConfigChangeBatchListenResponse");
 
+    /// com.alibaba.nacos.api.config.remote.response.ConfigQueryResponse
+    pub static ref TYPE_CONFIG_QUERY_SERVER_RESPONSE: String = String::from("ConfigQueryResponse");
+
+    /// com.alibaba.nacos.api.config.remote.response.ConfigRemoveResponse
+    pub static ref TYPE_CONFIG_REMOVE_SERVER_RESPONSE: String = String::from("ConfigRemoveResponse");
+
 }

@@ -99,7 +99,7 @@ impl Response for ConfigQueryServerResponse {
     }
 
     fn type_url(&self) -> &String {
-        &TYPE_CONFIG_CHANGE_BATCH_LISTEN_RESPONSE
+        &TYPE_CONFIG_QUERY_SERVER_RESPONSE
     }
 }
 
@@ -128,6 +128,43 @@ impl ConfigQueryServerResponse {
 }
 
 impl From<&str> for ConfigQueryServerResponse {
+    fn from(json_str: &str) -> Self {
+        let de: serde_json::Result<Self> = serde_json::from_str(json_str);
+        de.unwrap()
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub(crate) struct ConfigRemoveServerResponse {
+    requestId: Option<String>,
+    resultCode: ResponseCode,
+    errorCode: u32,
+    message: Option<String>,
+}
+
+impl Response for ConfigRemoveServerResponse {
+    fn is_success(&self) -> bool {
+        ResponseCode::Ok == self.resultCode
+    }
+
+    fn request_id(&self) -> Option<&String> {
+        Option::from(&self.requestId)
+    }
+
+    fn message(&self) -> Option<&String> {
+        Option::from(&self.message)
+    }
+
+    fn error_code(&self) -> u32 {
+        self.errorCode
+    }
+
+    fn type_url(&self) -> &String {
+        &TYPE_CONFIG_REMOVE_SERVER_RESPONSE
+    }
+}
+
+impl From<&str> for ConfigRemoveServerResponse {
     fn from(json_str: &str) -> Self {
         let de: serde_json::Result<Self> = serde_json::from_str(json_str);
         de.unwrap()

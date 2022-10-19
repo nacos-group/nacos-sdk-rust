@@ -20,6 +20,9 @@ pub trait ConfigService {
     /// Get config, return the content.
     fn get_config(&mut self, data_id: String, group: String) -> error::Result<ConfigResponse>;
 
+    /// Remove config, return true/false.
+    fn remove_config(&mut self, data_id: String, group: String) -> error::Result<bool>;
+
     /// Listen the config change.
     fn add_listener(
         &mut self,
@@ -209,6 +212,23 @@ mod tests {
         }
 
         sleep(Duration::from_secs(30)).await;
+    }
+
+    // #[tokio::test]
+    async fn test_api_config_service_remove_config() {
+        tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::DEBUG)
+            .init();
+
+        let mut config_service = ConfigServiceBuilder::default().build().await;
+
+        // remove a config not exit
+        let remove_resp =
+            config_service.remove_config("todo-data-id".to_string(), "todo-group".to_string());
+        match remove_resp {
+            Ok(result) => tracing::info!("remove a config not exit: {}", result),
+            Err(err) => tracing::error!("remove a config not exit: {:?}", err),
+        }
     }
 
     struct TestConfigChangeListener;

@@ -40,6 +40,9 @@ lazy_static! {
     /// com.alibaba.nacos.api.config.remote.request.ConfigQueryRequest
     pub static ref TYPE_CONFIG_QUERY_CLIENT_REQUEST: String = String::from("ConfigQueryRequest");
 
+    /// com.alibaba.nacos.api.config.remote.request.ConfigRemoveRequest
+    pub static ref TYPE_CONFIG_REMOVE_CLIENT_REQUEST: String = String::from("ConfigRemoveRequest");
+
 }
 
 // odd by client request id.

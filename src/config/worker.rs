@@ -149,14 +149,23 @@ impl ConfigWorker {
         ))
     }
 
+    pub(crate) fn remove_config(
+        &mut self,
+        data_id: String,
+        group: String,
+    ) -> crate::api::error::Result<bool> {
+        let tenant = self.client_props.namespace.clone();
+        Self::remove_config_inner(&mut self.connection, data_id, group, tenant)
+    }
+
     /// Add listener.
     pub(crate) fn add_listener(
         &mut self,
         data_id: String,
         group: String,
-        tenant: String,
         listener: Arc<dyn crate::api::config::ConfigChangeListener>,
     ) {
+        let tenant = self.client_props.namespace.clone();
         let group_key = util::group_key(&data_id, &group, &tenant);
         if let Ok(mut mutex) = self.cache_data_map.lock() {
             if !mutex.contains_key(group_key.as_str()) {
@@ -196,9 +205,9 @@ impl ConfigWorker {
         &mut self,
         data_id: String,
         group: String,
-        tenant: String,
         listener: Arc<dyn crate::api::config::ConfigChangeListener>,
     ) {
+        let tenant = self.client_props.namespace.clone();
         let group_key = util::group_key(&data_id, &group, &tenant);
         if let Ok(mut mutex) = self.cache_data_map.lock() {
             if !mutex.contains_key(group_key.as_str()) {
@@ -385,6 +394,29 @@ impl ConfigWorker {
             )))
         }
     }
+
+    fn remove_config_inner(
+        connection: &mut Connection,
+        data_id: String,
+        group: String,
+        tenant: String,
+    ) -> crate::api::error::Result<bool> {
+        let req = ConfigRemoveClientRequest::new(data_id, group, tenant);
+        let req_payload = payload_helper::build_req_grpc_payload(req);
+        let resp = connection.get_client()?.request(&req_payload)?;
+        let payload_inner = payload_helper::covert_payload(resp);
+        // return Err if get a err_resp
+        if payload_helper::is_err_resp(&payload_inner.type_url) {
+            let err_resp = ErrorResponse::from(payload_inner.body_str.as_str());
+            return Err(crate::api::error::Error::ErrResult(format!(
+                "error_code={},message={}",
+                err_resp.error_code(),
+                err_resp.message().unwrap()
+            )));
+        }
+        let remove_resp = ConfigRemoveServerResponse::from(payload_inner.body_str.as_str());
+        Ok(remove_resp.is_success())
+    }
 }
 
 /// Cache Data for Config
@@ -547,19 +579,19 @@ mod tests {
 
     #[test]
     fn test_client_worker_add_listener() {
-        let mut client_worker = ConfigWorker::new(ClientProps::new());
-
         let (d, g, t) = ("D".to_string(), "G".to_string(), "N".to_string());
+
+        let mut client_worker = ConfigWorker::new(ClientProps::new().namespace(t.clone()));
 
         // test add listener1
         let lis1_arc = Arc::new(TestConfigChangeListener1 {});
-        let _listen = client_worker.add_listener(d.clone(), g.clone(), t.clone(), lis1_arc);
+        let _listen = client_worker.add_listener(d.clone(), g.clone(), lis1_arc);
 
         // test add listener2
         let lis2_arc = Arc::new(TestConfigChangeListener2 {});
-        let _listen = client_worker.add_listener(d.clone(), g.clone(), t.clone(), lis2_arc.clone());
+        let _listen = client_worker.add_listener(d.clone(), g.clone(), lis2_arc.clone());
         // test add a listener2 again
-        let _listen = client_worker.add_listener(d.clone(), g.clone(), t.clone(), lis2_arc);
+        let _listen = client_worker.add_listener(d.clone(), g.clone(), lis2_arc);
 
         let group_key = util::group_key(&d, &g, &t);
         {
@@ -572,14 +604,14 @@ mod tests {
 
     #[test]
     fn test_client_worker_add_listener_then_remove() {
-        let mut client_worker = ConfigWorker::new(ClientProps::new());
-
         let (d, g, t) = ("D".to_string(), "G".to_string(), "N".to_string());
+
+        let mut client_worker = ConfigWorker::new(ClientProps::new().namespace(t.clone()));
 
         // test add listener1
         let lis1_arc = Arc::new(TestConfigChangeListener1 {});
         let lis1_arc2 = Arc::clone(&lis1_arc);
-        let _listen = client_worker.add_listener(d.clone(), g.clone(), t.clone(), lis1_arc);
+        let _listen = client_worker.add_listener(d.clone(), g.clone(), lis1_arc);
 
         let group_key = util::group_key(&d, &g, &t);
         {
@@ -589,7 +621,7 @@ mod tests {
             assert_eq!(1, listen_mutex.len());
         }
 
-        client_worker.remove_listener(d.clone(), g.clone(), t.clone(), lis1_arc2);
+        client_worker.remove_listener(d.clone(), g.clone(), lis1_arc2);
         {
             let cache_data_map_mutex = client_worker.cache_data_map.lock().unwrap();
             let cache_data = cache_data_map_mutex.get(group_key.as_str()).unwrap();
