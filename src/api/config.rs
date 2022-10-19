@@ -27,6 +27,14 @@ pub trait ConfigService {
         group: String,
         listener: std::sync::Arc<dyn ConfigChangeListener>,
     ) -> error::Result<()>;
+
+    /// Remove a Listener.
+    fn remove_listener(
+        &mut self,
+        data_id: String,
+        group: String,
+        listener: std::sync::Arc<dyn ConfigChangeListener>,
+    ) -> error::Result<()>;
 }
 
 /// The ConfigChangeListener receive a notify of [`ConfigResponse`].
