@@ -1,18 +1,22 @@
 use std::sync::Arc;
 
 use futures::Future;
+use tracing::info;
 
 use crate::api::error::Error::NamingBatchRegisterServiceFailed;
 use crate::api::error::Error::NamingDeregisterServiceFailed;
 use crate::api::error::Error::NamingQueryServiceFailed;
 use crate::api::error::Error::NamingRegisterServiceFailed;
 use crate::api::error::Error::NamingServiceListFailed;
+use crate::api::error::Error::NamingSubscribeServiceFailed;
 use crate::api::error::Error::NoAvailableServiceInstance;
 use crate::api::error::Result;
+use crate::api::events::Subscriber;
 use crate::api::naming::InstanceChooser;
 use crate::api::naming::{AsyncFuture, NamingService, ServiceInstance};
 use crate::api::props::ClientProps;
 
+use crate::common::event_bus;
 use crate::common::executor;
 use crate::naming::grpc::message::request::BatchInstanceRequest;
 use crate::naming::grpc::message::request::InstanceRequest;
@@ -26,12 +30,16 @@ use crate::naming::grpc::message::response::ServiceListResponse;
 use crate::naming::grpc::{GrpcService, GrpcServiceBuilder};
 
 use self::chooser::RandomWeightChooser;
+use self::grpc::message::request::SubscribeServiceRequest;
+use self::grpc::message::response::SubscribeServiceResponse;
 use self::grpc::message::GrpcMessageBuilder;
 use self::grpc::message::GrpcRequestMessage;
 use self::grpc::message::GrpcResponseMessage;
 
+mod cache;
 mod chooser;
 mod grpc;
+mod odt;
 
 pub(self) mod constants {
 
@@ -45,7 +53,7 @@ pub(self) mod constants {
 
     pub const DEFAULT_GROUP: &str = "DEFAULT_GROUP";
 
-    pub const DEFAULT_NAMESAPCE: &str = "public";
+    pub const DEFAULT_NAMESPACE: &str = "public";
 
     pub const APP_FILED: &str = "app";
 
@@ -71,7 +79,7 @@ impl NacosNamingService {
             .unwrap_or_else(|| self::constants::DEFAULT_APP_NAME.to_owned());
         let mut namespace = client_props.namespace;
         if namespace.is_empty() {
-            namespace = self::constants::DEFAULT_NAMESAPCE.to_owned();
+            namespace = self::constants::DEFAULT_NAMESPACE.to_owned();
         }
 
         let grpc_service = GrpcServiceBuilder::new()
@@ -132,19 +140,23 @@ impl NacosNamingService {
         service_instance: ServiceInstance,
         r_type: String,
     ) -> Box<dyn Future<Output = Result<InstanceResponse>> + Send + Unpin + 'static> {
-        let group_name = group_name.unwrap_or_else(|| self::constants::DEFAULT_GROUP.to_owned());
+        let group_name =
+            Some(group_name.unwrap_or_else(|| self::constants::DEFAULT_GROUP.to_owned()));
+        let namespace = Some(self.namespace.clone());
+        let service_name = Some(service_name);
+
         let request = InstanceRequest {
             r_type,
             instance: service_instance,
-            namespace: self.namespace.clone(),
+            namespace,
             service_name,
             group_name,
             ..Default::default()
         };
 
-        let reqeust_to_server_task =
+        let request_to_server_task =
             self.request_to_server::<InstanceRequest, InstanceResponse>(request);
-        Box::new(Box::pin(async move { reqeust_to_server_task.await }))
+        Box::new(Box::pin(async move { request_to_server_task.await }))
     }
 
     fn batch_instances_opt(
@@ -154,19 +166,23 @@ impl NacosNamingService {
         service_instances: Vec<ServiceInstance>,
         r_type: String,
     ) -> Box<dyn Future<Output = Result<BatchInstanceResponse>> + Send + Unpin + 'static> {
-        let group_name = group_name.unwrap_or_else(|| self::constants::DEFAULT_GROUP.to_owned());
+        let group_name =
+            Some(group_name.unwrap_or_else(|| self::constants::DEFAULT_GROUP.to_owned()));
+        let namespace = Some(self.namespace.clone());
+        let service_name = Some(service_name);
+
         let request = BatchInstanceRequest {
             r_type,
             instances: service_instances,
-            namespace: self.namespace.clone(),
+            namespace,
             service_name,
             group_name,
             ..Default::default()
         };
 
-        let reqeust_to_server_task =
+        let request_to_server_task =
             self.request_to_server::<BatchInstanceRequest, BatchInstanceResponse>(request);
-        Box::new(Box::pin(async move { reqeust_to_server_task.await }))
+        Box::new(Box::pin(async move { request_to_server_task.await }))
     }
 }
 
@@ -321,13 +337,17 @@ impl NamingService for NacosNamingService {
     ) -> AsyncFuture<Vec<ServiceInstance>> {
         //TODO add subscribe logic
         let cluster = clusters.join(",");
-        let group_name = group_name.unwrap_or_else(|| self::constants::DEFAULT_GROUP.to_owned());
+        let group_name =
+            Some(group_name.unwrap_or_else(|| self::constants::DEFAULT_GROUP.to_owned()));
+        let namespace = Some(self.namespace.clone());
+        let service_name = Some(service_name);
+
         let request = ServiceQueryRequest {
             cluster,
             group_name,
             healthy_only: false,
             udp_port: 0,
-            namespace: self.namespace.clone(),
+            namespace,
             service_name,
             ..Default::default()
         };
@@ -443,12 +463,15 @@ impl NamingService for NacosNamingService {
         page_size: i32,
         group_name: Option<String>,
     ) -> AsyncFuture<(Vec<String>, i32)> {
-        let group_name = group_name.unwrap_or_else(|| self::constants::DEFAULT_GROUP.to_owned());
+        let group_name =
+            Some(group_name.unwrap_or_else(|| self::constants::DEFAULT_GROUP.to_owned()));
+        let namespace = Some(self.namespace.clone());
+
         let request = ServiceListRequest {
             page_no,
             page_size,
             group_name,
-            namespace: self.namespace.clone(),
+            namespace,
             ..Default::default()
         };
         let request_task =
@@ -473,6 +496,65 @@ impl NamingService for NacosNamingService {
             Ok((response.service_names, response.count))
         }))
     }
+
+    fn subscribe(
+        &self,
+        service_name: String,
+        group_name: Option<String>,
+        clusters: Vec<String>,
+        subscriber: Box<dyn Subscriber>,
+    ) -> Result<()> {
+        let future = self.subscribe_async(service_name, group_name, clusters, subscriber);
+        executor::block_on(future)
+    }
+
+    fn subscribe_async(
+        &self,
+        service_name: String,
+        group_name: Option<String>,
+        clusters: Vec<String>,
+        subscriber: Box<dyn Subscriber>,
+    ) -> AsyncFuture<()> {
+        // register
+        event_bus::register(subscriber);
+
+        let clusters = clusters.join(",");
+        let group_name =
+            Some(group_name.unwrap_or_else(|| self::constants::DEFAULT_GROUP.to_owned()));
+        let service_name = Some(service_name);
+        let namespace = Some(self.namespace.clone());
+
+        let request = SubscribeServiceRequest {
+            service_name,
+            group_name,
+            namespace,
+            subscribe: true,
+            clusters,
+            ..Default::default()
+        };
+
+        let request_task =
+            self.request_to_server::<SubscribeServiceRequest, SubscribeServiceResponse>(request);
+
+        Box::new(Box::pin(async move {
+            let response = request_task.await?;
+            if !response.is_success() {
+                let SubscribeServiceResponse {
+                    result_code,
+                    error_code,
+                    message,
+                    ..
+                } = response;
+                return Err(NamingSubscribeServiceFailed(
+                    result_code,
+                    error_code,
+                    message.unwrap_or_default(),
+                ));
+            }
+            info!("SubscribeServiceResponse: {:?}", response);
+            Ok(())
+        }))
+    }
 }
 
 #[cfg(test)]
@@ -482,6 +564,8 @@ pub(crate) mod tests {
     use std::{collections::HashMap, thread};
 
     use tracing::info;
+
+    use crate::api::events::{naming::InstancesChangeEvent, NacosEventSubscriber};
 
     use super::*;
 
@@ -501,22 +585,20 @@ pub(crate) mod tests {
             ..Default::default()
         };
 
-        let collector = tracing_subscriber::fmt()
+        tracing_subscriber::fmt()
             .with_thread_names(true)
             .with_file(true)
             .with_level(true)
             .with_line_number(true)
             .with_thread_ids(true)
-            .finish();
+            .init();
 
-        tracing::subscriber::with_default(collector, || {
-            let ret = naming_service.register_service(
-                "test-service".to_string(),
-                Some(constants::DEFAULT_GROUP.to_string()),
-                service_instance,
-            );
-            info!("response. {:?}", ret);
-        });
+        let ret = naming_service.register_service(
+            "test-service".to_string(),
+            Some(constants::DEFAULT_GROUP.to_string()),
+            service_instance,
+        );
+        info!("response. {:?}", ret);
 
         let ten_millis = time::Duration::from_secs(100);
         thread::sleep(ten_millis);
@@ -538,35 +620,33 @@ pub(crate) mod tests {
             ..Default::default()
         };
 
-        let collector = tracing_subscriber::fmt()
+        tracing_subscriber::fmt()
             .with_thread_names(true)
             .with_file(true)
             .with_level(true)
             .with_line_number(true)
             .with_thread_ids(true)
-            .finish();
+            .init();
 
-        tracing::subscriber::with_default(collector, || {
-            let ret = naming_service.register_service(
-                "test-service".to_string(),
-                Some(constants::DEFAULT_GROUP.to_string()),
-                service_instance.clone(),
-            );
-            info!("response. {:?}", ret);
+        let ret = naming_service.register_service(
+            "test-service".to_string(),
+            Some(constants::DEFAULT_GROUP.to_string()),
+            service_instance.clone(),
+        );
+        info!("response. {:?}", ret);
 
-            let ten_millis = time::Duration::from_secs(10);
-            thread::sleep(ten_millis);
+        let ten_millis = time::Duration::from_secs(10);
+        thread::sleep(ten_millis);
 
-            let ret = naming_service.deregister_instance(
-                "test-service".to_string(),
-                Some(constants::DEFAULT_GROUP.to_string()),
-                service_instance,
-            );
-            info!("response. {:?}", ret);
+        let ret = naming_service.deregister_instance(
+            "test-service".to_string(),
+            Some(constants::DEFAULT_GROUP.to_string()),
+            service_instance,
+        );
+        info!("response. {:?}", ret);
 
-            let ten_millis = time::Duration::from_secs(10);
-            thread::sleep(ten_millis);
-        });
+        let ten_millis = time::Duration::from_secs(10);
+        thread::sleep(ten_millis);
     }
 
     #[test]
@@ -601,25 +681,22 @@ pub(crate) mod tests {
 
         let instance_vec = vec![service_instance1, service_instance2, service_instance3];
 
-        let collector = tracing_subscriber::fmt()
+        tracing_subscriber::fmt()
             .with_thread_names(true)
             .with_file(true)
             .with_level(true)
             .with_line_number(true)
             .with_thread_ids(true)
-            .finish();
+            .init();
+        let ret = naming_service.batch_register_instance(
+            "test-service".to_string(),
+            Some(constants::DEFAULT_GROUP.to_string()),
+            instance_vec,
+        );
+        info!("response. {:?}", ret);
 
-        tracing::subscriber::with_default(collector, || {
-            let ret = naming_service.batch_register_instance(
-                "test-service".to_string(),
-                Some(constants::DEFAULT_GROUP.to_string()),
-                instance_vec,
-            );
-            info!("response. {:?}", ret);
-
-            let ten_millis = time::Duration::from_secs(10);
-            thread::sleep(ten_millis);
-        });
+        let ten_millis = time::Duration::from_secs(10);
+        thread::sleep(ten_millis);
     }
 
     #[test]
@@ -653,35 +730,33 @@ pub(crate) mod tests {
         };
         let instance_vec = vec![service_instance1, service_instance2, service_instance3];
 
-        let collector = tracing_subscriber::fmt()
+        tracing_subscriber::fmt()
             .with_thread_names(true)
             .with_file(true)
             .with_level(true)
             .with_line_number(true)
             .with_thread_ids(true)
-            .finish();
+            .init();
 
-        tracing::subscriber::with_default(collector, || {
-            let ret = naming_service.batch_register_instance(
-                "test-service".to_string(),
-                Some(constants::DEFAULT_GROUP.to_string()),
-                instance_vec,
-            );
-            info!("response. {:?}", ret);
+        let ret = naming_service.batch_register_instance(
+            "test-service".to_string(),
+            Some(constants::DEFAULT_GROUP.to_string()),
+            instance_vec,
+        );
+        info!("response. {:?}", ret);
 
-            let ten_millis = time::Duration::from_secs(10);
-            thread::sleep(ten_millis);
+        let ten_millis = time::Duration::from_secs(10);
+        thread::sleep(ten_millis);
 
-            let all_instances = naming_service.get_all_instances(
-                "test-service".to_string(),
-                Some(constants::DEFAULT_GROUP.to_string()),
-                Vec::default(),
-                false,
-            );
-            info!("response. {:?}", all_instances);
+        let all_instances = naming_service.get_all_instances(
+            "test-service".to_string(),
+            Some(constants::DEFAULT_GROUP.to_string()),
+            Vec::default(),
+            false,
+        );
+        info!("response. {:?}", all_instances);
 
-            thread::sleep(ten_millis);
-        });
+        thread::sleep(ten_millis);
     }
 
     #[test]
@@ -715,36 +790,34 @@ pub(crate) mod tests {
         };
         let instance_vec = vec![service_instance1, service_instance2, service_instance3];
 
-        let collector = tracing_subscriber::fmt()
+        tracing_subscriber::fmt()
             .with_thread_names(true)
             .with_file(true)
             .with_level(true)
             .with_line_number(true)
             .with_thread_ids(true)
-            .finish();
+            .init();
 
-        tracing::subscriber::with_default(collector, || {
-            let ret = naming_service.batch_register_instance(
-                "test-service".to_string(),
-                Some(constants::DEFAULT_GROUP.to_string()),
-                instance_vec,
-            );
-            info!("response. {:?}", ret);
+        let ret = naming_service.batch_register_instance(
+            "test-service".to_string(),
+            Some(constants::DEFAULT_GROUP.to_string()),
+            instance_vec,
+        );
+        info!("response. {:?}", ret);
 
-            let ten_millis = time::Duration::from_secs(10);
-            thread::sleep(ten_millis);
+        let ten_millis = time::Duration::from_secs(10);
+        thread::sleep(ten_millis);
 
-            let all_instances = naming_service.select_instance(
-                "test-service".to_string(),
-                Some(constants::DEFAULT_GROUP.to_string()),
-                Vec::default(),
-                false,
-                true,
-            );
-            info!("response. {:?}", all_instances);
+        let all_instances = naming_service.select_instance(
+            "test-service".to_string(),
+            Some(constants::DEFAULT_GROUP.to_string()),
+            Vec::default(),
+            false,
+            true,
+        );
+        info!("response. {:?}", all_instances);
 
-            thread::sleep(ten_millis);
-        });
+        thread::sleep(ten_millis);
     }
 
     #[test]
@@ -866,5 +939,75 @@ pub(crate) mod tests {
 
             thread::sleep(ten_millis);
         });
+    }
+
+    pub struct InstancesChangeEventSubscriber;
+
+    impl NacosEventSubscriber for InstancesChangeEventSubscriber {
+        type EventType = InstancesChangeEvent;
+
+        fn on_event(&self, event: &Self::EventType) {
+            println!("subscriber notify: {:?}", event);
+        }
+    }
+
+    #[test]
+    fn test_service_push() {
+        let props = ClientProps::new().server_addr("127.0.0.1:9848");
+
+        let mut metadata = HashMap::<String, String>::new();
+        metadata.insert("netType".to_string(), "external".to_string());
+        metadata.insert("version".to_string(), "2.0".to_string());
+
+        let naming_service = NacosNamingService::new(props);
+        let service_instance1 = ServiceInstance {
+            ip: "127.0.0.1".to_string(),
+            port: 9090,
+            metadata: metadata.clone(),
+            ..Default::default()
+        };
+
+        let service_instance2 = ServiceInstance {
+            ip: "192.168.1.1".to_string(),
+            port: 8888,
+            metadata: metadata.clone(),
+            ..Default::default()
+        };
+
+        let service_instance3 = ServiceInstance {
+            ip: "172.0.2.1".to_string(),
+            port: 6666,
+            metadata: metadata.clone(),
+            ..Default::default()
+        };
+        let instance_vec = vec![service_instance1, service_instance2, service_instance3];
+
+        tracing_subscriber::fmt()
+            .with_thread_names(true)
+            .with_file(true)
+            .with_level(true)
+            .with_line_number(true)
+            .with_thread_ids(true)
+            .init();
+
+        let ret = naming_service.batch_register_instance(
+            "test-service".to_string(),
+            Some(constants::DEFAULT_GROUP.to_string()),
+            instance_vec,
+        );
+        info!("response. {:?}", ret);
+
+        let subscriber = Box::new(InstancesChangeEventSubscriber);
+        let ret = naming_service.subscribe(
+            "test-service".to_string(),
+            Some(constants::DEFAULT_GROUP.to_string()),
+            Vec::default(),
+            subscriber,
+        );
+
+        info!("response. {:?}", ret);
+
+        let ten_millis = time::Duration::from_secs(30);
+        thread::sleep(ten_millis);
     }
 }

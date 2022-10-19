@@ -101,18 +101,18 @@ fn naming_request(item_struct: &mut ItemStruct) {
     if let syn::Fields::Named(ref mut fields) = item_struct.fields {
         let namespace_field = syn::Field::parse_named
             .parse2(quote! {
-                pub namespace: String
+                pub namespace: Option<String>
             })
             .unwrap();
         let service_name_field = syn::Field::parse_named
             .parse2(quote! {
-                pub service_name: String
+                pub service_name: Option<String>
             })
             .unwrap();
 
         let group_name_field = syn::Field::parse_named
             .parse2(quote! {
-                pub group_name: String
+                pub group_name: Option<String>
             })
             .unwrap();
 

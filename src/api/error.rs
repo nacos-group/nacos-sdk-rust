@@ -76,9 +76,15 @@ pub enum Error {
     #[error("naming service list services failed: resultCode: {0}, errorCode:{1}, message:{2}")]
     NamingServiceListFailed(i32, i32, String),
 
+    #[error("naming subscribe services failed: resultCode: {0}, errorCode:{1}, message:{2}")]
+    NamingSubscribeServiceFailed(i32, i32, String),
+
     #[error("Cumulative Weight calculate wrong , the sum of probabilities does not equals 1.")]
     WeightCalculateFailed,
 
     #[error("no available service instance can be selected")]
     NoAvailableServiceInstance(String),
+
+    #[error("{0}")]
+    GroupNameParseErr(String),
 }

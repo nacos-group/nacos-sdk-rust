@@ -5,7 +5,8 @@ use quote::quote;
 
 use crate::{Crates, MacroArgs};
 
-const SUCCESS_RESPONSE_RESULT_CODE: i32 = 200;
+const SUCCESS_RESPONSE: (i32, &str) = (200, "Response ok");
+const FAIL_RESPONSE: (i32, &str) = (500, "Response fail");
 
 pub(crate) fn grpc_response(
     macro_args: MacroArgs,
@@ -23,6 +24,33 @@ pub(crate) fn grpc_response(
                 #identity.into()
             }
         }
+    };
+
+    let (success_code, success_message) = SUCCESS_RESPONSE;
+    let (fail_code, fail_message) = FAIL_RESPONSE;
+
+    let impl_message_response = quote! {
+
+        impl #name {
+
+            pub fn ok() -> Self {
+                #name {
+                    result_code: #success_code,
+                    message: Some(#success_message.to_owned()),
+                    ..Default::default()
+                }
+            }
+
+            pub fn fail() -> Self {
+                #name {
+                    result_code: #fail_code,
+                    message: Some(#fail_message.to_owned()),
+                    ..Default::default()
+                }
+            }
+
+        }
+
     };
 
     let grpc_message_response = quote! {
@@ -45,7 +73,7 @@ pub(crate) fn grpc_response(
             }
 
             fn is_success(&self) -> bool {
-                self.result_code == #SUCCESS_RESPONSE_RESULT_CODE
+                self.result_code == #success_code
             }
         }
     };
@@ -98,6 +126,6 @@ pub(crate) fn grpc_response(
         #item_struct
         #grpc_message_response
         #grpc_message_body
-
+        #impl_message_response
     }
 }

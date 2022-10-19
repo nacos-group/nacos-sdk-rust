@@ -13,6 +13,6 @@ impl GrpcPayloadHandler for DefaultHandler {
             info!("receive bi payload: {:?}", payload);
         };
 
-        Box::new(Box::pin(task))
+        Some(Box::new(Box::pin(task)))
     }
 }
