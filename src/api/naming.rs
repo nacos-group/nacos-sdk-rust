@@ -4,7 +4,7 @@ use crate::{api::error::Result, naming::NacosNamingService};
 use futures::Future;
 use serde::{Deserialize, Serialize};
 
-use super::props::ClientProps;
+use super::{events::Subscriber, props::ClientProps};
 
 const DEFAULT_CLUSTER_NAME: &str = "DEFAULT";
 
@@ -201,6 +201,22 @@ pub trait NamingService {
         page_size: i32,
         group_name: Option<String>,
     ) -> AsyncFuture<(Vec<String>, i32)>;
+
+    fn subscribe(
+        &self,
+        service_name: String,
+        group_name: Option<String>,
+        clusters: Vec<String>,
+        subscriber: Box<dyn Subscriber>,
+    ) -> Result<()>;
+
+    fn subscribe_async(
+        &self,
+        service_name: String,
+        group_name: Option<String>,
+        clusters: Vec<String>,
+        subscriber: Box<dyn Subscriber>,
+    ) -> AsyncFuture<()>;
 }
 
 pub struct NamingServiceBuilder {

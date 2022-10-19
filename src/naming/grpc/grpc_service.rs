@@ -27,6 +27,8 @@ use crate::api::error::Result;
 
 use super::client_abilities::ClientAbilities;
 use super::handler::DefaultHandler;
+use super::handler::NamingPushRequestHandler;
+use super::message::request::NotifySubscriberRequest;
 
 type HandlerMap = Arc<RwLock<HashMap<String, Box<dyn GrpcPayloadHandler>>>>;
 
@@ -36,7 +38,7 @@ pub(crate) struct GrpcService {
     bi_request_stream_client: BiRequestStreamClient,
     connection_id: String,
     bi_sender: Arc<Sender<Payload>>,
-    bi_hander_map: HandlerMap,
+    bi_handler_map: HandlerMap,
 }
 
 impl GrpcService {
@@ -47,9 +49,9 @@ impl GrpcService {
         let (bi_sender, bi_receiver) = Self::duplex_streaming(&bi_request_stream_client).unwrap();
         let bi_sender = Arc::new(bi_sender);
 
-        let bi_hander_map = Arc::new(RwLock::new(HashMap::new()));
+        let bi_handler_map = Arc::new(RwLock::new(HashMap::new()));
 
-        Self::receive_bi_payload(bi_sender.clone(), bi_receiver, bi_hander_map.clone());
+        Self::receive_bi_payload(bi_sender.clone(), bi_receiver, bi_handler_map.clone());
 
         GrpcService {
             client_address: address,
@@ -57,7 +59,7 @@ impl GrpcService {
             bi_request_stream_client,
             connection_id,
             bi_sender,
-            bi_hander_map,
+            bi_handler_map,
         }
     }
 
@@ -92,7 +94,7 @@ impl GrpcService {
     fn receive_bi_payload(
         bi_sender: Arc<Sender<Payload>>,
         mut receiver: Receiver<Payload>,
-        hander_map: HandlerMap,
+        handler_map: HandlerMap,
     ) {
         executor::spawn(async move {
             while let Some(mut payload) = receiver.recv().await {
@@ -102,7 +104,12 @@ impl GrpcService {
                 }
                 let metadata = metadata.unwrap();
                 let type_url = &metadata.r#type;
-                let read = hander_map.read();
+
+                info!(
+                    "receive push message from the server side, message type :{:?}",
+                    type_url
+                );
+                let read = handler_map.read();
                 if let Err(error) = read {
                     error!(
                         "get bi call handler failed, because cannot get read lock. {:?}",
@@ -116,11 +123,15 @@ impl GrpcService {
                 if let Some(handler) = handler {
                     payload.metadata = Some(metadata);
                     let hand_task = handler.hand(bi_sender.clone(), payload);
-                    executor::spawn(hand_task);
+                    if let Some(hand_task) = hand_task {
+                        executor::spawn(hand_task);
+                    }
                 } else {
                     let default_handler = DefaultHandler;
                     let hand_task = default_handler.hand(bi_sender.clone(), payload);
-                    executor::spawn(hand_task);
+                    if let Some(hand_task) = hand_task {
+                        executor::spawn(hand_task);
+                    }
                 }
             }
         });
@@ -147,7 +158,7 @@ impl GrpcService {
         let response = GrpcMessage::<ServerCheckResponse>::from_payload(response);
         if let Err(error) = response {
             error!(
-                "response message cannot conver to ServerCheckResponse. {:?}",
+                "response message cannot convert to ServerCheckResponse. {:?}",
                 error
             );
             return None;
@@ -171,6 +182,7 @@ impl GrpcService {
         abilities: ClientAbilities,
         namespace: String,
     ) {
+        let namespace = Some(namespace);
         let setup_request = ConnectionSetupRequest {
             client_version,
             abilities,
@@ -190,8 +202,8 @@ impl GrpcService {
     fn duplex_streaming(
         bi_request_stream_client: &BiRequestStreamClient,
     ) -> Option<(Sender<Payload>, Receiver<Payload>)> {
-        let (req_sender, mut req_recevier) = channel::<Payload>(128);
-        let (rsp_sender, rsp_recevier) = channel::<Payload>(128);
+        let (req_sender, mut req_receiver) = channel::<Payload>(128);
+        let (rsp_sender, rsp_receiver) = channel::<Payload>(128);
 
         let stream = bi_request_stream_client.request_bi_stream();
         if let Err(error) = stream {
@@ -201,7 +213,7 @@ impl GrpcService {
         let (mut sink, mut receiver) = stream.unwrap();
 
         let send_task = async move {
-            while let Some(payload) = req_recevier.recv().await {
+            while let Some(payload) = req_receiver.recv().await {
                 let send_ret = sink.send((payload, WriteFlags::default())).await;
                 if let Err(error) = send_ret {
                     error!("send grpc message occur an error. {:?}", error);
@@ -230,7 +242,7 @@ impl GrpcService {
         executor::spawn(send_task);
         executor::spawn(receive_task);
 
-        Some((req_sender, rsp_recevier))
+        Some((req_sender, rsp_receiver))
     }
 
     pub(crate) async fn unary_call_async<R, P>(
@@ -280,11 +292,11 @@ impl GrpcService {
         Ok(self.bi_sender.send(payload).await?)
     }
 
-    pub(crate) fn register_bi_call_handler<T, H>(&self, handler: Box<dyn GrpcPayloadHandler>)
+    pub(crate) fn register_bi_call_handler<T>(&self, handler: Box<dyn GrpcPayloadHandler>)
     where
         T: GrpcMessageData,
     {
-        let write = self.bi_hander_map.write();
+        let write = self.bi_handler_map.write();
         if let Err(error) = write {
             error!("register call handler failed, cannot get lock. {:?}", error);
             return;
@@ -345,27 +357,32 @@ impl GrpcServiceBuilder {
         self
     }
 
-    pub(crate) fn support_remote_connection(mut self, enbale: bool) -> Self {
-        self.abilities.support_remote_connection(enbale);
+    pub(crate) fn support_remote_connection(mut self, enable: bool) -> Self {
+        self.abilities.support_remote_connection(enable);
         self
     }
 
-    pub(crate) fn support_remote_metrics(mut self, enbale: bool) -> Self {
-        self.abilities.support_remote_metrics(enbale);
+    pub(crate) fn support_remote_metrics(mut self, enable: bool) -> Self {
+        self.abilities.support_remote_metrics(enable);
         self
     }
 
-    pub(crate) fn support_delta_push(mut self, enbale: bool) -> Self {
-        self.abilities.support_delta_push(enbale);
+    pub(crate) fn support_delta_push(mut self, enable: bool) -> Self {
+        self.abilities.support_delta_push(enable);
         self
     }
 
-    pub(crate) fn support_remote_metric(mut self, enbale: bool) -> Self {
-        self.abilities.support_remote_metric(enbale);
+    pub(crate) fn support_remote_metric(mut self, enable: bool) -> Self {
+        self.abilities.support_remote_metric(enable);
         self
     }
     pub(crate) fn build(self) -> GrpcService {
         let grpc_service = GrpcService::new(self.address);
+        grpc_service.register_bi_call_handler::<NotifySubscriberRequest>(Box::new(
+            NamingPushRequestHandler {
+                event_scope: self.namespace.clone(),
+            },
+        ));
         grpc_service.setup(
             self.labels,
             self.client_version,
