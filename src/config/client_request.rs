@@ -109,3 +109,43 @@ impl ConfigQueryClientRequest {
         }
     }
 }
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub(crate) struct ConfigRemoveClientRequest {
+    requestId: String,
+    /// could be empty.
+    headers: HashMap<String, String>,
+    /// DataId
+    dataId: String,
+    /// Group
+    group: String,
+    /// tenant
+    tenant: String,
+    /// tag
+    tag: Option<String>,
+}
+
+impl Request for ConfigRemoveClientRequest {
+    fn request_id(&self) -> &String {
+        &self.requestId
+    }
+    fn headers(&self) -> &HashMap<String, String> {
+        &self.headers
+    }
+    fn type_url(&self) -> &String {
+        &TYPE_CONFIG_REMOVE_CLIENT_REQUEST
+    }
+}
+
+impl ConfigRemoveClientRequest {
+    pub fn new(data_id: String, group: String, tenant: String) -> Self {
+        ConfigRemoveClientRequest {
+            requestId: generate_request_id(),
+            headers: HashMap::new(),
+            dataId: data_id,
+            group,
+            tenant,
+            tag: None,
+        }
+    }
+}

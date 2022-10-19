@@ -10,18 +10,14 @@ use crate::api::props::ClientProps;
 use crate::config::worker::ConfigWorker;
 
 pub(crate) struct NacosConfigService {
-    client_props: ClientProps,
     /// config client worker
     client_worker: ConfigWorker,
 }
 
 impl NacosConfigService {
     pub fn new(client_props: ClientProps) -> Self {
-        let client_worker = ConfigWorker::new(client_props.clone());
-        Self {
-            client_props,
-            client_worker,
-        }
+        let client_worker = ConfigWorker::new(client_props);
+        Self { client_worker }
     }
 
     /// start Once
@@ -39,18 +35,17 @@ impl ConfigService for NacosConfigService {
         self.client_worker.get_config(data_id, group)
     }
 
+    fn remove_config(&mut self, data_id: String, group: String) -> crate::api::error::Result<bool> {
+        self.client_worker.remove_config(data_id, group)
+    }
+
     fn add_listener(
         &mut self,
         data_id: String,
         group: String,
         listener: std::sync::Arc<dyn crate::api::config::ConfigChangeListener>,
     ) -> crate::api::error::Result<()> {
-        self.client_worker.add_listener(
-            data_id,
-            group,
-            self.client_props.namespace.clone(),
-            listener,
-        );
+        self.client_worker.add_listener(data_id, group, listener);
         Ok(())
     }
 
@@ -60,12 +55,7 @@ impl ConfigService for NacosConfigService {
         group: String,
         listener: std::sync::Arc<dyn crate::api::config::ConfigChangeListener>,
     ) -> crate::api::error::Result<()> {
-        self.client_worker.remove_listener(
-            data_id,
-            group,
-            self.client_props.namespace.clone(),
-            listener,
-        );
+        self.client_worker.remove_listener(data_id, group, listener);
         Ok(())
     }
 }
