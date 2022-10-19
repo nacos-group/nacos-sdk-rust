@@ -35,6 +35,60 @@ impl ConfigService for NacosConfigService {
         self.client_worker.get_config(data_id, group)
     }
 
+    fn publish_config(
+        &mut self,
+        data_id: String,
+        group: String,
+        content: String,
+        content_type: Option<String>,
+    ) -> crate::api::error::Result<bool> {
+        self.client_worker
+            .publish_config(data_id, group, content, content_type)
+    }
+
+    fn publish_config_cas(
+        &mut self,
+        data_id: String,
+        group: String,
+        content: String,
+        content_type: Option<String>,
+        cas_md5: String,
+    ) -> crate::api::error::Result<bool> {
+        self.client_worker
+            .publish_config_cas(data_id, group, content, content_type, cas_md5)
+    }
+
+    fn publish_config_beta(
+        &mut self,
+        data_id: String,
+        group: String,
+        content: String,
+        content_type: Option<String>,
+        beta_ips: String,
+    ) -> crate::api::error::Result<bool> {
+        self.client_worker
+            .publish_config_beta(data_id, group, content, content_type, beta_ips)
+    }
+
+    fn publish_config_param(
+        &mut self,
+        data_id: String,
+        group: String,
+        content: String,
+        content_type: Option<String>,
+        cas_md5: Option<String>,
+        params: std::collections::HashMap<String, String>,
+    ) -> crate::api::error::Result<bool> {
+        self.client_worker.publish_config_param(
+            data_id,
+            group,
+            content,
+            content_type,
+            cas_md5,
+            params,
+        )
+    }
+
     fn remove_config(&mut self, data_id: String, group: String) -> crate::api::error::Result<bool> {
         self.client_worker.remove_config(data_id, group)
     }

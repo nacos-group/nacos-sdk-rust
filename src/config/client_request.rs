@@ -149,3 +149,65 @@ impl ConfigRemoveClientRequest {
         }
     }
 }
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub(crate) struct ConfigPublishClientRequest {
+    requestId: String,
+    /// could be empty.
+    headers: HashMap<String, String>,
+    /// DataId
+    dataId: String,
+    /// Group
+    group: String,
+    /// tenant
+    tenant: String,
+    /// content
+    content: String,
+    /// Cas md5 (prev content's md5)
+    casMd5: Option<String>,
+    /// Addition Map
+    additionMap: HashMap<String, String>,
+}
+
+impl Request for ConfigPublishClientRequest {
+    fn request_id(&self) -> &String {
+        &self.requestId
+    }
+    fn headers(&self) -> &HashMap<String, String> {
+        &self.headers
+    }
+    fn type_url(&self) -> &String {
+        &TYPE_CONFIG_PUBLISH_CLIENT_REQUEST
+    }
+}
+
+impl ConfigPublishClientRequest {
+    pub fn new(data_id: String, group: String, tenant: String, content: String) -> Self {
+        ConfigPublishClientRequest {
+            requestId: generate_request_id(),
+            headers: HashMap::new(),
+            dataId: data_id,
+            group,
+            tenant,
+            content,
+            casMd5: None,
+            additionMap: HashMap::default(),
+        }
+    }
+
+    /// Sets the cas_md5.
+    pub fn cas_md5(mut self, cas_md5: Option<String>) -> Self {
+        self.casMd5 = cas_md5;
+        self
+    }
+
+    /// Add into additionMap.
+    pub fn add_addition_param(&mut self, key: impl Into<String>, val: impl Into<String>) {
+        self.additionMap.insert(key.into(), val.into());
+    }
+
+    /// Add into additionMap.
+    pub fn add_addition_params(&mut self, addition_params: HashMap<String, String>) {
+        self.additionMap.extend(addition_params.into_iter());
+    }
+}
