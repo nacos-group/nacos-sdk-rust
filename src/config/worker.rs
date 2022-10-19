@@ -503,10 +503,10 @@ impl ConfigWorker {
             req.add_addition_params(params);
         }
         if let Some(content_type) = content_type {
-            req.add_addition_param(crate::api::constants::KEY_PARAM_CONTENT_TYPE, content_type);
+            req.add_addition_param(crate::api::config::constants::KEY_PARAM_TYPE, content_type);
         }
         if let Some(beta_ips) = beta_ips {
-            req.add_addition_param(crate::api::constants::KEY_PARAM_BETA_IPS, beta_ips);
+            req.add_addition_param(crate::api::config::constants::KEY_PARAM_BETA_IPS, beta_ips);
         }
 
         let req_payload = payload_helper::build_req_grpc_payload(req);

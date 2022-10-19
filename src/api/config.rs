@@ -49,7 +49,7 @@ pub trait ConfigService {
         beta_ips: String,
     ) -> error::Result<bool>;
 
-    /// Publish config with params (see [`constants::KEY_PARAM_*`]), return true/false.
+    /// Publish config with params (see keys [`constants::*`]), return true/false.
     fn publish_config_param(
         &mut self,
         data_id: String,
@@ -166,6 +166,20 @@ impl ConfigResponse {
     pub fn md5(&self) -> &String {
         &self.md5
     }
+}
+
+pub mod constants {
+    /// param type, use for [`crate::api::config::ConfigService::publish_config_param`]
+    pub const KEY_PARAM_TYPE: &str = "type";
+
+    /// param betaIps, use for [`crate::api::config::ConfigService::publish_config_param`]
+    pub const KEY_PARAM_BETA_IPS: &str = "betaIps";
+
+    /// param appName, use for [`crate::api::config::ConfigService::publish_config_param`]
+    pub const KEY_PARAM_APP_NAME: &str = "appName";
+
+    /// param tag, use for [`crate::api::config::ConfigService::publish_config_param`]
+    pub const KEY_PARAM_TAG: &str = "tag";
 }
 
 /// Builder of api [`ConfigService`].
