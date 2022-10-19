@@ -319,6 +319,7 @@ mod tests {
             )
             .unwrap();
         tracing::info!("publish a config: {}", publish_resp);
+        assert_eq!(true, publish_resp);
     }
 
     // #[tokio::test]
@@ -331,7 +332,7 @@ mod tests {
 
         let mut params = HashMap::new();
         params.insert(
-            crate::api::constants::KEY_PARAM_APP_NAME.into(),
+            crate::api::config::constants::KEY_PARAM_APP_NAME.into(),
             "test".into(),
         );
         // publish a config with param
@@ -346,6 +347,7 @@ mod tests {
             )
             .unwrap();
         tracing::info!("publish a config with param: {}", publish_resp);
+        assert_eq!(true, publish_resp);
     }
 
     // #[tokio::test]
@@ -367,6 +369,7 @@ mod tests {
             )
             .unwrap();
         tracing::info!("publish a config with beta: {}", publish_resp);
+        assert_eq!(true, publish_resp);
     }
 
     // #[tokio::test]
@@ -388,6 +391,7 @@ mod tests {
                 None,
             )
             .unwrap();
+        assert_eq!(true, publish_resp);
 
         // sleep for config sync in server
         sleep(Duration::from_millis(111)).await;
@@ -398,15 +402,39 @@ mod tests {
             .unwrap();
 
         // publish a config with cas
+        let content_cas_md5 =
+            "test_api_config_service_publish_config_cas_md5_".to_string() + config_resp.md5();
         let publish_resp = config_service
             .publish_config_cas(
                 data_id.clone(),
                 group.clone(),
-                "test_api_config_service_publish_config_cas_md5_".to_string() + config_resp.md5(),
+                content_cas_md5.clone(),
                 None,
                 config_resp.md5().to_string(),
             )
             .unwrap();
         tracing::info!("publish a config with cas: {}", publish_resp);
+        assert_eq!(true, publish_resp);
+
+        // publish a config with cas md5 not right
+        let content_cas_md5_not_right = "test_api_config_service_publish_config_cas_md5_not_right";
+        let publish_resp = config_service.publish_config_cas(
+            data_id.clone(),
+            group.clone(),
+            content_cas_md5_not_right.to_string(),
+            None,
+            config_resp.md5().to_string(),
+        );
+        match publish_resp {
+            Ok(result) => tracing::info!("publish a config with cas: {}", result),
+            Err(err) => tracing::error!("publish a config with cas: {:?}", err),
+        }
+        sleep(Duration::from_millis(111)).await;
+
+        let config_resp = config_service
+            .get_config(data_id.clone(), group.clone())
+            .unwrap();
+        assert_ne!(content_cas_md5_not_right, config_resp.content().as_str());
+        assert_eq!(content_cas_md5.as_str(), config_resp.content().as_str());
     }
 }
