@@ -399,6 +399,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[ignore]
     pub fn test_check_server() {
         let collector = tracing_subscriber::fmt()
             .with_thread_names(true)
@@ -416,6 +417,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     pub fn test_grpc_server_builder() {
         let collector = tracing_subscriber::fmt()
             .with_thread_names(true)

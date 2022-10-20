@@ -139,7 +139,7 @@ impl NacosNamingService {
         group_name: Option<String>,
         service_instance: ServiceInstance,
         r_type: String,
-    ) -> Box<dyn Future<Output = Result<InstanceResponse>> + Send + Unpin + 'static> {
+    ) -> AsyncFuture<InstanceResponse> {
         let group_name =
             Some(group_name.unwrap_or_else(|| self::constants::DEFAULT_GROUP.to_owned()));
         let namespace = Some(self.namespace.clone());
@@ -165,7 +165,7 @@ impl NacosNamingService {
         group_name: Option<String>,
         service_instances: Vec<ServiceInstance>,
         r_type: String,
-    ) -> Box<dyn Future<Output = Result<BatchInstanceResponse>> + Send + Unpin + 'static> {
+    ) -> AsyncFuture<BatchInstanceResponse> {
         let group_name =
             Some(group_name.unwrap_or_else(|| self::constants::DEFAULT_GROUP.to_owned()));
         let namespace = Some(self.namespace.clone());
@@ -183,6 +183,58 @@ impl NacosNamingService {
         let request_to_server_task =
             self.request_to_server::<BatchInstanceRequest, BatchInstanceResponse>(request);
         Box::new(Box::pin(async move { request_to_server_task.await }))
+    }
+
+    fn subscribe_opt(
+        &self,
+        service_name: String,
+        group_name: Option<String>,
+        clusters: Vec<String>,
+        subscriber: Arc<Box<dyn Subscriber>>,
+        subscribe: bool,
+    ) -> AsyncFuture<()> {
+        if subscribe {
+            event_bus::register(subscriber);
+        } else {
+            event_bus::unregister(subscriber);
+        }
+
+        let clusters = clusters.join(",");
+        let group_name =
+            Some(group_name.unwrap_or_else(|| self::constants::DEFAULT_GROUP.to_owned()));
+        let service_name = Some(service_name);
+        let namespace = Some(self.namespace.clone());
+
+        let request = SubscribeServiceRequest {
+            service_name,
+            group_name,
+            namespace,
+            subscribe,
+            clusters,
+            ..Default::default()
+        };
+
+        let request_task =
+            self.request_to_server::<SubscribeServiceRequest, SubscribeServiceResponse>(request);
+
+        Box::new(Box::pin(async move {
+            let response = request_task.await?;
+            if !response.is_success() {
+                let SubscribeServiceResponse {
+                    result_code,
+                    error_code,
+                    message,
+                    ..
+                } = response;
+                return Err(NamingSubscribeServiceFailed(
+                    result_code,
+                    error_code,
+                    message.unwrap_or_default(),
+                ));
+            }
+            info!("SubscribeServiceResponse: {:?}", response);
+            Ok(())
+        }))
     }
 }
 
@@ -515,45 +567,28 @@ impl NamingService for NacosNamingService {
         clusters: Vec<String>,
         subscriber: Arc<Box<dyn Subscriber>>,
     ) -> AsyncFuture<()> {
-        // register
-        event_bus::register(subscriber);
+        self.subscribe_opt(service_name, group_name, clusters, subscriber, true)
+    }
 
-        let clusters = clusters.join(",");
-        let group_name =
-            Some(group_name.unwrap_or_else(|| self::constants::DEFAULT_GROUP.to_owned()));
-        let service_name = Some(service_name);
-        let namespace = Some(self.namespace.clone());
+    fn unsubscribe(
+        &self,
+        service_name: String,
+        group_name: Option<String>,
+        clusters: Vec<String>,
+        subscriber: Arc<Box<dyn Subscriber>>,
+    ) -> Result<()> {
+        let future = self.unsubscribe_async(service_name, group_name, clusters, subscriber);
+        executor::block_on(future)
+    }
 
-        let request = SubscribeServiceRequest {
-            service_name,
-            group_name,
-            namespace,
-            subscribe: true,
-            clusters,
-            ..Default::default()
-        };
-
-        let request_task =
-            self.request_to_server::<SubscribeServiceRequest, SubscribeServiceResponse>(request);
-
-        Box::new(Box::pin(async move {
-            let response = request_task.await?;
-            if !response.is_success() {
-                let SubscribeServiceResponse {
-                    result_code,
-                    error_code,
-                    message,
-                    ..
-                } = response;
-                return Err(NamingSubscribeServiceFailed(
-                    result_code,
-                    error_code,
-                    message.unwrap_or_default(),
-                ));
-            }
-            info!("SubscribeServiceResponse: {:?}", response);
-            Ok(())
-        }))
+    fn unsubscribe_async(
+        &self,
+        service_name: String,
+        group_name: Option<String>,
+        clusters: Vec<String>,
+        subscriber: Arc<Box<dyn Subscriber>>,
+    ) -> AsyncFuture<()> {
+        self.subscribe_opt(service_name, group_name, clusters, subscriber, false)
     }
 }
 
@@ -570,6 +605,7 @@ pub(crate) mod tests {
     use super::*;
 
     #[test]
+    #[ignore]
     fn test_register_service() {
         let props = ClientProps::new().server_addr("127.0.0.1:9848");
 
@@ -605,6 +641,7 @@ pub(crate) mod tests {
     }
 
     #[test]
+    #[ignore]
     fn test_register_and_deregister_service() {
         let props = ClientProps::new().server_addr("127.0.0.1:9848");
 
@@ -650,6 +687,7 @@ pub(crate) mod tests {
     }
 
     #[test]
+    #[ignore]
     fn test_batch_register_service() {
         let props = ClientProps::new().server_addr("127.0.0.1:9848");
 
@@ -700,6 +738,7 @@ pub(crate) mod tests {
     }
 
     #[test]
+    #[ignore]
     fn test_batch_register_service_and_query_all_instances() {
         let props = ClientProps::new().server_addr("127.0.0.1:9848");
 
@@ -760,6 +799,7 @@ pub(crate) mod tests {
     }
 
     #[test]
+    #[ignore]
     fn test_select_instance() {
         let props = ClientProps::new().server_addr("127.0.0.1:9848");
 
@@ -821,6 +861,7 @@ pub(crate) mod tests {
     }
 
     #[test]
+    #[ignore]
     fn test_select_one_healthy_instance() {
         let props = ClientProps::new().server_addr("127.0.0.1:9848");
 
@@ -885,6 +926,7 @@ pub(crate) mod tests {
     }
 
     #[test]
+    #[ignore]
     fn test_get_service_list() {
         let props = ClientProps::new().server_addr("127.0.0.1:9848");
 
@@ -953,6 +995,7 @@ pub(crate) mod tests {
     }
 
     #[test]
+    #[ignore]
     fn test_service_push() {
         let props = ClientProps::new().server_addr("127.0.0.1:9848");
 
