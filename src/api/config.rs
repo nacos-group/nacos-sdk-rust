@@ -18,6 +18,8 @@ use crate::api::{error, props};
 #[doc(alias("config", "sdk", "api"))]
 pub trait ConfigService {
     /// Get config, return the content.
+    ///
+    /// Attention to [`error::Error::ConfigNotFound`], [`error::Error::ConfigQueryConflict`]
     fn get_config(&mut self, data_id: String, group: String) -> error::Result<ConfigResponse>;
 
     /// Publish config, return true/false.
@@ -104,28 +106,20 @@ pub struct ConfigResponse {
 
 impl std::fmt::Display for ConfigResponse {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.content.len() > 30 {
-            let mut content = self.content.clone();
+        let mut content = self.content.clone();
+        if content.len() > 30 {
             content.truncate(30);
             content.push_str("...");
-            write!(
-                f,
-                "ConfigResponse(namespace={n},data_id={d},group={g},content={c})",
-                n = self.namespace,
-                d = self.data_id,
-                g = self.group,
-                c = content
-            )
-        } else {
-            write!(
-                f,
-                "ConfigResponse(namespace={n},data_id={d},group={g},content={c})",
-                n = self.namespace,
-                d = self.data_id,
-                g = self.group,
-                c = self.content
-            )
         }
+        write!(
+            f,
+            "ConfigResponse(namespace={n},data_id={d},group={g},md5={m},content={c})",
+            n = self.namespace,
+            d = self.data_id,
+            g = self.group,
+            m = self.md5,
+            c = content
+        )
     }
 }
 
@@ -235,32 +229,58 @@ mod tests {
 
     impl ConfigChangeListener for TestConfigChangeListener {
         fn notify(&self, config_resp: ConfigResponse) {
-            tracing::info!("listen the config={:?}", config_resp);
+            tracing::info!("listen the config={}", config_resp);
         }
     }
 
-    // #[tokio::test]
+    #[tokio::test]
+    #[ignore]
     async fn test_api_config_service() {
         tracing_subscriber::fmt()
             .with_max_level(tracing::Level::DEBUG)
             .init();
+
+        let (data_id, group) = ("test_api_config_service".to_string(), "TEST".to_string());
+
         let mut config_service = ConfigServiceBuilder::default().build().await;
-        let config =
-            config_service.get_config("hongwen.properties".to_string(), "LOVE".to_string());
+
+        // publish a config
+        let publish_resp = config_service
+            .publish_config(
+                data_id.clone(),
+                group.clone(),
+                "test_api_config_service".to_string(),
+                Some("text".to_string()),
+            )
+            .unwrap();
+        // sleep for config sync in server
+        sleep(Duration::from_millis(111)).await;
+
+        let config = config_service.get_config(data_id.clone(), group.clone());
         match config {
             Ok(config) => tracing::info!("get the config {}", config),
             Err(err) => tracing::error!("get the config {:?}", err),
         }
 
         let _listen = config_service.add_listener(
-            "hongwen.properties".to_string(),
-            "LOVE".to_string(),
+            data_id.clone(),
+            group.clone(),
             std::sync::Arc::new(TestConfigChangeListener {}),
         );
         match _listen {
             Ok(_) => tracing::info!("listening the config success"),
             Err(err) => tracing::error!("listen config error {:?}", err),
         }
+
+        // publish a config for listener
+        let publish_resp = config_service
+            .publish_config(
+                data_id.clone(),
+                group.clone(),
+                "test_api_config_service_for_listener".to_string(),
+                Some("text".to_string()),
+            )
+            .unwrap();
 
         // example get a config not exit
         let config_resp =
@@ -281,10 +301,12 @@ mod tests {
             Err(err) => tracing::error!("listen config error {:?}", err),
         }
 
-        sleep(Duration::from_secs(30)).await;
+        // sleep for listener
+        sleep(Duration::from_millis(111)).await;
     }
 
-    // #[tokio::test]
+    #[tokio::test]
+    #[ignore]
     async fn test_api_config_service_remove_config() {
         tracing_subscriber::fmt()
             .with_max_level(tracing::Level::DEBUG)
@@ -301,7 +323,8 @@ mod tests {
         }
     }
 
-    // #[tokio::test]
+    #[tokio::test]
+    #[ignore]
     async fn test_api_config_service_publish_config() {
         tracing_subscriber::fmt()
             .with_max_level(tracing::Level::DEBUG)
@@ -322,7 +345,8 @@ mod tests {
         assert_eq!(true, publish_resp);
     }
 
-    // #[tokio::test]
+    #[tokio::test]
+    #[ignore]
     async fn test_api_config_service_publish_config_param() {
         tracing_subscriber::fmt()
             .with_max_level(tracing::Level::DEBUG)
@@ -350,7 +374,8 @@ mod tests {
         assert_eq!(true, publish_resp);
     }
 
-    // #[tokio::test]
+    #[tokio::test]
+    #[ignore]
     async fn test_api_config_service_publish_config_beta() {
         tracing_subscriber::fmt()
             .with_max_level(tracing::Level::DEBUG)
@@ -372,7 +397,8 @@ mod tests {
         assert_eq!(true, publish_resp);
     }
 
-    // #[tokio::test]
+    #[tokio::test]
+    #[ignore]
     async fn test_api_config_service_publish_config_cas() {
         tracing_subscriber::fmt()
             .with_max_level(tracing::Level::DEBUG)
