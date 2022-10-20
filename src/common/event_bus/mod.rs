@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use crate::api::events::{NacosEvent, Subscriber};
 
 pub(self) mod __private {
@@ -5,7 +7,7 @@ pub(self) mod __private {
     use lazy_static::lazy_static;
     use std::{
         any::TypeId,
-        collections::HashMap,
+        collections::{HashMap, HashSet},
         sync::{Arc, RwLock},
     };
     use tokio::sync::mpsc::{channel, Receiver, Sender};
@@ -20,8 +22,7 @@ pub(self) mod __private {
         pub static ref EVENT_BUS: EventBus = EventBus::new();
     }
 
-    type SubscribersContainerType =
-        Arc<RwLock<HashMap<TypeId, HashMap<TypeId, Arc<Box<dyn Subscriber>>>>>>;
+    type SubscribersContainerType = Arc<RwLock<HashMap<TypeId, HashSet<Arc<Box<dyn Subscriber>>>>>>;
 
     pub struct EventBus {
         subscribers: SubscribersContainerType,
@@ -34,7 +35,7 @@ pub(self) mod __private {
 
             let subscribers = Arc::new(RwLock::new(HashMap::<
                 TypeId,
-                HashMap<TypeId, Arc<Box<dyn Subscriber>>>,
+                HashSet<Arc<Box<dyn Subscriber>>>,
             >::new()));
             Self::hand_event(receiver, subscribers.clone());
             EventBus {
@@ -62,7 +63,6 @@ pub(self) mod __private {
 
                     if let Some(subscribers) = subscribers {
                         let event = Arc::new(event);
-                        let subscribers = subscribers.values();
                         for subscriber in subscribers {
                             let event = event.clone();
                             let subscriber = subscriber.clone();
@@ -83,7 +83,7 @@ pub(self) mod __private {
             });
         }
 
-        pub fn register(&self, subscriber: Box<dyn Subscriber>) {
+        pub fn register(&self, subscriber: Arc<Box<dyn Subscriber>>) {
             let lock = self.subscribers.write();
             if let Err(error) = lock {
                 error!("register failed, cannot get lock! {:?}", error);
@@ -93,17 +93,17 @@ pub(self) mod __private {
 
             let key = subscriber.event_type();
 
-            let map = lock_guard.get_mut(&key);
-            if let Some(map) = map {
-                map.insert(subscriber.subscriber_type(), Arc::new(subscriber));
+            let set = lock_guard.get_mut(&key);
+            if let Some(set) = set {
+                set.insert(subscriber);
             } else {
-                let mut map = HashMap::default();
-                map.insert(subscriber.subscriber_type(), Arc::new(subscriber));
-                lock_guard.insert(key, map);
+                let mut set = HashSet::default();
+                set.insert(subscriber);
+                lock_guard.insert(key, set);
             }
         }
 
-        pub fn unregister(&self, subscriber: Box<dyn Subscriber>) {
+        pub fn unregister(&self, subscriber: Arc<Box<dyn Subscriber>>) {
             let lock = self.subscribers.write();
             if let Err(error) = lock {
                 error!("unregister failed, cannot get lock! {:?}", error);
@@ -113,14 +113,14 @@ pub(self) mod __private {
 
             let key = subscriber.event_type();
 
-            let map = lock_guard.get_mut(&key);
+            let set = lock_guard.get_mut(&key);
 
-            if map.is_none() {
+            if set.is_none() {
                 return;
             }
 
-            let map = map.unwrap();
-            map.remove(&subscriber.subscriber_type());
+            let set = set.unwrap();
+            set.remove(&subscriber);
         }
     }
 }
@@ -129,11 +129,11 @@ pub fn post(event: Box<dyn NacosEvent>) {
     __private::EVENT_BUS.post(event);
 }
 
-pub fn register(subscriber: Box<dyn Subscriber>) {
+pub fn register(subscriber: Arc<Box<dyn Subscriber>>) {
     __private::EVENT_BUS.register(subscriber);
 }
 
-pub fn unregister(subscriber: Box<dyn Subscriber>) {
+pub fn unregister(subscriber: Arc<Box<dyn Subscriber>>) {
     __private::EVENT_BUS.unregister(subscriber);
 }
 
@@ -141,9 +141,9 @@ pub fn unregister(subscriber: Box<dyn Subscriber>) {
 mod tests {
 
     use core::time;
-    use std::{any::Any, thread};
+    use std::{any::Any, sync::Arc, thread};
 
-    use crate::api::events::{NacosEvent, NacosEventSubscriber};
+    use crate::api::events::{NacosEvent, NacosEventSubscriber, Subscriber};
 
     #[derive(Clone, Debug)]
     pub(crate) struct NamingChangeEvent {
@@ -156,6 +156,7 @@ mod tests {
         }
     }
 
+    #[derive(Hash, PartialEq)]
     pub(crate) struct NamingChangeSubscriber;
 
     impl NacosEventSubscriber for NamingChangeSubscriber {
@@ -172,7 +173,7 @@ mod tests {
             message: "test".to_owned(),
         };
 
-        let subscriber = Box::new(NamingChangeSubscriber);
+        let subscriber = Arc::new(Box::new(NamingChangeSubscriber) as Box<dyn Subscriber>);
 
         super::register(subscriber);
 

@@ -38,8 +38,8 @@ use self::grpc::message::GrpcResponseMessage;
 
 mod cache;
 mod chooser;
+mod dto;
 mod grpc;
-mod odt;
 
 pub(self) mod constants {
 
@@ -502,7 +502,7 @@ impl NamingService for NacosNamingService {
         service_name: String,
         group_name: Option<String>,
         clusters: Vec<String>,
-        subscriber: Box<dyn Subscriber>,
+        subscriber: Arc<Box<dyn Subscriber>>,
     ) -> Result<()> {
         let future = self.subscribe_async(service_name, group_name, clusters, subscriber);
         executor::block_on(future)
@@ -513,7 +513,7 @@ impl NamingService for NacosNamingService {
         service_name: String,
         group_name: Option<String>,
         clusters: Vec<String>,
-        subscriber: Box<dyn Subscriber>,
+        subscriber: Arc<Box<dyn Subscriber>>,
     ) -> AsyncFuture<()> {
         // register
         event_bus::register(subscriber);
@@ -941,6 +941,7 @@ pub(crate) mod tests {
         });
     }
 
+    #[derive(Hash, PartialEq)]
     pub struct InstancesChangeEventSubscriber;
 
     impl NacosEventSubscriber for InstancesChangeEventSubscriber {
@@ -997,7 +998,7 @@ pub(crate) mod tests {
         );
         info!("response. {:?}", ret);
 
-        let subscriber = Box::new(InstancesChangeEventSubscriber);
+        let subscriber = Arc::new(Box::new(InstancesChangeEventSubscriber) as Box<dyn Subscriber>);
         let ret = naming_service.subscribe(
             "test-service".to_string(),
             Some(constants::DEFAULT_GROUP.to_string()),

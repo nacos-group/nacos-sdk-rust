@@ -3,7 +3,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use super::odt::ServiceInfo;
+use super::dto::ServiceInfo;
 
 pub(crate) struct ServiceInfoHolder {
     service_info_map: Arc<Mutex<HashMap<String, Arc<ServiceInfo>>>>,
