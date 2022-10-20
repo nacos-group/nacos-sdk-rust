@@ -7,7 +7,7 @@ pub(self) mod __private {
     use lazy_static::lazy_static;
     use std::{
         any::TypeId,
-        collections::{HashMap, HashSet},
+        collections::HashMap,
         sync::{Arc, RwLock},
     };
     use tokio::sync::mpsc::{channel, Receiver, Sender};
@@ -22,7 +22,7 @@ pub(self) mod __private {
         pub static ref EVENT_BUS: EventBus = EventBus::new();
     }
 
-    type SubscribersContainerType = Arc<RwLock<HashMap<TypeId, HashSet<Arc<Box<dyn Subscriber>>>>>>;
+    type SubscribersContainerType = Arc<RwLock<HashMap<TypeId, Vec<Arc<Box<dyn Subscriber>>>>>>;
 
     pub struct EventBus {
         subscribers: SubscribersContainerType,
@@ -33,10 +33,9 @@ pub(self) mod __private {
         pub fn new() -> Self {
             let (sender, receiver) = channel::<Box<dyn NacosEvent>>(2048);
 
-            let subscribers = Arc::new(RwLock::new(HashMap::<
-                TypeId,
-                HashSet<Arc<Box<dyn Subscriber>>>,
-            >::new()));
+            let subscribers = Arc::new(RwLock::new(
+                HashMap::<TypeId, Vec<Arc<Box<dyn Subscriber>>>>::new(),
+            ));
             Self::hand_event(receiver, subscribers.clone());
             EventBus {
                 subscribers: subscribers.clone(),
@@ -93,13 +92,12 @@ pub(self) mod __private {
 
             let key = subscriber.event_type();
 
-            let set = lock_guard.get_mut(&key);
-            if let Some(set) = set {
-                set.insert(subscriber);
+            let vec = lock_guard.get_mut(&key);
+            if let Some(vec) = vec {
+                vec.push(subscriber);
             } else {
-                let mut set = HashSet::default();
-                set.insert(subscriber);
-                lock_guard.insert(key, set);
+                let vec = vec![subscriber];
+                lock_guard.insert(key, vec);
             }
         }
 
@@ -113,14 +111,31 @@ pub(self) mod __private {
 
             let key = subscriber.event_type();
 
-            let set = lock_guard.get_mut(&key);
+            let vec = lock_guard.get_mut(&key);
 
-            if set.is_none() {
+            if vec.is_none() {
                 return;
             }
 
-            let set = set.unwrap();
-            set.remove(&subscriber);
+            let vec = vec.unwrap();
+
+            let index = self.index_of_subscriber(vec, &subscriber);
+            if let Some(index) = index {
+                vec.remove(index);
+            }
+        }
+
+        fn index_of_subscriber(
+            &self,
+            vec: &[Arc<Box<dyn Subscriber>>],
+            target: &Arc<Box<dyn Subscriber>>,
+        ) -> Option<usize> {
+            for (index, subscriber) in vec.iter().enumerate() {
+                if Arc::ptr_eq(subscriber, target) {
+                    return Some(index);
+                }
+            }
+            None
         }
     }
 }
@@ -181,5 +196,31 @@ mod tests {
 
         let three_millis = time::Duration::from_secs(3);
         thread::sleep(three_millis);
+    }
+
+    #[test]
+    pub fn test_register_and_unregister() {
+        let event = NamingChangeEvent {
+            message: "register".to_owned(),
+        };
+
+        let subscriber = Arc::new(Box::new(NamingChangeSubscriber) as Box<dyn Subscriber>);
+
+        super::register(subscriber.clone());
+
+        super::post(Box::new(event));
+
+        let one_millis = time::Duration::from_secs(1);
+        thread::sleep(one_millis);
+
+        super::unregister(subscriber);
+
+        let event = NamingChangeEvent {
+            message: "unregister".to_owned(),
+        };
+        super::post(Box::new(event));
+
+        let one_millis = time::Duration::from_secs(1);
+        thread::sleep(one_millis);
     }
 }
