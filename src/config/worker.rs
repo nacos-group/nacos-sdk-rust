@@ -146,7 +146,96 @@ impl ConfigWorker {
             tenant,
             config_resp.content().unwrap().to_string(),
             config_resp.content_type().unwrap().to_string(),
+            config_resp.md5().unwrap().to_string(),
         ))
+    }
+
+    pub(crate) fn publish_config(
+        &mut self,
+        data_id: String,
+        group: String,
+        content: String,
+        content_type: Option<String>,
+    ) -> crate::api::error::Result<bool> {
+        let tenant = self.client_props.namespace.clone();
+        Self::publish_config_inner(
+            &mut self.connection,
+            data_id,
+            group,
+            tenant,
+            content,
+            content_type,
+            None,
+            None,
+            None,
+        )
+    }
+
+    pub(crate) fn publish_config_cas(
+        &mut self,
+        data_id: String,
+        group: String,
+        content: String,
+        content_type: Option<String>,
+        cas_md5: String,
+    ) -> crate::api::error::Result<bool> {
+        let tenant = self.client_props.namespace.clone();
+        Self::publish_config_inner(
+            &mut self.connection,
+            data_id,
+            group,
+            tenant,
+            content,
+            content_type,
+            Some(cas_md5),
+            None,
+            None,
+        )
+    }
+
+    pub(crate) fn publish_config_beta(
+        &mut self,
+        data_id: String,
+        group: String,
+        content: String,
+        content_type: Option<String>,
+        beta_ips: String,
+    ) -> crate::api::error::Result<bool> {
+        let tenant = self.client_props.namespace.clone();
+        Self::publish_config_inner(
+            &mut self.connection,
+            data_id,
+            group,
+            tenant,
+            content,
+            content_type,
+            None,
+            Some(beta_ips),
+            None,
+        )
+    }
+
+    pub(crate) fn publish_config_param(
+        &mut self,
+        data_id: String,
+        group: String,
+        content: String,
+        content_type: Option<String>,
+        cas_md5: Option<String>,
+        params: HashMap<String, String>,
+    ) -> crate::api::error::Result<bool> {
+        let tenant = self.client_props.namespace.clone();
+        Self::publish_config_inner(
+            &mut self.connection,
+            data_id,
+            group,
+            tenant,
+            content,
+            content_type,
+            cas_md5,
+            None,
+            Some(params),
+        )
     }
 
     pub(crate) fn remove_config(
@@ -395,6 +484,48 @@ impl ConfigWorker {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
+    fn publish_config_inner(
+        connection: &mut Connection,
+        data_id: String,
+        group: String,
+        tenant: String,
+        content: String,
+        content_type: Option<String>,
+        cas_md5: Option<String>,
+        beta_ips: Option<String>,
+        params: Option<HashMap<String, String>>,
+    ) -> crate::api::error::Result<bool> {
+        let mut req =
+            ConfigPublishClientRequest::new(data_id, group, tenant, content).cas_md5(cas_md5);
+        // Customize parameters have low priority
+        if let Some(params) = params {
+            req.add_addition_params(params);
+        }
+        if let Some(content_type) = content_type {
+            req.add_addition_param(crate::api::config::constants::KEY_PARAM_TYPE, content_type);
+        }
+        if let Some(beta_ips) = beta_ips {
+            req.add_addition_param(crate::api::config::constants::KEY_PARAM_BETA_IPS, beta_ips);
+        }
+
+        let req_payload = payload_helper::build_req_grpc_payload(req);
+        let resp = connection.get_client()?.request(&req_payload)?;
+        let payload_inner = payload_helper::covert_payload(resp);
+        // return Err if get a err_resp
+        if payload_helper::is_err_resp(&payload_inner.type_url) {
+            let err_resp = ErrorResponse::from(payload_inner.body_str.as_str());
+            return Err(crate::api::error::Error::ErrResult(format!(
+                "error_code={},message={}",
+                err_resp.error_code(),
+                err_resp.message().unwrap()
+            )));
+        }
+
+        let publish_resp = ConfigPublishServerResponse::from(payload_inner.body_str.as_str());
+        Ok(publish_resp.is_success())
+    }
+
     fn remove_config_inner(
         connection: &mut Connection,
         data_id: String,
@@ -501,6 +632,7 @@ impl CacheData {
             self.tenant.clone(),
             self.content.clone(),
             self.content_type.clone(),
+            self.md5.clone(),
         );
 
         if let Ok(mut mutex) = self.listeners.lock() {
