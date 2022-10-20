@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
 use crate::{api::error::Result, naming::NacosNamingService};
 use futures::Future;
@@ -207,7 +207,7 @@ pub trait NamingService {
         service_name: String,
         group_name: Option<String>,
         clusters: Vec<String>,
-        subscriber: Box<dyn Subscriber>,
+        subscriber: Arc<Box<dyn Subscriber>>,
     ) -> Result<()>;
 
     fn subscribe_async(
@@ -215,7 +215,7 @@ pub trait NamingService {
         service_name: String,
         group_name: Option<String>,
         clusters: Vec<String>,
-        subscriber: Box<dyn Subscriber>,
+        subscriber: Arc<Box<dyn Subscriber>>,
     ) -> AsyncFuture<()>;
 }
 
