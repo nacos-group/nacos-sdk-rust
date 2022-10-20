@@ -1,3 +1,4 @@
+mod cache;
 mod client_request;
 mod client_response;
 mod server_request;

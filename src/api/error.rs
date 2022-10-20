@@ -32,8 +32,12 @@ pub enum Error {
     ErrResult(String),
 
     /// Config not found.
-    #[error("config not exist: {0}")]
+    #[error("config not found: {0}")]
     ConfigNotFound(String),
+
+    /// Config query conflict, it is being modified, please try later.
+    #[error("config query conflict: {0}")]
+    ConfigQueryConflict(String),
 
     #[error("remote client shutdown failed: {0}")]
     ClientShutdown(String),

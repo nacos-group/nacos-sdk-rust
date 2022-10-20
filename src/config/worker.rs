@@ -9,13 +9,13 @@ use crate::common::remote::response::server_response::*;
 use crate::common::remote::response::*;
 use crate::common::util::payload_helper;
 use crate::common::util::payload_helper::PayloadInner;
+use crate::config::cache::CacheData;
 use crate::config::client_request::*;
 use crate::config::client_response::*;
 use crate::config::server_request::*;
 use crate::config::server_response::*;
 use crate::config::util;
 use std::collections::HashMap;
-use std::ops::Deref;
 use std::sync::{Arc, Mutex};
 
 #[derive(Clone)]
@@ -475,6 +475,12 @@ impl ConfigWorker {
                 config_resp.error_code(),
                 config_resp.message().unwrap()
             )))
+        } else if config_resp.is_query_conflict() {
+            Err(crate::api::error::Error::ConfigQueryConflict(format!(
+                "error_code={},message={}",
+                config_resp.error_code(),
+                config_resp.message().unwrap()
+            )))
         } else {
             Err(crate::api::error::Error::ErrResult(format!(
                 "error_code={},message={}",
@@ -550,163 +556,12 @@ impl ConfigWorker {
     }
 }
 
-/// Cache Data for Config
-#[derive(Default)]
-struct CacheData {
-    data_id: String,
-    group: String,
-    tenant: String,
-    /// Default text; text, json, properties, html, xml, yaml ...
-    content_type: String,
-    content: String,
-    md5: String,
-    /// whether content was encrypted with encryptedDataKey.
-    encrypted_data_key: Option<String>,
-    last_modified: i64,
-
-    /// There are some logical differences in the initialization phase, such as no notification of config changed
-    initializing: bool,
-
-    /// who listen of config change.
-    listeners: Arc<Mutex<Vec<ListenerWrapper>>>,
-}
-
-impl CacheData {
-    fn new(data_id: String, group: String, tenant: String) -> Self {
-        Self {
-            data_id,
-            group,
-            tenant,
-            content_type: "text".to_string(),
-            initializing: true,
-            ..Default::default()
-        }
-    }
-
-    /// Add listener.
-    fn add_listener(&mut self, listener: Arc<dyn crate::api::config::ConfigChangeListener>) {
-        if let Ok(mut mutex) = self.listeners.lock() {
-            if Self::index_of_listener(mutex.deref(), Arc::clone(&listener)).is_some() {
-                return;
-            }
-            mutex.push(ListenerWrapper::new(Arc::clone(&listener)));
-        }
-    }
-
-    /// Remove listener.
-    fn remove_listener(&mut self, listener: Arc<dyn crate::api::config::ConfigChangeListener>) {
-        if let Ok(mut mutex) = self.listeners.lock() {
-            if let Some(idx) = Self::index_of_listener(mutex.deref(), Arc::clone(&listener)) {
-                mutex.swap_remove(idx);
-            }
-        }
-    }
-
-    /// fn inner, return idx if existed, else return None.
-    fn index_of_listener(
-        listen_warp_vec: &[ListenerWrapper],
-        listener: Arc<dyn crate::api::config::ConfigChangeListener>,
-    ) -> Option<usize> {
-        for (idx, listen_warp) in listen_warp_vec.iter().enumerate() {
-            #[warn(clippy::vtable_address_comparisons)]
-            if Arc::ptr_eq(&listen_warp.listener, &listener) {
-                return Some(idx);
-            }
-        }
-        None
-    }
-
-    /// Notify listener. when last-md5 not equals the-newest-md5
-    fn notify_listener(&mut self) {
-        tracing::info!(
-            "notify_listener, dataId={},group={},namespace={},md5={}",
-            self.data_id,
-            self.group,
-            self.tenant,
-            self.md5
-        );
-
-        let config_resp = ConfigResponse::new(
-            self.data_id.clone(),
-            self.group.clone(),
-            self.tenant.clone(),
-            self.content.clone(),
-            self.content_type.clone(),
-            self.md5.clone(),
-        );
-
-        if let Ok(mut mutex) = self.listeners.lock() {
-            for listen_wrap in mutex.iter_mut() {
-                if listen_wrap.last_md5.eq(&self.md5) {
-                    continue;
-                }
-                // Notify when last-md5 not equals the-newest-md5, Notify in independent thread.
-                let l_clone = listen_wrap.listener.clone();
-                let c_clone = config_resp.clone();
-                crate::common::executor::spawn(async move {
-                    l_clone.notify(c_clone);
-                });
-                listen_wrap.last_md5 = self.md5.clone();
-            }
-        }
-    }
-}
-
-impl std::fmt::Display for CacheData {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.content.len() > 30 {
-            let mut content = self.content.clone();
-            content.truncate(30);
-            content.push_str("...");
-            write!(
-                f,
-                "CacheData(namespace={n},data_id={d},group={g},md5={m},encrypted_data_key={k},content_type={t},content={c})",
-                n = self.tenant,
-                d = self.data_id,
-                g = self.group,
-                m = self.md5,
-                k = self.encrypted_data_key.as_ref().unwrap_or(&"".to_string()),
-                t = self.content_type,
-                c = content
-            )
-        } else {
-            write!(
-                f,
-                "CacheData(namespace={n},data_id={d},group={g},md5={m},encrypted_data_key={k},content_type={t},content={c})",
-                n = self.tenant,
-                d = self.data_id,
-                g = self.group,
-                m = self.md5,
-                k = self.encrypted_data_key.as_ref().unwrap_or(&"".to_string()),
-                t = self.content_type,
-                c = self.content
-            )
-        }
-    }
-}
-
-/// The inner Wrapper of ConfigChangeListener
-struct ListenerWrapper {
-    /// last md5 be notified
-    last_md5: String,
-    listener: Arc<dyn crate::api::config::ConfigChangeListener>,
-}
-
-impl ListenerWrapper {
-    fn new(listener: Arc<dyn crate::api::config::ConfigChangeListener>) -> Self {
-        Self {
-            last_md5: "".to_string(),
-            listener,
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use crate::api::config::{ConfigChangeListener, ConfigResponse};
     use crate::api::props::ClientProps;
     use crate::config::util;
-    use crate::config::worker::{CacheData, ConfigWorker};
+    use crate::config::worker::ConfigWorker;
     use std::sync::Arc;
 
     #[test]
@@ -762,65 +617,13 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_cache_data_add_listener() {
-        let (d, g, t) = ("D".to_string(), "G".to_string(), "N".to_string());
-
-        let mut cache_data = CacheData::new(d, g, t);
-
-        // test add listener1
-        let lis1_arc = Arc::new(TestConfigChangeListener1 {});
-        let _listen = cache_data.add_listener(lis1_arc);
-
-        // test add listener2
-        let lis2_arc = Arc::new(TestConfigChangeListener2 {});
-        let _listen = cache_data.add_listener(lis2_arc.clone());
-        // test add a listener2 again
-        let _listen = cache_data.add_listener(lis2_arc);
-
-        let listen_mutex = cache_data.listeners.lock().unwrap();
-        assert_eq!(2, listen_mutex.len());
-    }
-
-    #[test]
-    fn test_cache_data_add_listener_then_remove() {
-        let (d, g, t) = ("D".to_string(), "G".to_string(), "N".to_string());
-
-        let mut cache_data = CacheData::new(d, g, t);
-
-        // test add listener1
-        let lis1_arc = Arc::new(TestConfigChangeListener1 {});
-        let lis1_arc2 = Arc::clone(&lis1_arc);
-        let _listen = cache_data.add_listener(lis1_arc);
-
-        // test add listener2
-        let lis2_arc = Arc::new(TestConfigChangeListener2 {});
-        let lis2_arc2 = Arc::clone(&lis2_arc);
-        let _listen = cache_data.add_listener(lis2_arc);
-        {
-            let listen_mutex = cache_data.listeners.lock().unwrap();
-            assert_eq!(2, listen_mutex.len());
-        }
-
-        cache_data.remove_listener(lis1_arc2);
-        {
-            let listen_mutex = cache_data.listeners.lock().unwrap();
-            assert_eq!(1, listen_mutex.len());
-        }
-        cache_data.remove_listener(lis2_arc2);
-        {
-            let listen_mutex = cache_data.listeners.lock().unwrap();
-            assert_eq!(0, listen_mutex.len());
-        }
-    }
-
     struct TestConfigChangeListener1;
     struct TestConfigChangeListener2;
 
     impl ConfigChangeListener for TestConfigChangeListener1 {
         fn notify(&self, config_resp: ConfigResponse) {
             tracing::info!(
-                "TestConfigChangeListener1 listen the config={:?}",
+                "TestConfigChangeListener1 listen the config={}",
                 config_resp
             );
         }
@@ -829,7 +632,7 @@ mod tests {
     impl ConfigChangeListener for TestConfigChangeListener2 {
         fn notify(&self, config_resp: ConfigResponse) {
             tracing::info!(
-                "TestConfigChangeListener2 listen the config={:?}",
+                "TestConfigChangeListener2 listen the config={}",
                 config_resp
             );
         }

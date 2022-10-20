@@ -48,6 +48,6 @@ struct SimpleConfigChangeListener;
 
 impl ConfigChangeListener for SimpleConfigChangeListener {
     fn notify(&self, config_resp: ConfigResponse) {
-        tracing::info!("listen the config={:?}", config_resp);
+        tracing::info!("listen the config={}", config_resp);
     }
 }
