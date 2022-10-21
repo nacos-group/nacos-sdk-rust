@@ -6,7 +6,7 @@ pub struct InstancesChangeEvent {
     pub service_name: String,
     pub group_name: String,
     pub clusters: String,
-    pub hosts: Vec<ServiceInstance>,
+    pub hosts: Option<Vec<ServiceInstance>>,
 }
 
 impl NacosEvent for InstancesChangeEvent {

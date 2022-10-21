@@ -424,7 +424,10 @@ impl NamingService for NacosNamingService {
 
             let service_info = response.service_info;
             let instances = service_info.hosts;
-            Ok(instances)
+            if instances.is_none() {
+                return Ok(Vec::default());
+            }
+            Ok(instances.unwrap())
         }))
     }
 

@@ -71,6 +71,23 @@ impl ServiceInstance {
     pub fn metadata(&self) -> &HashMap<String, String> {
         &self.metadata
     }
+
+    pub fn ip_and_port(&self) -> String {
+        format!("{}:{}", &self.ip, self.port)
+    }
+
+    pub fn is_same_instance(&self, other: &ServiceInstance) -> bool {
+        self.instance_id == other.instance_id
+            && self.ip == other.ip
+            && self.port == other.port
+            && self.weight == other.weight
+            && self.healthy == other.healthy
+            && self.enabled == other.enabled
+            && self.ephemeral == other.ephemeral
+            && self.cluster_name == other.cluster_name
+            && self.service_name == other.service_name
+            && self.metadata == other.metadata
+    }
 }
 
 impl Default for ServiceInstance {

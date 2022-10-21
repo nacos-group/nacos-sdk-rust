@@ -1,4 +1,7 @@
+use std::time::SystemTime;
+
 use serde::{Deserialize, Serialize};
+use tracing::error;
 
 use crate::api::naming::ServiceInstance;
 
@@ -25,7 +28,7 @@ pub struct ServiceInfo {
 
     pub reach_protection_threshold: bool,
 
-    pub hosts: Vec<ServiceInstance>,
+    pub hosts: Option<Vec<ServiceInstance>>,
 }
 
 const SERVICE_INFO_SEPARATOR: &str = "@@";
@@ -56,6 +59,91 @@ impl ServiceInfo {
                 "group name must not be null!".to_string(),
             ))
         }
+    }
+
+    pub fn expired(&self) -> bool {
+        let now = SystemTime::now();
+        let now = now.elapsed();
+        if now.is_err() {
+            return true;
+        }
+        let now = now.unwrap().as_millis();
+
+        now - self.last_ref_time as u128 > self.cache_millis as u128
+    }
+
+    pub fn ip_count(&self) -> i32 {
+        if self.hosts.is_none() {
+            return 0;
+        }
+        self.hosts.as_ref().unwrap().len() as i32
+    }
+
+    pub fn validate(&self) -> bool {
+        if self.all_ips {
+            return true;
+        }
+
+        if self.hosts.is_none() {
+            return false;
+        }
+
+        let hosts = self.hosts.as_ref().unwrap();
+        for host in hosts {
+            if !host.healthy {
+                continue;
+            }
+
+            if host.weight > 0 as f64 {
+                return true;
+            }
+        }
+
+        false
+    }
+
+    pub fn get_grouped_service_name(&self) -> String {
+        let service_name = &self.name;
+        if !self.group_name.is_empty() && !service_name.contains(SERVICE_INFO_SEPARATOR) {
+            let service_name = format!(
+                "{}{}{}",
+                &self.group_name, SERVICE_INFO_SEPARATOR, service_name
+            );
+            return service_name;
+        }
+        service_name.clone()
+    }
+
+    pub fn hosts_to_json(&self) -> String {
+        if self.hosts.is_none() {
+            return "".to_string();
+        }
+        let json = serde_json::to_string(self.hosts.as_ref().unwrap());
+        if let Err(e) = json {
+            error!("hosts to json failed. {:?}", e);
+            return "".to_string();
+        }
+        json.unwrap()
+    }
+
+    pub fn get_key(name: &str, clusters: &str) -> String {
+        if !clusters.is_empty() {
+            let key = format!("{}{}{}", name, SERVICE_INFO_SEPARATOR, clusters);
+            return key;
+        }
+
+        name.to_string()
+    }
+
+    pub fn to_json_str(&self) -> Option<String> {
+        let json = serde_json::to_string(self);
+        if let Err(e) = json {
+            error!("ServiceInfo to json string failed. {:?}", e);
+            return None;
+        }
+        let json = json.unwrap();
+
+        Some(json)
     }
 }
 

@@ -80,9 +80,7 @@ impl GrpcService {
 
     fn build_client(address: &str) -> (RequestClient, BiRequestStreamClient) {
         info!("init grpc client: {}", address);
-        let cpu_num = num_cpus::get();
-        info!("cpu number: {}", cpu_num);
-        let env = Arc::new(Environment::new(cpu_num));
+        let env = Arc::new(Environment::new(2));
         let channel = ChannelBuilder::new(env).connect(address);
         let bi_channel = channel.clone();
         let request_client = RequestClient::new(channel);

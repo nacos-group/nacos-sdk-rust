@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use crate::api::events::{NacosEvent, Subscriber};
 
-pub(self) mod __private {
+mod __private {
 
     use lazy_static::lazy_static;
     use std::{
@@ -119,14 +119,13 @@ pub(self) mod __private {
 
             let vec = vec.unwrap();
 
-            let index = self.index_of_subscriber(vec, &subscriber);
+            let index = Self::index_of_subscriber(vec, &subscriber);
             if let Some(index) = index {
                 vec.remove(index);
             }
         }
 
         fn index_of_subscriber(
-            &self,
             vec: &[Arc<Box<dyn Subscriber>>],
             target: &Arc<Box<dyn Subscriber>>,
         ) -> Option<usize> {
