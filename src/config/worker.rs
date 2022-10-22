@@ -1,4 +1,5 @@
 use crate::api::config::ConfigResponse;
+use crate::api::plugin::{ConfigFilter, ConfigReq, ConfigResp};
 use crate::api::props::ClientProps;
 use crate::common::remote::conn::Connection;
 use crate::common::remote::request::client_request::*;
@@ -23,17 +24,23 @@ pub(crate) struct ConfigWorker {
     client_props: ClientProps,
     connection: Connection,
     cache_data_map: Arc<Mutex<HashMap<String, CacheData>>>,
+    config_filters: Arc<Vec<Box<dyn ConfigFilter>>>,
 }
 
 impl ConfigWorker {
-    pub(crate) fn new(client_props: ClientProps) -> Self {
+    pub(crate) fn new(
+        client_props: ClientProps,
+        config_filters: Vec<Box<dyn ConfigFilter>>,
+    ) -> Self {
         let connection = Connection::new(client_props.clone());
         let cache_data_map = Arc::new(Mutex::new(HashMap::new()));
+        let config_filters = Arc::new(config_filters);
 
         Self {
             client_props,
             connection,
             cache_data_map,
+            config_filters,
         }
     }
 
@@ -133,18 +140,34 @@ impl ConfigWorker {
         data_id: String,
         group: String,
     ) -> crate::api::error::Result<ConfigResponse> {
-        let tenant = self.client_props.namespace.clone();
+        let namespace = self.client_props.namespace.clone();
         let config_resp = Self::get_config_inner(
             &mut self.connection,
             data_id.clone(),
             group.clone(),
-            tenant.clone(),
+            namespace.clone(),
         )?;
-        Ok(ConfigResponse::new(
+
+        // invoke config_filter
+        let mut conf_resp = ConfigResp::new(
             data_id,
             group,
-            tenant,
+            namespace,
             config_resp.content().unwrap().to_string(),
+            config_resp
+                .encrypted_data_key()
+                .unwrap_or(&"".to_string())
+                .to_string(),
+        );
+        for config_filter in self.config_filters.iter() {
+            config_filter.filter(None, Some(&mut conf_resp));
+        }
+
+        Ok(ConfigResponse::new(
+            conf_resp.data_id,
+            conf_resp.group,
+            conf_resp.namespace,
+            conf_resp.content,
             config_resp.content_type().unwrap().to_string(),
             config_resp.md5().unwrap().to_string(),
         ))
@@ -157,14 +180,21 @@ impl ConfigWorker {
         content: String,
         content_type: Option<String>,
     ) -> crate::api::error::Result<bool> {
-        let tenant = self.client_props.namespace.clone();
+        let namespace = self.client_props.namespace.clone();
+
+        let mut conf_req = ConfigReq::new(data_id, group, namespace, content, "".to_string());
+        for config_filter in self.config_filters.iter() {
+            config_filter.filter(Some(&mut conf_req), None);
+        }
+
         Self::publish_config_inner(
             &mut self.connection,
-            data_id,
-            group,
-            tenant,
-            content,
+            conf_req.data_id,
+            conf_req.group,
+            conf_req.namespace,
+            conf_req.content,
             content_type,
+            conf_req.encrypted_data_key,
             None,
             None,
             None,
@@ -179,14 +209,21 @@ impl ConfigWorker {
         content_type: Option<String>,
         cas_md5: String,
     ) -> crate::api::error::Result<bool> {
-        let tenant = self.client_props.namespace.clone();
+        let namespace = self.client_props.namespace.clone();
+
+        let mut conf_req = ConfigReq::new(data_id, group, namespace, content, "".to_string());
+        for config_filter in self.config_filters.iter() {
+            config_filter.filter(Some(&mut conf_req), None);
+        }
+
         Self::publish_config_inner(
             &mut self.connection,
-            data_id,
-            group,
-            tenant,
-            content,
+            conf_req.data_id,
+            conf_req.group,
+            conf_req.namespace,
+            conf_req.content,
             content_type,
+            conf_req.encrypted_data_key,
             Some(cas_md5),
             None,
             None,
@@ -201,14 +238,21 @@ impl ConfigWorker {
         content_type: Option<String>,
         beta_ips: String,
     ) -> crate::api::error::Result<bool> {
-        let tenant = self.client_props.namespace.clone();
+        let namespace = self.client_props.namespace.clone();
+
+        let mut conf_req = ConfigReq::new(data_id, group, namespace, content, "".to_string());
+        for config_filter in self.config_filters.iter() {
+            config_filter.filter(Some(&mut conf_req), None);
+        }
+
         Self::publish_config_inner(
             &mut self.connection,
-            data_id,
-            group,
-            tenant,
-            content,
+            conf_req.data_id,
+            conf_req.group,
+            conf_req.namespace,
+            conf_req.content,
             content_type,
+            conf_req.encrypted_data_key,
             None,
             Some(beta_ips),
             None,
@@ -224,14 +268,21 @@ impl ConfigWorker {
         cas_md5: Option<String>,
         params: HashMap<String, String>,
     ) -> crate::api::error::Result<bool> {
-        let tenant = self.client_props.namespace.clone();
+        let namespace = self.client_props.namespace.clone();
+
+        let mut conf_req = ConfigReq::new(data_id, group, namespace, content, "".to_string());
+        for config_filter in self.config_filters.iter() {
+            config_filter.filter(Some(&mut conf_req), None);
+        }
+
         Self::publish_config_inner(
             &mut self.connection,
-            data_id,
-            group,
-            tenant,
-            content,
+            conf_req.data_id,
+            conf_req.group,
+            conf_req.namespace,
+            conf_req.content,
             content_type,
+            conf_req.encrypted_data_key,
             cas_md5,
             None,
             Some(params),
@@ -243,8 +294,8 @@ impl ConfigWorker {
         data_id: String,
         group: String,
     ) -> crate::api::error::Result<bool> {
-        let tenant = self.client_props.namespace.clone();
-        Self::remove_config_inner(&mut self.connection, data_id, group, tenant)
+        let namespace = self.client_props.namespace.clone();
+        Self::remove_config_inner(&mut self.connection, data_id, group, namespace)
     }
 
     /// Add listener.
@@ -254,11 +305,12 @@ impl ConfigWorker {
         group: String,
         listener: Arc<dyn crate::api::config::ConfigChangeListener>,
     ) {
-        let tenant = self.client_props.namespace.clone();
-        let group_key = util::group_key(&data_id, &group, &tenant);
+        let namespace = self.client_props.namespace.clone();
+        let group_key = util::group_key(&data_id, &group, &namespace);
         if let Ok(mut mutex) = self.cache_data_map.lock() {
             if !mutex.contains_key(group_key.as_str()) {
-                let mut cache_data = CacheData::new(data_id, group, tenant);
+                let mut cache_data =
+                    CacheData::new(self.config_filters.clone(), data_id, group, namespace);
                 // listen immediately upon initialization
                 if let Ok(client) = self.connection.get_client() {
                     // init cache_data
@@ -296,8 +348,8 @@ impl ConfigWorker {
         group: String,
         listener: Arc<dyn crate::api::config::ConfigChangeListener>,
     ) {
-        let tenant = self.client_props.namespace.clone();
-        let group_key = util::group_key(&data_id, &group, &tenant);
+        let namespace = self.client_props.namespace.clone();
+        let group_key = util::group_key(&data_id, &group, &namespace);
         if let Ok(mut mutex) = self.cache_data_map.lock() {
             if !mutex.contains_key(group_key.as_str()) {
                 return;
@@ -437,6 +489,11 @@ impl ConfigWorker {
         cache_data.content_type = config_resp.content_type().unwrap().to_string();
         cache_data.content = config_resp.content().unwrap().to_string();
         cache_data.md5 = config_resp.md5().unwrap().to_string();
+        // Compatibility None < 2.1.0
+        cache_data.encrypted_data_key = config_resp
+            .encrypted_data_key()
+            .unwrap_or(&"".to_string())
+            .to_string();
         cache_data.last_modified = config_resp.last_modified();
         tracing::info!("fill_data_and_notify, cache_data={}", cache_data);
         if cache_data.initializing {
@@ -451,9 +508,9 @@ impl ConfigWorker {
         connection: &mut Connection,
         data_id: String,
         group: String,
-        tenant: String,
+        namespace: String,
     ) -> crate::api::error::Result<ConfigQueryServerResponse> {
-        let req = ConfigQueryClientRequest::new(data_id, group, tenant);
+        let req = ConfigQueryClientRequest::new(data_id, group, namespace);
         let req_payload = payload_helper::build_req_grpc_payload(req);
         let resp = connection.get_client()?.request(&req_payload)?;
         let payload_inner = payload_helper::covert_payload(resp);
@@ -495,25 +552,33 @@ impl ConfigWorker {
         connection: &mut Connection,
         data_id: String,
         group: String,
-        tenant: String,
+        namespace: String,
         content: String,
         content_type: Option<String>,
+        encrypted_data_key: String,
         cas_md5: Option<String>,
         beta_ips: Option<String>,
         params: Option<HashMap<String, String>>,
     ) -> crate::api::error::Result<bool> {
         let mut req =
-            ConfigPublishClientRequest::new(data_id, group, tenant, content).cas_md5(cas_md5);
+            ConfigPublishClientRequest::new(data_id, group, namespace, content).cas_md5(cas_md5);
         // Customize parameters have low priority
         if let Some(params) = params {
             req.add_addition_params(params);
         }
         if let Some(content_type) = content_type {
-            req.add_addition_param(crate::api::config::constants::KEY_PARAM_TYPE, content_type);
+            req.add_addition_param(
+                crate::api::config::constants::KEY_PARAM_CONTENT_TYPE,
+                content_type,
+            );
         }
         if let Some(beta_ips) = beta_ips {
             req.add_addition_param(crate::api::config::constants::KEY_PARAM_BETA_IPS, beta_ips);
         }
+        req.add_addition_param(
+            crate::api::config::constants::KEY_PARAM_ENCRYPTED_DATA_KEY,
+            encrypted_data_key,
+        );
 
         let req_payload = payload_helper::build_req_grpc_payload(req);
         let resp = connection.get_client()?.request(&req_payload)?;
@@ -536,9 +601,9 @@ impl ConfigWorker {
         connection: &mut Connection,
         data_id: String,
         group: String,
-        tenant: String,
+        namespace: String,
     ) -> crate::api::error::Result<bool> {
-        let req = ConfigRemoveClientRequest::new(data_id, group, tenant);
+        let req = ConfigRemoveClientRequest::new(data_id, group, namespace);
         let req_payload = payload_helper::build_req_grpc_payload(req);
         let resp = connection.get_client()?.request(&req_payload)?;
         let payload_inner = payload_helper::covert_payload(resp);
@@ -568,7 +633,8 @@ mod tests {
     fn test_client_worker_add_listener() {
         let (d, g, t) = ("D".to_string(), "G".to_string(), "N".to_string());
 
-        let mut client_worker = ConfigWorker::new(ClientProps::new().namespace(t.clone()));
+        let mut client_worker =
+            ConfigWorker::new(ClientProps::new().namespace(t.clone()), Vec::new());
 
         // test add listener1
         let lis1_arc = Arc::new(TestConfigChangeListener1 {});
@@ -593,7 +659,8 @@ mod tests {
     fn test_client_worker_add_listener_then_remove() {
         let (d, g, t) = ("D".to_string(), "G".to_string(), "N".to_string());
 
-        let mut client_worker = ConfigWorker::new(ClientProps::new().namespace(t.clone()));
+        let mut client_worker =
+            ConfigWorker::new(ClientProps::new().namespace(t.clone()), Vec::new());
 
         // test add listener1
         let lis1_arc = Arc::new(TestConfigChangeListener1 {});

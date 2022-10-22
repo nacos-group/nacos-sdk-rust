@@ -7,6 +7,7 @@ mod util;
 mod worker;
 
 use crate::api::config::ConfigService;
+use crate::api::plugin::ConfigFilter;
 use crate::api::props::ClientProps;
 use crate::config::worker::ConfigWorker;
 
@@ -16,8 +17,8 @@ pub(crate) struct NacosConfigService {
 }
 
 impl NacosConfigService {
-    pub fn new(client_props: ClientProps) -> Self {
-        let client_worker = ConfigWorker::new(client_props);
+    pub fn new(client_props: ClientProps, config_filters: Vec<Box<dyn ConfigFilter>>) -> Self {
+        let client_worker = ConfigWorker::new(client_props, config_filters);
         Self { client_worker }
     }
 

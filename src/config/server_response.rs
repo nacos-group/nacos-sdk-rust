@@ -119,7 +119,7 @@ impl ConfigQueryServerResponse {
     pub fn md5(&self) -> Option<&String> {
         Option::from(&self.md5)
     }
-    pub fn encrypted_Data_Key(&self) -> Option<&String> {
+    pub fn encrypted_data_key(&self) -> Option<&String> {
         Option::from(&self.encryptedDataKey)
     }
     pub fn last_modified(&self) -> i64 {
