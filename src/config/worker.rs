@@ -91,8 +91,8 @@ impl ConfigWorker {
                                         conn.get_conn_id(), payload_inner.type_url, payload_inner.body_str
                                     );
                                     // publish a server_req_payload, server_req_payload_rx receive it once.
-                                    if let Err(_) = server_req_payload_tx.send(payload_inner).await {
-                                        tracing::error!("receiver dropped")
+                                    if let Err(e) = server_req_payload_tx.send(payload_inner).await {
+                                        tracing::error!("receiver dropped by {:?}", e)
                                     }
                                 }
                             },
@@ -318,7 +318,7 @@ impl ConfigWorker {
                         &mut self.connection,
                         cache_data.data_id.clone(),
                         cache_data.group.clone(),
-                        cache_data.tenant.clone(),
+                        cache_data.namespace.clone(),
                     );
                     if let Ok(config_resp) = config_resp {
                         Self::fill_data_and_notify(&mut cache_data, config_resp);
@@ -327,7 +327,7 @@ impl ConfigWorker {
                         ConfigListenContext::new(
                             cache_data.data_id.clone(),
                             cache_data.group.clone(),
-                            cache_data.tenant.clone(),
+                            cache_data.namespace.clone(),
                             cache_data.md5.clone(),
                         ),
                     );
@@ -371,16 +371,16 @@ impl ConfigWorker {
             let server_req = ConfigChangeNotifyServerRequest::from(payload_inner.body_str.as_str())
                 .headers(payload_inner.headers);
             let server_req_id = server_req.request_id().clone();
-            let req_tenant = server_req.tenant.unwrap_or_else(|| "".to_string());
+            let req_namespace = server_req.tenant.unwrap_or_else(|| "".to_string());
             tracing::info!(
                 "[{}] receive config-change, dataId={},group={},namespace={}",
                 conn.get_conn_id(),
                 server_req.dataId,
                 server_req.group,
-                req_tenant
+                req_namespace
             );
             // notify config change
-            let group_key = util::group_key(&server_req.dataId, &server_req.group, &req_tenant);
+            let group_key = util::group_key(&server_req.dataId, &server_req.group, &req_namespace);
             let _ = notify_change_tx.send(group_key).await;
             // reply ConfigChangeNotifyClientResponse for ConfigChangeNotifyServerRequest
             let _ = conn
@@ -411,7 +411,7 @@ impl ConfigWorker {
                         listen_context_vec.push(ConfigListenContext::new(
                             c.data_id.clone(),
                             c.group.clone(),
-                            c.tenant.clone(),
+                            c.namespace.clone(),
                             c.md5.clone(),
                         ));
                     }
@@ -473,7 +473,7 @@ impl ConfigWorker {
                                 &mut connection,
                                 c.data_id.clone(),
                                 c.group.clone(),
-                                c.tenant.clone(),
+                                c.namespace.clone(),
                             );
                             if let Ok(config_resp) = config_resp {
                                 Self::fill_data_and_notify(c, config_resp);
@@ -631,10 +631,10 @@ mod tests {
 
     #[test]
     fn test_client_worker_add_listener() {
-        let (d, g, t) = ("D".to_string(), "G".to_string(), "N".to_string());
+        let (d, g, n) = ("D".to_string(), "G".to_string(), "N".to_string());
 
         let mut client_worker =
-            ConfigWorker::new(ClientProps::new().namespace(t.clone()), Vec::new());
+            ConfigWorker::new(ClientProps::new().namespace(n.clone()), Vec::new());
 
         // test add listener1
         let lis1_arc = Arc::new(TestConfigChangeListener1 {});
@@ -646,7 +646,7 @@ mod tests {
         // test add a listener2 again
         let _listen = client_worker.add_listener(d.clone(), g.clone(), lis2_arc);
 
-        let group_key = util::group_key(&d, &g, &t);
+        let group_key = util::group_key(&d, &g, &n);
         {
             let cache_data_map_mutex = client_worker.cache_data_map.lock().unwrap();
             let cache_data = cache_data_map_mutex.get(group_key.as_str()).unwrap();
@@ -657,17 +657,17 @@ mod tests {
 
     #[test]
     fn test_client_worker_add_listener_then_remove() {
-        let (d, g, t) = ("D".to_string(), "G".to_string(), "N".to_string());
+        let (d, g, n) = ("D".to_string(), "G".to_string(), "N".to_string());
 
         let mut client_worker =
-            ConfigWorker::new(ClientProps::new().namespace(t.clone()), Vec::new());
+            ConfigWorker::new(ClientProps::new().namespace(n.clone()), Vec::new());
 
         // test add listener1
         let lis1_arc = Arc::new(TestConfigChangeListener1 {});
         let lis1_arc2 = Arc::clone(&lis1_arc);
         let _listen = client_worker.add_listener(d.clone(), g.clone(), lis1_arc);
 
-        let group_key = util::group_key(&d, &g, &t);
+        let group_key = util::group_key(&d, &g, &n);
         {
             let cache_data_map_mutex = client_worker.cache_data_map.lock().unwrap();
             let cache_data = cache_data_map_mutex.get(group_key.as_str()).unwrap();

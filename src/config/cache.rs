@@ -9,7 +9,7 @@ use std::sync::{Arc, Mutex};
 pub(crate) struct CacheData {
     pub data_id: String,
     pub group: String,
-    pub tenant: String,
+    pub namespace: String,
     /// Default text; text, json, properties, html, xml, yaml ...
     pub content_type: String,
     pub content: String,
@@ -32,13 +32,13 @@ impl CacheData {
         config_filters: Arc<Vec<Box<dyn ConfigFilter>>>,
         data_id: String,
         group: String,
-        tenant: String,
+        namespace: String,
     ) -> Self {
         Self {
             config_filters,
             data_id,
             group,
-            tenant,
+            namespace,
             content_type: "text".to_string(),
             initializing: true,
             ..Default::default()
@@ -84,7 +84,7 @@ impl CacheData {
             "notify_listener, dataId={},group={},namespace={},md5={}",
             self.data_id,
             self.group,
-            self.tenant,
+            self.namespace,
             self.md5
         );
 
@@ -111,7 +111,7 @@ impl CacheData {
         let mut conf_resp = ConfigResp::new(
             self.data_id.clone(),
             self.group.clone(),
-            self.tenant.clone(),
+            self.namespace.clone(),
             self.content.clone(),
             self.encrypted_data_key.clone(),
         );
@@ -140,7 +140,7 @@ impl std::fmt::Display for CacheData {
         write!(
             f,
             "CacheData(namespace={n},data_id={d},group={g},md5={m},encrypted_data_key={k},content_type={t},content={c})",
-            n = self.tenant,
+            n = self.namespace,
             d = self.data_id,
             g = self.group,
             m = self.md5,
@@ -175,9 +175,9 @@ mod tests {
 
     #[test]
     fn test_cache_data_add_listener() {
-        let (d, g, t) = ("D".to_string(), "G".to_string(), "N".to_string());
+        let (d, g, n) = ("D".to_string(), "G".to_string(), "N".to_string());
 
-        let mut cache_data = CacheData::new(Arc::new(Vec::new()), d, g, t);
+        let mut cache_data = CacheData::new(Arc::new(Vec::new()), d, g, n);
 
         // test add listener1
         let lis1_arc = Arc::new(TestConfigChangeListener1 {});
@@ -195,9 +195,9 @@ mod tests {
 
     #[test]
     fn test_cache_data_add_listener_then_remove() {
-        let (d, g, t) = ("D".to_string(), "G".to_string(), "N".to_string());
+        let (d, g, n) = ("D".to_string(), "G".to_string(), "N".to_string());
 
-        let mut cache_data = CacheData::new(Arc::new(Vec::new()), d, g, t);
+        let mut cache_data = CacheData::new(Arc::new(Vec::new()), d, g, n);
 
         // test add listener1
         let lis1_arc = Arc::new(TestConfigChangeListener1 {});
