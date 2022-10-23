@@ -13,6 +13,6 @@ pub(crate) use naming_push_request_handler::*;
 
 pub(crate) type HandFutureType = Option<Box<dyn Future<Output = ()> + Send + Unpin + 'static>>;
 
-pub(crate) trait GrpcPayloadHandler: Send + Sync + 'static {
+pub trait GrpcPayloadHandler: Send + Sync + 'static {
     fn hand(&self, bi_sender: Arc<Sender<Payload>>, payload: Payload) -> HandFutureType;
 }
