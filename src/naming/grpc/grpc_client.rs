@@ -12,10 +12,10 @@ use grpcio::{
     CallOption, Channel, ChannelBuilder, ClientDuplexReceiver, ConnectivityState, Environment,
     LbPolicy, StreamingCallSink, WriteFlags,
 };
-use tokio::sync::{
+use tokio::{sync::{
     mpsc::{channel, Receiver, Sender},
     Mutex, Notify,
-};
+}, task::JoinHandle};
 use tracing::{debug, error, info, warn};
 
 use crate::{
@@ -37,6 +37,7 @@ pub struct GrpcClient {
     state: Arc<AtomicI8>,
     reconnect_notifier: Arc<Notify>,
     disconnect_notifier: Arc<Notify>,
+    health_check_task_join_handler: JoinHandle<()>
 }
 
 impl GrpcClient {
@@ -63,7 +64,7 @@ impl GrpcClient {
 
         let disconnect_notifier = Arc::new(Notify::new());
 
-        Self::health_check(
+        let health_check_task_join_handler = Self::health_check(
             disconnect_notifier.clone(),
             reconnect_notifier.clone(),
             channel,
@@ -76,6 +77,7 @@ impl GrpcClient {
             state,
             reconnect_notifier,
             disconnect_notifier,
+            health_check_task_join_handler
         }
     }
 
@@ -153,6 +155,10 @@ impl GrpcClient {
                     warn!("the current grpc client has already shutdown, duplex_task quit.");
                     break;
                 }
+                GrpcClientState::Switching => {
+                    warn!("the current grpc client is in Switching, duplex_task stop.");
+                    break;
+                }
                 _ => {}
             }
 
@@ -180,8 +186,8 @@ impl GrpcClient {
 
             disconnect_notifier.notified().await;
             global_task_state.store(false, Ordering::Release);
-            send_task_handler.abort();
-            receive_task_handler.abort();
+            let _ = send_task_handler.await;
+            let _ = receive_task_handler.await;
         }
     }
 
@@ -275,25 +281,36 @@ impl GrpcClient {
         reconnect_notifier: Arc<Notify>,
         channel: Channel,
         service_state: Arc<AtomicI8>,
-    ) {
+    ) -> JoinHandle<()>{
         let check_task = async move {
             loop {
+                let current_service_state = service_state.load(Ordering::Relaxed);
+                if GrpcClientState::Switching.state_code() == current_service_state {
+                    break;
+                }
+
                 let channel_state = channel.check_connectivity_state(true);
+                
                 match channel_state {
                     ConnectivityState::GRPC_CHANNEL_CONNECTING => {
                         debug!("the current connection is connecting to grpc server");
-                        service_state
-                            .store(GrpcClientState::Unhealthy.state_code(), Ordering::Release);
+                        let exchange = service_state.compare_exchange(current_service_state, GrpcClientState::Unhealthy.state_code(),  Ordering::SeqCst, Ordering::Acquire);
+                        if exchange.is_err() {
+                            debug!("exchange failed. current state: {:?}", exchange);
+                            break;
+                        }
                         let deadline = Duration::from_secs(5);
                         disconnect_notifier.notify_waiters();
                         channel.wait_for_connected(deadline).await;
                     }
                     ConnectivityState::GRPC_CHANNEL_READY => {
                         debug!("the current connection state is in ready");
-                        let current_channel_state = service_state.load(Ordering::Relaxed);
-                        if GrpcClientState::Healthy.state_code() != current_channel_state {
-                            service_state
-                                .store(GrpcClientState::Healthy.state_code(), Ordering::SeqCst);
+                        if GrpcClientState::Healthy.state_code() != current_service_state && GrpcClientState::Switching.state_code() != current_service_state{
+                            let exchange = service_state.compare_exchange(current_service_state, GrpcClientState::Healthy.state_code(),  Ordering::SeqCst, Ordering::Acquire);
+                            if exchange.is_err() {
+                                debug!("exchange failed. current state: {:?}", exchange);
+                                break;
+                            }
                             // notify
                             reconnect_notifier.notify_waiters();
                             // send event
@@ -310,8 +327,11 @@ impl GrpcClient {
                     }
                     ConnectivityState::GRPC_CHANNEL_TRANSIENT_FAILURE => {
                         debug!("the current connection state is in transient_failure");
-                        service_state
-                            .store(GrpcClientState::Unhealthy.state_code(), Ordering::Release);
+                        let exchange = service_state.compare_exchange(current_service_state, GrpcClientState::Unhealthy.state_code(),  Ordering::SeqCst, Ordering::Acquire);
+                        if exchange.is_err() {
+                            debug!("exchange failed. current state: {:?}", exchange);
+                            break;
+                        }
                         let deadline = Duration::from_secs(5);
                         disconnect_notifier.notify_waiters();
                         channel.wait_for_connected(deadline).await;
@@ -326,17 +346,21 @@ impl GrpcClient {
                     }
                     ConnectivityState::GRPC_CHANNEL_SHUTDOWN => {
                         debug!("grpc server has already shutdown!");
-                        service_state
-                            .store(GrpcClientState::Shutdown.state_code(), Ordering::Release);
-                        disconnect_notifier.notify_waiters();
-                        reconnect_notifier.notify_waiters();
+                        let exchange = service_state.compare_exchange(current_service_state, GrpcClientState::Shutdown.state_code(),  Ordering::SeqCst, Ordering::Acquire);
+                        if exchange.is_err() {
+                            debug!("exchange failed. current state: {:?}", exchange);
+                        }
                         break;
                     }
                 }
             }
+            disconnect_notifier.notify_waiters();
+            // notify waiting reconnect task to refresh task state.
+            reconnect_notifier.notify_waiters();
         };
 
-        executor::spawn(check_task);
+        executor::spawn(check_task)
+      
     }
 }
 
@@ -344,6 +368,7 @@ enum GrpcClientState {
     Healthy,
     Unhealthy,
     Shutdown,
+    Switching
 }
 
 impl GrpcClientState {
@@ -352,6 +377,7 @@ impl GrpcClientState {
             Self::Healthy => 0,
             Self::Unhealthy => 1,
             Self::Shutdown => 2,
+            Self::Switching => 3,
         }
     }
 }
@@ -362,6 +388,7 @@ impl From<i8> for GrpcClientState {
             0 => Self::Healthy,
             1 => Self::Unhealthy,
             2 => Self::Shutdown,
+            3 => Self::Switching,
             _ => panic!("illegal state code, {}", code),
         }
     }

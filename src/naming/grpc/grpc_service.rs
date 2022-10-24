@@ -58,6 +58,10 @@ impl GrpcService {
     }
 
     pub async fn init(&mut self, set_up: ServerSetUP) {
+        // setup
+        self.setup(set_up).await;
+
+
         // check server
         let check_server_response = self.check_server().await.unwrap();
         let connection_id = check_server_response.connection_id;
@@ -69,8 +73,7 @@ impl GrpcService {
         let bi_sender = self.receive_bi_payload().await;
         self.bi_sender = Some(bi_sender);
 
-        // setup
-        self.setup(set_up).await;
+        
     }
 
     pub async fn receive_bi_payload(&self) -> Arc<Sender<Payload>> {
