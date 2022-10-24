@@ -1,4 +1,4 @@
-use crate::api::{error, props};
+use crate::api::{error, plugin, props};
 
 /// Api [`ConfigService`].
 ///
@@ -164,7 +164,7 @@ impl ConfigResponse {
 
 pub mod constants {
     /// param type, use for [`crate::api::config::ConfigService::publish_config_param`]
-    pub const KEY_PARAM_TYPE: &str = "type";
+    pub const KEY_PARAM_CONTENT_TYPE: &str = "type";
 
     /// param betaIps, use for [`crate::api::config::ConfigService::publish_config_param`]
     pub const KEY_PARAM_BETA_IPS: &str = "betaIps";
@@ -174,6 +174,9 @@ pub mod constants {
 
     /// param tag, use for [`crate::api::config::ConfigService::publish_config_param`]
     pub const KEY_PARAM_TAG: &str = "tag";
+
+    /// param encryptedDataKey, use inner.
+    pub(crate) const KEY_PARAM_ENCRYPTED_DATA_KEY: &str = "encryptedDataKey";
 }
 
 /// Builder of api [`ConfigService`].
@@ -194,24 +197,53 @@ pub mod constants {
 #[doc(alias("config", "builder"))]
 pub struct ConfigServiceBuilder {
     client_props: props::ClientProps,
+    config_filters: Vec<Box<dyn plugin::ConfigFilter>>,
 }
 
 impl Default for ConfigServiceBuilder {
     fn default() -> Self {
         ConfigServiceBuilder {
             client_props: props::ClientProps::new(),
+            config_filters: Vec::new(),
         }
     }
 }
 
 impl ConfigServiceBuilder {
     pub fn new(client_props: props::ClientProps) -> Self {
-        ConfigServiceBuilder { client_props }
+        ConfigServiceBuilder {
+            client_props,
+            config_filters: Vec::new(),
+        }
+    }
+
+    pub fn with_config_filters(
+        mut self,
+        config_filters: Vec<Box<dyn plugin::ConfigFilter>>,
+    ) -> Self {
+        self.config_filters = config_filters;
+        self
+    }
+
+    pub fn add_config_filter(mut self, config_filter: Box<dyn plugin::ConfigFilter>) -> Self {
+        self.config_filters.push(config_filter);
+        self
+    }
+
+    /// Add [`plugin::EncryptionPlugin`], they will wrapper with [`plugin::ConfigEncryptionFilter`] into [`config_filters`]
+    pub fn with_encryption_plugins(
+        self,
+        encryption_plugins: Vec<Box<dyn plugin::EncryptionPlugin>>,
+    ) -> Self {
+        self.add_config_filter(Box::new(plugin::ConfigEncryptionFilter::new(
+            encryption_plugins,
+        )))
     }
 
     /// Builds a new [`ConfigService`].
     pub async fn build(self) -> impl ConfigService {
-        let mut config_service = crate::config::NacosConfigService::new(self.client_props);
+        let mut config_service =
+            crate::config::NacosConfigService::new(self.client_props, self.config_filters);
         config_service.start().await;
         config_service
     }

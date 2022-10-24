@@ -228,9 +228,9 @@ mod tests {
     use crate::common::remote::request::server_request::ClientDetectionServerRequest;
     use crate::common::remote::request::{Request, TYPE_CLIENT_DETECTION_SERVER_REQUEST};
     use crate::common::remote::response::client_response::ClientDetectionClientResponse;
-    use crate::common::util::payload_helper;
 
-    // #[tokio::test]
+    #[tokio::test]
+    #[ignore]
     async fn test_remote_connect() {
         tracing_subscriber::fmt()
             .with_max_level(tracing::Level::DEBUG)

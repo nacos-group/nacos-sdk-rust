@@ -1,4 +1,6 @@
 use crate::api::config::ConfigResponse;
+use crate::api::plugin::ConfigFilter;
+use crate::api::plugin::ConfigResp;
 use std::ops::Deref;
 use std::sync::{Arc, Mutex};
 
@@ -7,13 +9,13 @@ use std::sync::{Arc, Mutex};
 pub(crate) struct CacheData {
     pub data_id: String,
     pub group: String,
-    pub tenant: String,
+    pub namespace: String,
     /// Default text; text, json, properties, html, xml, yaml ...
     pub content_type: String,
     pub content: String,
     pub md5: String,
     /// whether content was encrypted with encryptedDataKey.
-    pub encrypted_data_key: Option<String>,
+    pub encrypted_data_key: String,
     pub last_modified: i64,
 
     /// There are some logical differences in the initialization phase, such as no notification of config changed
@@ -21,14 +23,22 @@ pub(crate) struct CacheData {
 
     /// who listen of config change.
     pub listeners: Arc<Mutex<Vec<ListenerWrapper>>>,
+
+    pub config_filters: Arc<Vec<Box<dyn ConfigFilter>>>,
 }
 
 impl CacheData {
-    pub fn new(data_id: String, group: String, tenant: String) -> Self {
+    pub fn new(
+        config_filters: Arc<Vec<Box<dyn ConfigFilter>>>,
+        data_id: String,
+        group: String,
+        namespace: String,
+    ) -> Self {
         Self {
+            config_filters,
             data_id,
             group,
-            tenant,
+            namespace,
             content_type: "text".to_string(),
             initializing: true,
             ..Default::default()
@@ -74,18 +84,11 @@ impl CacheData {
             "notify_listener, dataId={},group={},namespace={},md5={}",
             self.data_id,
             self.group,
-            self.tenant,
+            self.namespace,
             self.md5
         );
 
-        let config_resp = ConfigResponse::new(
-            self.data_id.clone(),
-            self.group.clone(),
-            self.tenant.clone(),
-            self.content.clone(),
-            self.content_type.clone(),
-            self.md5.clone(),
-        );
+        let config_resp = self.get_config_resp_after_filter();
 
         if let Ok(mut mutex) = self.listeners.lock() {
             for listen_wrap in mutex.iter_mut() {
@@ -102,6 +105,29 @@ impl CacheData {
             }
         }
     }
+
+    /// inner method, will invoke config_filter
+    fn get_config_resp_after_filter(&self) -> ConfigResponse {
+        let mut conf_resp = ConfigResp::new(
+            self.data_id.clone(),
+            self.group.clone(),
+            self.namespace.clone(),
+            self.content.clone(),
+            self.encrypted_data_key.clone(),
+        );
+        for config_filter in self.config_filters.iter() {
+            config_filter.filter(None, Some(&mut conf_resp));
+        }
+
+        ConfigResponse::new(
+            conf_resp.data_id,
+            conf_resp.group,
+            conf_resp.namespace,
+            conf_resp.content,
+            self.content_type.clone(),
+            self.md5.clone(),
+        )
+    }
 }
 
 impl std::fmt::Display for CacheData {
@@ -114,11 +140,11 @@ impl std::fmt::Display for CacheData {
         write!(
             f,
             "CacheData(namespace={n},data_id={d},group={g},md5={m},encrypted_data_key={k},content_type={t},content={c})",
-            n = self.tenant,
+            n = self.namespace,
             d = self.data_id,
             g = self.group,
             m = self.md5,
-            k = self.encrypted_data_key.as_ref().unwrap_or(&"".to_string()),
+            k = self.encrypted_data_key,
             t = self.content_type,
             c = content
         )
@@ -144,16 +170,14 @@ impl ListenerWrapper {
 #[cfg(test)]
 mod tests {
     use crate::api::config::{ConfigChangeListener, ConfigResponse};
-    use crate::api::props::ClientProps;
     use crate::config::cache::CacheData;
-    use crate::config::util;
     use std::sync::Arc;
 
     #[test]
     fn test_cache_data_add_listener() {
-        let (d, g, t) = ("D".to_string(), "G".to_string(), "N".to_string());
+        let (d, g, n) = ("D".to_string(), "G".to_string(), "N".to_string());
 
-        let mut cache_data = CacheData::new(d, g, t);
+        let mut cache_data = CacheData::new(Arc::new(Vec::new()), d, g, n);
 
         // test add listener1
         let lis1_arc = Arc::new(TestConfigChangeListener1 {});
@@ -171,9 +195,9 @@ mod tests {
 
     #[test]
     fn test_cache_data_add_listener_then_remove() {
-        let (d, g, t) = ("D".to_string(), "G".to_string(), "N".to_string());
+        let (d, g, n) = ("D".to_string(), "G".to_string(), "N".to_string());
 
-        let mut cache_data = CacheData::new(d, g, t);
+        let mut cache_data = CacheData::new(Arc::new(Vec::new()), d, g, n);
 
         // test add listener1
         let lis1_arc = Arc::new(TestConfigChangeListener1 {});
