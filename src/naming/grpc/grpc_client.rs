@@ -18,12 +18,12 @@ use tokio::sync::{
 };
 use tracing::{debug, error, info, warn};
 
-use crate::api::error::Result;
-use crate::{api::error::Error::GrpcioJoin, nacos_proto::v2::Payload};
 use crate::{
-    api::{error::Error::ClientUnhealthy, events::common::GrpcReconnectedEvent},
-    common::event_bus,
+    api::error::Error::ClientUnhealthy, common::event_bus,
+    naming::grpc::events::GrpcConnectHealthCheckEvent,
 };
+use crate::{api::error::Error::GrpcioJoin, nacos_proto::v2::Payload};
+use crate::{api::error::Result, naming::grpc::events::GrpcReconnectedEvent};
 use crate::{
     common::executor,
     nacos_proto::v2::{BiRequestStreamClient, RequestClient},
@@ -294,12 +294,14 @@ impl GrpcClient {
                         if GrpcClientState::Healthy.state_code() != current_channel_state {
                             service_state
                                 .store(GrpcClientState::Healthy.state_code(), Ordering::SeqCst);
-
                             // notify
                             reconnect_notifier.notify_waiters();
                             // send event
                             let event = GrpcReconnectedEvent {};
                             event_bus::post(Box::new(event));
+                        } else {
+                            // health check
+                            event_bus::post(Box::new(GrpcConnectHealthCheckEvent {}));
                         }
                         let deadline = Duration::from_secs(5);
                         channel
@@ -316,7 +318,7 @@ impl GrpcClient {
                     }
                     ConnectivityState::GRPC_CHANNEL_IDLE => {
                         debug!("the current connection state is in idle");
-                        channel.check_connectivity_state(true);
+                        event_bus::post(Box::new(GrpcConnectHealthCheckEvent {}));
                         let deadline = Duration::from_secs(5);
                         channel
                             .wait_for_state_change(ConnectivityState::GRPC_CHANNEL_IDLE, deadline)

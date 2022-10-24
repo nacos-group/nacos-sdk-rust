@@ -13,21 +13,25 @@ use crate::naming::grpc::handler::{DefaultHandler, GrpcPayloadHandler};
 
 use crate::api::error::Result;
 use crate::naming::grpc::message::request::ServerCheckRequest;
-use crate::naming::grpc::message::{GrpcMessage, GrpcMessageBuilder, GrpcMessageData};
+use crate::naming::grpc::message::{GrpcMessageBuilder, GrpcMessageData};
 
 use super::client_abilities::ClientAbilities;
 use super::grpc_client::GrpcClient;
-use super::grpc_reconnected_subscriber::GrpcReconnectedEventSubscriber;
 use super::handler::NamingPushRequestHandler;
 use super::message::request::{ConnectionSetupRequest, NotifySubscriberRequest};
 use super::message::response::ServerCheckResponse;
+use super::message::{GrpcRequestMessage, GrpcResponseMessage};
+use super::subscribers::{GrpcConnectHealthCheckEventSubscriber, GrpcReconnectedEventSubscriber};
 
 type HandlerMap = Arc<RwLock<HashMap<String, Box<dyn GrpcPayloadHandler>>>>;
+const APP_FILED: &str = "app";
+
 pub struct GrpcService {
     grpc_client: GrpcClient,
     pub connection_id: Arc<Mutex<String>>,
     bi_sender: Option<Arc<Sender<Payload>>>,
     bi_handler_map: HandlerMap,
+    app_name: String,
 }
 
 #[derive(Clone, Debug)]
@@ -39,7 +43,7 @@ pub struct ServerSetUP {
 }
 
 impl GrpcService {
-    pub async fn new(address: String) -> Self {
+    pub async fn new(address: String, app_name: String) -> Self {
         let grpc_client = GrpcClient::new(address.as_str()).await;
 
         let bi_handler_map = Arc::new(RwLock::new(HashMap::new()));
@@ -49,6 +53,7 @@ impl GrpcService {
             connection_id: Arc::new(Mutex::new("".to_string())),
             bi_sender: None,
             bi_handler_map,
+            app_name,
         }
     }
 
@@ -152,12 +157,24 @@ impl GrpcService {
         .await;
     }
 
-    pub async fn unary_call_async<R, P>(&self, message: GrpcMessage<R>) -> Result<GrpcMessage<P>>
+    pub async fn unary_call_async<R, P>(&self, mut request: R) -> Result<P>
     where
-        R: GrpcMessageData,
-        P: GrpcMessageData,
+        R: GrpcRequestMessage + 'static,
+        P: GrpcResponseMessage + 'static,
     {
-        self.grpc_client.unary_call_async(message).await
+        let request_headers = request.take_headers();
+
+        let grpc_message = GrpcMessageBuilder::new(request)
+            .header(APP_FILED.to_owned(), self.app_name.clone())
+            .headers(request_headers)
+            .build();
+
+        let ret = self
+            .grpc_client
+            .unary_call_async::<R, P>(grpc_message)
+            .await?;
+        let body = ret.into_body();
+        Ok(body)
     }
 
     pub async fn bi_call(&self, payload: Payload) -> Result<()> {
@@ -187,6 +204,8 @@ pub(crate) struct GrpcServiceBuilder {
     abilities: ClientAbilities,
 
     namespace: String,
+
+    app_name: String,
 }
 
 impl GrpcServiceBuilder {
@@ -200,6 +219,7 @@ impl GrpcServiceBuilder {
             abilities,
             client_version: "".to_string(),
             namespace: "".to_string(),
+            app_name: "unknown".to_string(),
         }
     }
 
@@ -247,9 +267,15 @@ impl GrpcServiceBuilder {
         self.abilities.support_remote_metric(enable);
         self
     }
+
+    pub(crate) fn app_name(mut self, app_name: String) -> Self {
+        self.app_name = app_name;
+        self
+    }
+
     pub(crate) fn build(self) -> Arc<GrpcService> {
         futures::executor::block_on(async move {
-            let mut grpc_service = GrpcService::new(self.address).await;
+            let mut grpc_service = GrpcService::new(self.address, self.app_name).await;
             grpc_service
                 .register_bi_call_handler::<NotifySubscriberRequest>(Box::new(
                     NamingPushRequestHandler {
@@ -266,11 +292,16 @@ impl GrpcServiceBuilder {
             grpc_service.init(server_set_up.clone()).await;
 
             let grpc_service = Arc::new(grpc_service);
-            let subscriber = GrpcReconnectedEventSubscriber {
+            let reconnect_subscriber = GrpcReconnectedEventSubscriber {
                 grpc_service: grpc_service.clone(),
                 set_up_info: server_set_up.clone(),
             };
-            event_bus::register(Arc::new(Box::new(subscriber)));
+            let health_check_subscriber = GrpcConnectHealthCheckEventSubscriber {
+                grpc_service: grpc_service.clone(),
+            };
+
+            event_bus::register(Arc::new(Box::new(reconnect_subscriber)));
+            event_bus::register(Arc::new(Box::new(health_check_subscriber)));
             grpc_service
         })
     }
@@ -299,10 +330,10 @@ mod tests {
             .init();
 
         let _ = GrpcServiceBuilder::new()
-            .address("127.0.0.1:7848".to_string())
+            .address("ipv4:127.0.0.1:9858,127.0.0.1:7848".to_string())
             .build();
 
-        let ten_millis = time::Duration::from_secs(300);
+        let ten_millis = time::Duration::from_secs(600);
         thread::sleep(ten_millis);
     }
 }

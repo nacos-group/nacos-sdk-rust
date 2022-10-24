@@ -5,7 +5,6 @@ use std::{
 
 use crate::api::error::Result;
 use futures::Future;
-pub mod common;
 pub mod naming;
 
 pub type HandEventFuture = Box<dyn Future<Output = Result<()>> + Send + Unpin + 'static>;

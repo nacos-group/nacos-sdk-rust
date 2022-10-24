@@ -31,7 +31,6 @@ use crate::naming::grpc::{GrpcService, GrpcServiceBuilder};
 use self::chooser::RandomWeightChooser;
 use self::grpc::message::request::SubscribeServiceRequest;
 use self::grpc::message::response::SubscribeServiceResponse;
-use self::grpc::message::GrpcMessageBuilder;
 use self::grpc::message::GrpcRequestMessage;
 use self::grpc::message::GrpcResponseMessage;
 
@@ -84,6 +83,7 @@ impl NacosNamingService {
         let grpc_service = GrpcServiceBuilder::new()
             .address(client_props.server_addr)
             .namespace(namespace.clone())
+            .app_name(app_name.clone())
             .client_version(client_props.client_version)
             .support_remote_connection(true)
             .support_remote_metrics(true)
@@ -109,25 +109,15 @@ impl NacosNamingService {
 
     fn request_to_server<R, P>(
         &self,
-        mut request: R,
+        request: R,
     ) -> Box<dyn Future<Output = Result<P>> + Send + Unpin + 'static>
     where
         R: GrpcRequestMessage + 'static,
         P: GrpcResponseMessage + 'static,
     {
-        let request_headers = request.take_headers();
         let grpc_service = self.grpc_service.clone();
 
-        let grpc_message = GrpcMessageBuilder::new(request)
-            .header(self::constants::APP_FILED.to_owned(), self.app_name.clone())
-            .headers(request_headers)
-            .build();
-
-        let task = async move {
-            let ret = grpc_service.unary_call_async::<R, P>(grpc_message).await?;
-            let body = ret.into_body();
-            Ok(body)
-        };
+        let task = async move { grpc_service.unary_call_async::<R, P>(request).await };
 
         Box::new(Box::pin(task))
     }

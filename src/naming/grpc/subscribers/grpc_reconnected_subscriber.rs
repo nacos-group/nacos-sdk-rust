@@ -2,9 +2,10 @@ use std::sync::Arc;
 
 use tracing::{error, info};
 
-use crate::api::events::{common::GrpcReconnectedEvent, HandEventFuture, NacosEventSubscriber};
-
-use super::{grpc_service::ServerSetUP, GrpcService};
+use crate::{
+    api::events::{HandEventFuture, NacosEventSubscriber},
+    naming::grpc::{events::GrpcReconnectedEvent, grpc_service::ServerSetUP, GrpcService},
+};
 
 pub struct GrpcReconnectedEventSubscriber {
     pub grpc_service: Arc<GrpcService>,
@@ -27,14 +28,16 @@ impl NacosEventSubscriber for GrpcReconnectedEventSubscriber {
                 return Err(e);
             }
 
+            // set up
+            grpc_service.setup(set_up_info.clone()).await;
+
             // set connection id
             let check_server_rsp = check_server_rsp.unwrap();
             let connection_id = check_server_rsp.connection_id;
+
             let mut current_connection_id = grpc_service.connection_id.lock().await;
             *current_connection_id = connection_id;
 
-            // set up
-            grpc_service.setup(set_up_info.clone()).await;
             Ok(())
         };
 
