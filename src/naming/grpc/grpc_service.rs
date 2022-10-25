@@ -347,7 +347,7 @@ impl GrpcServiceBuilder {
 mod tests {
 
     use core::time;
-    use std::{sync::mpsc::channel, thread};
+    use std::thread;
 
     use tracing::Level;
 
