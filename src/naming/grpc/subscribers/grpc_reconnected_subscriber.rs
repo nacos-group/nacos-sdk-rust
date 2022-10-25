@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use tracing::{error, info};
+use tracing::info;
 
 use crate::{
     api::events::{HandEventFuture, NacosEventSubscriber},
@@ -21,22 +21,8 @@ impl NacosEventSubscriber for GrpcReconnectedEventSubscriber {
         let grpc_service = self.grpc_service.clone();
         let set_up_info = self.set_up_info.clone();
         let task = async move {
-            // check server
-            let check_server_rsp = grpc_service.check_server().await;
-            if let Err(e) = check_server_rsp {
-                error!("check server error. {:?}", e);
-                return Err(e);
-            }
-
-            // set up
-            grpc_service.setup(set_up_info.clone()).await;
-
-            // set connection id
-            let check_server_rsp = check_server_rsp.unwrap();
-            let connection_id = check_server_rsp.connection_id;
-
-            let mut current_connection_id = grpc_service.connection_id.lock().await;
-            *current_connection_id = connection_id;
+            // init
+            grpc_service.init(set_up_info).await;
 
             Ok(())
         };

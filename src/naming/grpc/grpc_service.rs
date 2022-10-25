@@ -3,9 +3,8 @@ use std::sync::Arc;
 use std::thread::sleep;
 use std::time::Duration;
 
-use tokio::sync::mpsc::{channel, Sender};
-use tokio::sync::{Mutex, RwLock};
-use tracing::info;
+use tokio::sync::RwLock;
+use tracing::{error, info, warn};
 
 use crate::common::{event_bus, executor};
 use crate::nacos_proto::v2::Payload;
@@ -27,9 +26,8 @@ type HandlerMap = Arc<RwLock<HashMap<String, Box<dyn GrpcPayloadHandler>>>>;
 const APP_FILED: &str = "app";
 
 pub struct GrpcService {
-    grpc_client: GrpcClient,
-    pub connection_id: Arc<Mutex<String>>,
-    bi_sender: Option<Arc<Sender<Payload>>>,
+    grpc_client: RwLock<GrpcClient>,
+    pub connection_id: Arc<RwLock<String>>,
     bi_handler_map: HandlerMap,
     app_name: String,
 }
@@ -44,50 +42,94 @@ pub struct ServerSetUP {
 
 impl GrpcService {
     pub async fn new(address: String, app_name: String) -> Self {
-        let grpc_client = GrpcClient::new(address.as_str()).await;
+        let grpc_client = RwLock::new(GrpcClient::new(address.as_str()).await);
 
         let bi_handler_map = Arc::new(RwLock::new(HashMap::new()));
 
         GrpcService {
             grpc_client,
-            connection_id: Arc::new(Mutex::new("".to_string())),
-            bi_sender: None,
+            connection_id: Arc::new(RwLock::new("".to_string())),
             bi_handler_map,
             app_name,
         }
     }
 
-    pub async fn init(&mut self, set_up: ServerSetUP) {
-        // setup
-        self.setup(set_up).await;
+    pub async fn switch_server(&self, server_address: String, set_up: ServerSetUP) {
+        // switch server
+        info!("switch server starting");
+        {
+            let mut old_grpc_client = self.grpc_client.write().await;
+            old_grpc_client.shutdown().await;
 
+            info!("create a new grpc client.");
+            let new_client = GrpcClient::new(server_address.as_str()).await;
+            *old_grpc_client = new_client;
+        }
+        info!("init new grpc client.");
 
-        // check server
-        let check_server_response = self.check_server().await.unwrap();
-        let connection_id = check_server_response.connection_id;
-
-        let mut self_connection_id = self.connection_id.lock().await;
-        *self_connection_id = connection_id;
-
-        // receive bi message
-        let bi_sender = self.receive_bi_payload().await;
-        self.bi_sender = Some(bi_sender);
-
-        
+        self.init(set_up).await;
     }
 
-    pub async fn receive_bi_payload(&self) -> Arc<Sender<Payload>> {
-        let (sender, receiver) = channel::<Payload>(1024);
-        let sender = Arc::new(sender);
-        let bi_sender = sender.clone();
+    pub async fn init(&self, set_up: ServerSetUP) {
+        // receive bi message
+        self.receive_bi_payload().await;
 
+        let mut connection_id = None;
+        for _ in 0..5 {
+            // setup
+            self.setup(set_up.clone()).await;
+
+            // check server
+            let check_server_response = self.check_server().await;
+            if let Err(e) = check_server_response {
+                error!("check server error. {:?}", e);
+                continue;
+            }
+            let check_server_response = check_server_response.unwrap();
+            if !check_server_response.is_success() {
+                error!("check server error. {:?}", check_server_response.message);
+                continue;
+            }
+
+            if check_server_response.connection_id.is_none() {
+                continue;
+            }
+
+            connection_id = check_server_response.connection_id;
+            break;
+        }
+
+        if connection_id.is_none() {
+            panic!("init failed. connection id is none");
+        }
+
+        let connection_id = connection_id.unwrap();
+
+        info!("new connection id: {:?}", connection_id);
+
+        {
+            let mut self_connection_id = self.connection_id.write().await;
+            *self_connection_id = connection_id;
+        }
+    }
+
+    pub async fn receive_bi_payload(&self) {
+        info!("receive bi payload");
         let handler_map = self.bi_handler_map.clone();
 
-        let response_receiver = self.grpc_client.streaming_call(receiver).await;
-        let mut response_receiver = response_receiver.unwrap();
+        let grpc_client = self.grpc_client.read().await;
+        let (response_sender, mut response_receiver) = grpc_client.streaming_call().await;
 
         executor::spawn(async move {
-            while let Some(mut payload) = response_receiver.recv().await {
+            while let Some(payload) = response_receiver.recv().await {
+                if let Err(e) = payload {
+                    error!("receive an error message, close channel. {:?}", e);
+                    response_receiver.close();
+                    while (response_receiver.recv().await).is_some() {}
+                    break;
+                }
+
+                let mut payload = payload.unwrap();
                 let metadata = payload.metadata.take();
                 if metadata.is_none() {
                     continue;
@@ -102,7 +144,7 @@ impl GrpcService {
                 let read = handler_map.read().await;
                 let handler = read.get(type_url);
 
-                let sender = sender.clone();
+                let sender = response_sender.clone();
 
                 if let Some(handler) = handler {
                     payload.metadata = Some(metadata);
@@ -118,28 +160,28 @@ impl GrpcService {
                     }
                 }
             }
+
+            response_receiver.close();
+            while (response_receiver.recv().await).is_some() {}
+
+            warn!("receive_bi_payload task quit!");
         });
-        bi_sender
     }
 
     pub async fn check_server(&self) -> Result<ServerCheckResponse> {
         info!("check server");
         let request = ServerCheckRequest::default();
         let request = GrpcMessageBuilder::new(request).build();
+        let grpc_client = self.grpc_client.read().await;
 
-        let message = self
-            .grpc_client
+        let message = grpc_client
             .unary_call_async::<ServerCheckRequest, ServerCheckResponse>(request)
             .await?;
         Ok(message.into_body())
     }
 
     pub async fn setup(&self, set_up: ServerSetUP) {
-        if self.bi_sender.is_none() {
-            panic!("the current GrpcServer didn't finish construct.");
-        }
-        let sender = self.bi_sender.as_ref().unwrap().clone();
-
+        info!("set up");
         let namespace = Some(set_up.namespace);
         let setup_request = ConnectionSetupRequest {
             client_version: set_up.client_version,
@@ -151,13 +193,9 @@ impl GrpcService {
         let message = GrpcMessageBuilder::new(setup_request).build();
         let message = message.into_payload().unwrap();
 
-        let _ = sender.send(message).await;
-
-        let _ = executor::spawn(async move {
-            // wait for 300 millis
-            sleep(Duration::from_millis(300));
-        })
-        .await;
+        let grpc_client = self.grpc_client.read().await;
+        let _ = grpc_client.bi_call(message).await;
+        sleep(Duration::from_millis(400));
     }
 
     pub async fn unary_call_async<R, P>(&self, mut request: R) -> Result<P>
@@ -172,20 +210,15 @@ impl GrpcService {
             .headers(request_headers)
             .build();
 
-        let ret = self
-            .grpc_client
-            .unary_call_async::<R, P>(grpc_message)
-            .await?;
+        let grpc_client = self.grpc_client.read().await;
+        let ret = grpc_client.unary_call_async::<R, P>(grpc_message).await?;
         let body = ret.into_body();
         Ok(body)
     }
 
     pub async fn bi_call(&self, payload: Payload) -> Result<()> {
-        if self.bi_sender.is_none() {
-            panic!("the current GrpcServer didn't finish construct.");
-        }
-        let bi_sender = self.bi_sender.as_ref().unwrap();
-        Ok(bi_sender.send(payload).await?)
+        let grpc_client = self.grpc_client.read().await;
+        grpc_client.bi_call(payload).await
     }
 
     pub async fn register_bi_call_handler<T>(&self, handler: Box<dyn GrpcPayloadHandler>)
@@ -278,7 +311,7 @@ impl GrpcServiceBuilder {
 
     pub(crate) fn build(self) -> Arc<GrpcService> {
         futures::executor::block_on(async move {
-            let mut grpc_service = GrpcService::new(self.address, self.app_name).await;
+            let grpc_service = GrpcService::new(self.address, self.app_name).await;
             grpc_service
                 .register_bi_call_handler::<NotifySubscriberRequest>(Box::new(
                     NamingPushRequestHandler {
@@ -314,7 +347,7 @@ impl GrpcServiceBuilder {
 mod tests {
 
     use core::time;
-    use std::thread;
+    use std::{sync::mpsc::channel, thread};
 
     use tracing::Level;
 
@@ -333,10 +366,51 @@ mod tests {
             .init();
 
         let _ = GrpcServiceBuilder::new()
-            .address("ipv4:127.0.0.1:9858,127.0.0.1:7848".to_string())
+            .address("127.0.0.1:7848".to_string())
             .build();
 
         let ten_millis = time::Duration::from_secs(600);
         thread::sleep(ten_millis);
+    }
+
+    #[test]
+    #[ignore]
+    pub fn test_grpc_server_switch() {
+        tracing_subscriber::fmt()
+            .with_thread_names(true)
+            .with_max_level(Level::DEBUG)
+            .with_file(true)
+            .with_level(true)
+            .with_line_number(true)
+            .with_thread_ids(true)
+            .init();
+
+        let grpc_service = GrpcServiceBuilder::new()
+            .address("127.0.0.1:7548".to_string())
+            .build();
+
+        let ten_millis = time::Duration::from_secs(15);
+        thread::sleep(ten_millis);
+
+        let set_up = create_server_set_up();
+        futures::executor::block_on(async move {
+            grpc_service
+                .switch_server("127.0.0.1:9849".to_string(), set_up)
+                .await
+        });
+
+        let ten_millis = time::Duration::from_secs(40);
+        thread::sleep(ten_millis);
+    }
+
+    fn create_server_set_up() -> ServerSetUP {
+        let labels = HashMap::<String, String>::new();
+        let abilities = ClientAbilities::new();
+        ServerSetUP {
+            labels,
+            abilities,
+            client_version: "".to_string(),
+            namespace: "".to_string(),
+        }
     }
 }
