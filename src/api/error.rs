@@ -42,6 +42,9 @@ pub enum Error {
     #[error("remote client shutdown failed: {0}")]
     ClientShutdown(String),
 
+    #[error("remote client unhealthy failed: {0}")]
+    ClientUnhealthy(String),
+
     #[error("grpcio conn failed: {0}")]
     GrpcioJoin(#[from] grpcio::Error),
 

@@ -4,11 +4,12 @@ use tokio::sync::mpsc::Sender;
 use tracing::info;
 
 use super::GrpcPayloadHandler;
+use crate::api::error::Result;
 
 pub(crate) struct DefaultHandler;
 
 impl GrpcPayloadHandler for DefaultHandler {
-    fn hand(&self, _: Arc<Sender<Payload>>, payload: Payload) -> super::HandFutureType {
+    fn hand(&self, _: Arc<Sender<Result<Payload>>>, payload: Payload) -> super::HandFutureType {
         let task = async move {
             info!("receive bi payload: {:?}", payload);
         };

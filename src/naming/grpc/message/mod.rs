@@ -17,7 +17,7 @@ pub mod request;
 pub mod response;
 
 #[derive(Debug)]
-pub(crate) struct GrpcMessage<T>
+pub struct GrpcMessage<T>
 where
     T: GrpcMessageData,
 {
@@ -30,15 +30,15 @@ impl<T> GrpcMessage<T>
 where
     T: GrpcMessageData,
 {
-    pub(crate) fn body(&self) -> &T {
+    pub fn body(&self) -> &T {
         &self.body
     }
 
-    pub(crate) fn into_body(self) -> T {
+    pub fn into_body(self) -> T {
         self.body
     }
 
-    pub(crate) fn into_payload(self) -> Result<Payload> {
+    pub fn into_payload(self) -> Result<Payload> {
         let mut payload = Payload::default();
         let meta_data = Metadata {
             r#type: T::identity().to_string(),
@@ -93,14 +93,12 @@ where
         })
     }
 
-    pub(crate) fn unwrap_all(self) -> (T, HashMap<String, String>, String) {
+    pub fn unwrap_all(self) -> (T, HashMap<String, String>, String) {
         (self.body, self.headers, self.client_ip)
     }
 }
 
-pub(crate) trait GrpcMessageData:
-    Debug + Clone + Serialize + DeserializeOwned + Send
-{
+pub trait GrpcMessageData: Debug + Clone + Serialize + DeserializeOwned + Send {
     fn identity<'a>() -> std::borrow::Cow<'a, str>;
 
     fn to_proto_any(&self) -> Result<Any> {
@@ -126,7 +124,7 @@ pub(crate) trait GrpcMessageData:
     }
 }
 
-pub(crate) trait GrpcRequestMessage: GrpcMessageData {
+pub trait GrpcRequestMessage: GrpcMessageData {
     fn header(&self, key: &str) -> Option<&String>;
 
     fn headers(&self) -> &HashMap<String, String>;
@@ -138,7 +136,7 @@ pub(crate) trait GrpcRequestMessage: GrpcMessageData {
     fn module(&self) -> &str;
 }
 
-pub(crate) trait GrpcResponseMessage: GrpcMessageData {
+pub trait GrpcResponseMessage: GrpcMessageData {
     fn request_id(&self) -> Option<&String>;
 
     fn result_code(&self) -> i32;

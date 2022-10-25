@@ -2,16 +2,15 @@ use std::sync::Arc;
 
 use crate::api::events::{NacosEvent, Subscriber};
 
-pub(self) mod __private {
+mod __private {
 
     use lazy_static::lazy_static;
-    use std::{
-        any::TypeId,
-        collections::HashMap,
-        sync::{Arc, RwLock},
+    use std::{any::TypeId, collections::HashMap, sync::Arc};
+    use tokio::sync::{
+        mpsc::{channel, Receiver, Sender},
+        RwLock,
     };
-    use tokio::sync::mpsc::{channel, Receiver, Sender};
-    use tracing::error;
+    use tracing::warn;
 
     use crate::{
         api::events::{NacosEvent, Subscriber},
@@ -49,13 +48,7 @@ pub(self) mod __private {
         ) {
             executor::spawn(async move {
                 while let Some(event) = receiver.recv().await {
-                    let lock = subscribers.read();
-                    if let Err(error) = lock {
-                        error!("hand event failed, cannot get lock! {:?}", error);
-                        return;
-                    }
-                    let lock_guard = lock.unwrap();
-
+                    let lock_guard = subscribers.read().await;
                     let key = event.event_type();
 
                     let subscribers = lock_guard.get(&key);
@@ -65,10 +58,15 @@ pub(self) mod __private {
                         for subscriber in subscribers {
                             let event = event.clone();
                             let subscriber = subscriber.clone();
-                            executor::spawn(async move {
-                                subscriber.on_event(event);
-                            });
+                            let hand_event_future = subscriber.on_event(event);
+                            if hand_event_future.is_none() {
+                                continue;
+                            }
+                            let hand_event_future = hand_event_future.unwrap();
+                            executor::spawn(hand_event_future);
                         }
+                    } else {
+                        warn!("{:?} has not been subscribed by anyone.", key);
                     }
                 }
             });
@@ -83,50 +81,48 @@ pub(self) mod __private {
         }
 
         pub fn register(&self, subscriber: Arc<Box<dyn Subscriber>>) {
-            let lock = self.subscribers.write();
-            if let Err(error) = lock {
-                error!("register failed, cannot get lock! {:?}", error);
-                return;
-            }
-            let mut lock_guard = lock.unwrap();
+            let subscribers = self.subscribers.clone();
+            let subscriber = subscriber.clone();
+            executor::spawn(async move {
+                let mut lock_guard = subscribers.write().await;
 
-            let key = subscriber.event_type();
+                let key = subscriber.event_type();
 
-            let vec = lock_guard.get_mut(&key);
-            if let Some(vec) = vec {
-                vec.push(subscriber);
-            } else {
-                let vec = vec![subscriber];
-                lock_guard.insert(key, vec);
-            }
+                let vec = lock_guard.get_mut(&key);
+                if let Some(vec) = vec {
+                    vec.push(subscriber);
+                } else {
+                    let vec = vec![subscriber];
+                    lock_guard.insert(key, vec);
+                }
+            });
         }
 
         pub fn unregister(&self, subscriber: Arc<Box<dyn Subscriber>>) {
-            let lock = self.subscribers.write();
-            if let Err(error) = lock {
-                error!("unregister failed, cannot get lock! {:?}", error);
-                return;
-            }
-            let mut lock_guard = lock.unwrap();
+            let subscribers = self.subscribers.clone();
+            let subscriber = subscriber.clone();
 
-            let key = subscriber.event_type();
+            executor::spawn(async move {
+                let mut lock_guard = subscribers.write().await;
 
-            let vec = lock_guard.get_mut(&key);
+                let key = subscriber.event_type();
 
-            if vec.is_none() {
-                return;
-            }
+                let vec = lock_guard.get_mut(&key);
 
-            let vec = vec.unwrap();
+                if vec.is_none() {
+                    return;
+                }
 
-            let index = self.index_of_subscriber(vec, &subscriber);
-            if let Some(index) = index {
-                vec.remove(index);
-            }
+                let vec = vec.unwrap();
+
+                let index = Self::index_of_subscriber(vec, &subscriber);
+                if let Some(index) = index {
+                    vec.remove(index);
+                }
+            });
         }
 
         fn index_of_subscriber(
-            &self,
             vec: &[Arc<Box<dyn Subscriber>>],
             target: &Arc<Box<dyn Subscriber>>,
         ) -> Option<usize> {
@@ -158,7 +154,7 @@ mod tests {
     use core::time;
     use std::{any::Any, sync::Arc, thread};
 
-    use crate::api::events::{NacosEvent, NacosEventSubscriber, Subscriber};
+    use crate::api::events::{HandEventFuture, NacosEvent, NacosEventSubscriber, Subscriber};
 
     #[derive(Clone, Debug)]
     pub(crate) struct NamingChangeEvent {
@@ -177,8 +173,9 @@ mod tests {
     impl NacosEventSubscriber for NamingChangeSubscriber {
         type EventType = NamingChangeEvent;
 
-        fn on_event(&self, event: &Self::EventType) {
+        fn on_event(&self, event: &Self::EventType) -> Option<HandEventFuture> {
             println!("it has already received an event. {:?}", event);
+            None
         }
     }
 

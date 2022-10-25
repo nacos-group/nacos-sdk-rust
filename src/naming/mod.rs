@@ -17,7 +17,6 @@ use crate::api::naming::{AsyncFuture, NamingService, ServiceInstance};
 use crate::api::props::ClientProps;
 
 use crate::common::event_bus;
-use crate::common::executor;
 use crate::naming::grpc::message::request::BatchInstanceRequest;
 use crate::naming::grpc::message::request::InstanceRequest;
 use crate::naming::grpc::message::request::ServiceListRequest;
@@ -32,7 +31,6 @@ use crate::naming::grpc::{GrpcService, GrpcServiceBuilder};
 use self::chooser::RandomWeightChooser;
 use self::grpc::message::request::SubscribeServiceRequest;
 use self::grpc::message::response::SubscribeServiceResponse;
-use self::grpc::message::GrpcMessageBuilder;
 use self::grpc::message::GrpcRequestMessage;
 use self::grpc::message::GrpcResponseMessage;
 
@@ -85,6 +83,7 @@ impl NacosNamingService {
         let grpc_service = GrpcServiceBuilder::new()
             .address(client_props.server_addr)
             .namespace(namespace.clone())
+            .app_name(app_name.clone())
             .client_version(client_props.client_version)
             .support_remote_connection(true)
             .support_remote_metrics(true)
@@ -100,7 +99,7 @@ impl NacosNamingService {
             )
             .add_labels(client_props.labels)
             .build();
-        let grpc_service = Arc::new(grpc_service);
+
         NacosNamingService {
             grpc_service,
             namespace,
@@ -110,25 +109,15 @@ impl NacosNamingService {
 
     fn request_to_server<R, P>(
         &self,
-        mut request: R,
+        request: R,
     ) -> Box<dyn Future<Output = Result<P>> + Send + Unpin + 'static>
     where
         R: GrpcRequestMessage + 'static,
         P: GrpcResponseMessage + 'static,
     {
-        let request_headers = request.take_headers();
         let grpc_service = self.grpc_service.clone();
 
-        let grpc_message = GrpcMessageBuilder::new(request)
-            .header(self::constants::APP_FILED.to_owned(), self.app_name.clone())
-            .headers(request_headers)
-            .build();
-
-        let task = async move {
-            let ret = grpc_service.unary_call_async::<R, P>(grpc_message).await?;
-            let body = ret.into_body();
-            Ok(body)
-        };
+        let task = async move { grpc_service.unary_call_async::<R, P>(request).await };
 
         Box::new(Box::pin(task))
     }
@@ -246,7 +235,7 @@ impl NamingService for NacosNamingService {
         service_instance: ServiceInstance,
     ) -> Result<()> {
         let future = self.register_service_async(service_name, group_name, service_instance);
-        executor::block_on(future)
+        futures::executor::block_on(future)
     }
 
     fn register_service_async(
@@ -289,7 +278,7 @@ impl NamingService for NacosNamingService {
         service_instance: ServiceInstance,
     ) -> Result<()> {
         let future = self.deregister_instance_async(service_name, group_name, service_instance);
-        executor::block_on(future)
+        futures::executor::block_on(future)
     }
 
     fn deregister_instance_async(
@@ -333,7 +322,7 @@ impl NamingService for NacosNamingService {
     ) -> Result<()> {
         let future =
             self.batch_register_instance_async(service_name, group_name, service_instances);
-        executor::block_on(future)
+        futures::executor::block_on(future)
     }
 
     fn batch_register_instance_async(
@@ -377,7 +366,7 @@ impl NamingService for NacosNamingService {
         subscribe: bool,
     ) -> Result<Vec<ServiceInstance>> {
         let future = self.get_all_instances_async(service_name, group_name, clusters, subscribe);
-        executor::block_on(future)
+        futures::executor::block_on(future)
     }
 
     fn get_all_instances_async(
@@ -424,7 +413,10 @@ impl NamingService for NacosNamingService {
 
             let service_info = response.service_info;
             let instances = service_info.hosts;
-            Ok(instances)
+            if instances.is_none() {
+                return Ok(Vec::default());
+            }
+            Ok(instances.unwrap())
         }))
     }
 
@@ -438,7 +430,7 @@ impl NamingService for NacosNamingService {
     ) -> Result<Vec<ServiceInstance>> {
         let future =
             self.select_instance_async(service_name, group_name, clusters, subscribe, healthy);
-        executor::block_on(future)
+        futures::executor::block_on(future)
     }
 
     fn select_instance_async(
@@ -473,7 +465,7 @@ impl NamingService for NacosNamingService {
     ) -> Result<ServiceInstance> {
         let future =
             self.select_one_healthy_instance_async(service_name, group_name, clusters, subscribe);
-        executor::block_on(future)
+        futures::executor::block_on(future)
     }
 
     fn select_one_healthy_instance_async(
@@ -506,7 +498,7 @@ impl NamingService for NacosNamingService {
         group_name: Option<String>,
     ) -> Result<(Vec<String>, i32)> {
         let future = self.get_service_list_async(page_no, page_size, group_name);
-        executor::block_on(future)
+        futures::executor::block_on(future)
     }
 
     fn get_service_list_async(
@@ -557,7 +549,7 @@ impl NamingService for NacosNamingService {
         subscriber: Arc<Box<dyn Subscriber>>,
     ) -> Result<()> {
         let future = self.subscribe_async(service_name, group_name, clusters, subscriber);
-        executor::block_on(future)
+        futures::executor::block_on(future)
     }
 
     fn subscribe_async(
@@ -578,7 +570,7 @@ impl NamingService for NacosNamingService {
         subscriber: Arc<Box<dyn Subscriber>>,
     ) -> Result<()> {
         let future = self.unsubscribe_async(service_name, group_name, clusters, subscriber);
-        executor::block_on(future)
+        futures::executor::block_on(future)
     }
 
     fn unsubscribe_async(
@@ -600,7 +592,7 @@ pub(crate) mod tests {
 
     use tracing::info;
 
-    use crate::api::events::{naming::InstancesChangeEvent, NacosEventSubscriber};
+    use crate::api::events::{naming::InstancesChangeEvent, HandEventFuture, NacosEventSubscriber};
 
     use super::*;
 
@@ -989,8 +981,9 @@ pub(crate) mod tests {
     impl NacosEventSubscriber for InstancesChangeEventSubscriber {
         type EventType = InstancesChangeEvent;
 
-        fn on_event(&self, event: &Self::EventType) {
+        fn on_event(&self, event: &Self::EventType) -> Option<HandEventFuture> {
             println!("subscriber notify: {:?}", event);
+            None
         }
     }
 

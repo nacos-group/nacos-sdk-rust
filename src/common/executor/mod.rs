@@ -25,14 +25,6 @@ where
     RT.spawn(future)
 }
 
-pub(crate) fn block_on<F>(future: F) -> F::Output
-where
-    F: Future + Send + 'static,
-    F::Output: Send + 'static,
-{
-    RT.block_on(future)
-}
-
 pub(crate) fn schedule<F>(future: F, delay: Duration) -> JoinHandle<F::Output>
 where
     F: Future + Send + 'static,
