@@ -4,7 +4,7 @@ use std::thread::sleep;
 use std::time::Duration;
 
 use tokio::sync::RwLock;
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 
 use crate::common::{event_bus, executor};
 use crate::nacos_proto::v2::Payload;
@@ -41,20 +41,21 @@ pub struct ServerSetUP {
 }
 
 impl GrpcService {
-    pub async fn new(address: String, app_name: String) -> Self {
-        let grpc_client = RwLock::new(GrpcClient::new(address.as_str()).await);
+    pub async fn new(address: String, app_name: String) -> Result<Self> {
+        let grpc_client = GrpcClient::new(address.as_str()).await?;
+        let grpc_client = RwLock::new(grpc_client);
 
         let bi_handler_map = Arc::new(RwLock::new(HashMap::new()));
 
-        GrpcService {
+        Ok(GrpcService {
             grpc_client,
             connection_id: Arc::new(RwLock::new("".to_string())),
             bi_handler_map,
             app_name,
-        }
+        })
     }
 
-    pub async fn switch_server(&self, server_address: String, set_up: ServerSetUP) {
+    pub async fn switch_server(&self, server_address: String, set_up: ServerSetUP) -> Result<()> {
         // switch server
         info!("switch server starting");
         {
@@ -62,12 +63,13 @@ impl GrpcService {
             old_grpc_client.shutdown().await;
 
             info!("create a new grpc client.");
-            let new_client = GrpcClient::new(server_address.as_str()).await;
+            let new_client = GrpcClient::new(server_address.as_str()).await?;
             *old_grpc_client = new_client;
         }
         info!("init new grpc client.");
 
         self.init(set_up).await;
+        Ok(())
     }
 
     pub async fn init(&self, set_up: ServerSetUP) {
@@ -123,7 +125,10 @@ impl GrpcService {
         executor::spawn(async move {
             while let Some(payload) = response_receiver.recv().await {
                 if let Err(e) = payload {
-                    error!("receive an error message, close channel. {:?}", e);
+                    warn!(
+                        "receive an error message, close the bi receive channel. {:?}",
+                        e
+                    );
                     response_receiver.close();
                     while (response_receiver.recv().await).is_some() {}
                     break;
@@ -137,8 +142,8 @@ impl GrpcService {
                 let metadata = metadata.unwrap();
                 let type_url = &metadata.r#type;
 
-                info!(
-                    "receive push message from the server side, message type :{:?}",
+                debug!(
+                    "receive message from the server side, message type :{:?}",
                     type_url
                 );
                 let read = handler_map.read().await;
@@ -309,9 +314,9 @@ impl GrpcServiceBuilder {
         self
     }
 
-    pub(crate) fn build(self) -> Arc<GrpcService> {
+    pub(crate) fn build(self) -> Result<Arc<GrpcService>> {
         futures::executor::block_on(async move {
-            let grpc_service = GrpcService::new(self.address, self.app_name).await;
+            let grpc_service = GrpcService::new(self.address, self.app_name).await?;
             grpc_service
                 .register_bi_call_handler::<NotifySubscriberRequest>(Box::new(
                     NamingPushRequestHandler {
@@ -338,7 +343,7 @@ impl GrpcServiceBuilder {
 
             event_bus::register(Arc::new(Box::new(reconnect_subscriber)));
             event_bus::register(Arc::new(Box::new(health_check_subscriber)));
-            grpc_service
+            Ok(grpc_service)
         })
     }
 }
@@ -375,7 +380,7 @@ mod tests {
 
     #[test]
     #[ignore]
-    pub fn test_grpc_server_switch() {
+    pub fn test_grpc_server_switch() -> Result<()> {
         tracing_subscriber::fmt()
             .with_thread_names(true)
             .with_max_level(Level::DEBUG)
@@ -387,7 +392,7 @@ mod tests {
 
         let grpc_service = GrpcServiceBuilder::new()
             .address("127.0.0.1:7548".to_string())
-            .build();
+            .build()?;
 
         let ten_millis = time::Duration::from_secs(15);
         thread::sleep(ten_millis);
@@ -401,6 +406,7 @@ mod tests {
 
         let ten_millis = time::Duration::from_secs(40);
         thread::sleep(ten_millis);
+        Ok(())
     }
 
     fn create_server_set_up() -> ServerSetUP {

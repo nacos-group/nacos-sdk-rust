@@ -34,7 +34,7 @@ pub struct GrpcClient {
 }
 
 impl GrpcClient {
-    pub async fn new(address: &str) -> Self {
+    pub async fn new(address: &str) -> Result<Self> {
         info!("init grpc client: {}", address);
         let env = Arc::new(Environment::new(2));
         let grpc_channel = ChannelBuilder::new(env)
@@ -44,7 +44,7 @@ impl GrpcClient {
         let deadline = Duration::from_secs(3);
         let is_connect = grpc_channel.wait_for_connected(deadline).await;
         if !is_connect {
-            panic!("can't connect target server, please check network or the server address if it's wrong.")
+            return Err(ClientUnhealthy("can't connect target server, please check network or the server address if it's wrong.".to_string()));
         }
 
         let request_client = RequestClient::new(grpc_channel.clone());
@@ -63,7 +63,7 @@ impl GrpcClient {
         };
 
         client.health_check(grpc_channel);
-        client
+        Ok(client)
     }
 
     pub async fn shutdown(&mut self) {
@@ -87,14 +87,14 @@ impl GrpcClient {
         {
             let payload = request_receiver.recv().await;
             if payload.is_none() {
-                error!("streaming_send_task receive an empty grpc message");
+                warn!("streaming_send_task bi request channel is closed!");
                 break;
             }
 
             let payload = payload.unwrap();
 
             if let Err(e) = payload {
-                error!("receive an error message, close channel. {:?}", e);
+                warn!("streaming_send_task receive an error request message, close bi request channel. {:?}", e);
                 request_receiver.close();
                 while (request_receiver.recv().await).is_some() {}
                 break;
@@ -107,11 +107,11 @@ impl GrpcClient {
             }
         }
 
-        error!("client state is not healthy, close channel");
+        error!("client state is not healthy, close bi request channel");
         request_receiver.close();
         while (request_receiver.recv().await).is_some() {}
 
-        warn!("streaming_send_task quit");
+        warn!("streaming_send_task  quit");
     }
 
     async fn streaming_receive_task(
@@ -125,7 +125,7 @@ impl GrpcClient {
             let payload = request_receiver.try_next().await;
             if let Err(e) = payload {
                 error!(
-                    "streaming_receive_task receive grpc message occur an error. {:?}",
+                    "streaming_receive_task received grpc message from the server side occur an error. {:?}",
                     e
                 );
                 break;
@@ -133,7 +133,7 @@ impl GrpcClient {
 
             let payload = payload.unwrap();
             if payload.is_none() {
-                error!("streaming_receive_task receive an empty grpc message");
+                error!("streaming_receive_task grpc server channel is closed");
                 break;
             }
 
@@ -141,7 +141,10 @@ impl GrpcClient {
 
             let send_ret = response_sender.send(Ok(payload)).await;
             if let Err(error) = send_ret {
-                error!("send grpc message occur an error. {:?}", error);
+                error!(
+                    "sending grpc message to request bi channel occur an error. {:?}",
+                    error
+                );
             }
         }
         warn!("streaming_receive_task quit");
