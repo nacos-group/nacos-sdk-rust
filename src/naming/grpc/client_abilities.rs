@@ -25,15 +25,15 @@ impl ClientAbilities {
         self.remote_ability.support_remote_connection(enable);
     }
 
-    pub(crate) fn support_remote_metrics(&mut self, enable: bool) {
+    pub(crate) fn support_config_remote_metrics(&mut self, enable: bool) {
         self.config_ability.support_remote_metrics(enable);
     }
 
-    pub(crate) fn support_delta_push(&mut self, enable: bool) {
+    pub(crate) fn support_naming_delta_push(&mut self, enable: bool) {
         self.naming_ability.support_delta_push(enable);
     }
 
-    pub(crate) fn support_remote_metric(&mut self, enable: bool) {
+    pub(crate) fn support_naming_remote_metric(&mut self, enable: bool) {
         self.naming_ability.support_remote_metric(enable);
     }
 }
@@ -96,6 +96,6 @@ impl ClientNamingAbility {
     }
 
     fn support_remote_metric(&mut self, enable: bool) {
-        self.support_delta_push = enable;
+        self.support_remote_metric = enable;
     }
 }

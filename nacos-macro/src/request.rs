@@ -86,8 +86,11 @@ pub(crate) fn grpc_request(
         #[serde(rename_all = "camelCase")]
     ));
 
-    // naming request
-    naming_request(&mut item_struct);
+    match macro_args.module {
+        crate::Module::Naming => naming_request(&mut item_struct),
+        crate::Module::Config => config_request(&mut item_struct),
+        _ => {}
+    }
 
     quote! {
         #item_struct
@@ -96,6 +99,7 @@ pub(crate) fn grpc_request(
     }
 }
 
+/// Naming request fields
 fn naming_request(item_struct: &mut ItemStruct) {
     // add fields
     if let syn::Fields::Named(ref mut fields) = item_struct.fields {
@@ -119,5 +123,33 @@ fn naming_request(item_struct: &mut ItemStruct) {
         fields.named.push(namespace_field);
         fields.named.push(service_name_field);
         fields.named.push(group_name_field);
+    }
+}
+
+/// Config request fields
+fn config_request(item_struct: &mut ItemStruct) {
+    // add fields
+    if let syn::Fields::Named(ref mut fields) = item_struct.fields {
+        let namespace_field = syn::Field::parse_named
+            .parse2(quote! {
+                #[serde(rename = "tenant")]
+                pub namespace: Option<String>
+            })
+            .unwrap();
+        let data_id_field = syn::Field::parse_named
+            .parse2(quote! {
+                pub data_id: Option<String>
+            })
+            .unwrap();
+
+        let group_field = syn::Field::parse_named
+            .parse2(quote! {
+                pub group: Option<String>
+            })
+            .unwrap();
+
+        fields.named.push(namespace_field);
+        fields.named.push(data_id_field);
+        fields.named.push(group_field);
     }
 }

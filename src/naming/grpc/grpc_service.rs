@@ -187,11 +187,10 @@ impl GrpcService {
 
     pub async fn setup(&self, set_up: ServerSetUP) {
         info!("set up");
-        let namespace = Some(set_up.namespace);
         let setup_request = ConnectionSetupRequest {
             client_version: set_up.client_version,
             abilities: set_up.abilities,
-            namespace,
+            tenant: set_up.namespace,
             labels: set_up.labels,
             ..Default::default()
         };
@@ -294,18 +293,18 @@ impl GrpcServiceBuilder {
         self
     }
 
-    pub(crate) fn support_remote_metrics(mut self, enable: bool) -> Self {
-        self.abilities.support_remote_metrics(enable);
+    pub(crate) fn support_config_remote_metrics(mut self, enable: bool) -> Self {
+        self.abilities.support_config_remote_metrics(enable);
         self
     }
 
-    pub(crate) fn support_delta_push(mut self, enable: bool) -> Self {
-        self.abilities.support_delta_push(enable);
+    pub(crate) fn support_naming_delta_push(mut self, enable: bool) -> Self {
+        self.abilities.support_naming_delta_push(enable);
         self
     }
 
-    pub(crate) fn support_remote_metric(mut self, enable: bool) -> Self {
-        self.abilities.support_remote_metric(enable);
+    pub(crate) fn support_naming_remote_metric(mut self, enable: bool) -> Self {
+        self.abilities.support_naming_remote_metric(enable);
         self
     }
 
