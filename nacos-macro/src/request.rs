@@ -130,9 +130,10 @@ fn naming_request(item_struct: &mut ItemStruct) {
 fn config_request(item_struct: &mut ItemStruct) {
     // add fields
     if let syn::Fields::Named(ref mut fields) = item_struct.fields {
-        let tenant_field = syn::Field::parse_named
+        let namespace_field = syn::Field::parse_named
             .parse2(quote! {
-                pub tenant: Option<String>
+                #[serde(rename = "tenant")]
+                pub namespace: Option<String>
             })
             .unwrap();
         let data_id_field = syn::Field::parse_named
@@ -147,7 +148,7 @@ fn config_request(item_struct: &mut ItemStruct) {
             })
             .unwrap();
 
-        fields.named.push(tenant_field);
+        fields.named.push(namespace_field);
         fields.named.push(data_id_field);
         fields.named.push(group_field);
     }
