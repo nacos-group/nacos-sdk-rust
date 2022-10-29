@@ -86,9 +86,9 @@ impl NacosNamingService {
             .app_name(app_name.clone())
             .client_version(client_props.client_version)
             .support_remote_connection(true)
-            .support_remote_metrics(true)
-            .support_delta_push(false)
-            .support_remote_metric(false)
+            .support_config_remote_metrics(true)
+            .support_naming_delta_push(false)
+            .support_naming_remote_metric(false)
             .add_label(
                 self::constants::LABEL_SOURCE.to_owned(),
                 self::constants::LABEL_SOURCE_SDK.to_owned(),
