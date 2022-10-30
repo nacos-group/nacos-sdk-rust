@@ -5,6 +5,7 @@ use std::{
 
 use crate::api::error::Result;
 use futures::Future;
+use tracing::warn;
 pub mod naming;
 
 pub type HandEventFuture = Box<dyn Future<Output = Result<()>> + Send + Unpin + 'static>;
@@ -14,10 +15,12 @@ pub trait NacosEvent: Any + Send + Sync + 'static {
     }
 
     fn as_any(&self) -> &dyn Any;
+
+    fn event_identity(&self) -> String;
 }
 
 pub trait Subscriber: Send + Sync + 'static {
-    fn on_event(&self, event: Arc<Box<dyn NacosEvent>>) -> Option<HandEventFuture>;
+    fn on_event(&self, event: Arc<Box<dyn NacosEvent>>);
 
     fn event_type(&self) -> TypeId;
 
@@ -25,8 +28,14 @@ pub trait Subscriber: Send + Sync + 'static {
 }
 
 impl<T: NacosEventSubscriber> Subscriber for T {
-    fn on_event(&self, event: Arc<Box<dyn NacosEvent>>) -> Option<HandEventFuture> {
-        let event = event.as_any().downcast_ref::<T::EventType>()?;
+    fn on_event(&self, event: Arc<Box<dyn NacosEvent>>) {
+        let event_identity = event.event_identity();
+        let event = event.as_any().downcast_ref::<T::EventType>();
+        if event.is_none() {
+            warn!("event {} cannot cast target object", event_identity);
+            return;
+        }
+        let event = event.unwrap();
         self.on_event(event)
     }
 
@@ -42,5 +51,5 @@ impl<T: NacosEventSubscriber> Subscriber for T {
 pub trait NacosEventSubscriber: Send + Sync + 'static {
     type EventType;
 
-    fn on_event(&self, event: &Self::EventType) -> Option<HandEventFuture>;
+    fn on_event(&self, event: &Self::EventType);
 }

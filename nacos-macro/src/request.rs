@@ -17,7 +17,7 @@ pub(crate) fn grpc_request(
 
     // add derive GrpcMessageData
     let grpc_message_body = quote! {
-        impl crate::naming::grpc::message::GrpcMessageData for #name {
+        impl crate::common::remote::grpc::message::GrpcMessageData for #name {
             fn identity<'a>() -> std::borrow::Cow<'a, str> {
                 #identity.into()
             }
@@ -27,7 +27,7 @@ pub(crate) fn grpc_request(
     // add derive GrpcRequestMessage
     let grpc_message_request = quote! {
 
-        impl crate::naming::grpc::message::GrpcRequestMessage for #name {
+        impl crate::common::remote::grpc::message::GrpcRequestMessage for #name {
 
             fn header(&self, key: &str) -> Option<&String>{
                 self.headers.get(key)

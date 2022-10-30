@@ -17,27 +17,30 @@ use crate::api::naming::{AsyncFuture, NamingService, ServiceInstance};
 use crate::api::props::ClientProps;
 
 use crate::common::event_bus;
-use crate::naming::grpc::message::request::BatchInstanceRequest;
-use crate::naming::grpc::message::request::InstanceRequest;
-use crate::naming::grpc::message::request::ServiceListRequest;
-use crate::naming::grpc::message::request::ServiceQueryRequest;
-use crate::naming::grpc::message::response::BatchInstanceResponse;
-use crate::naming::grpc::message::response::InstanceResponse;
-use crate::naming::grpc::message::response::QueryServiceResponse;
-use crate::naming::grpc::message::response::ServiceListResponse;
-
-use crate::naming::grpc::{GrpcService, GrpcServiceBuilder};
+use crate::common::remote::grpc::message::GrpcRequestMessage;
+use crate::common::remote::grpc::message::GrpcResponseMessage;
+use crate::common::remote::grpc::NacosGrpcClient;
+use crate::common::remote::grpc::NacosGrpcClientBuilder;
+use crate::naming::message::request::BatchInstanceRequest;
+use crate::naming::message::request::InstanceRequest;
+use crate::naming::message::request::ServiceListRequest;
+use crate::naming::message::request::ServiceQueryRequest;
+use crate::naming::message::response::BatchInstanceResponse;
+use crate::naming::message::response::InstanceResponse;
+use crate::naming::message::response::QueryServiceResponse;
+use crate::naming::message::response::ServiceListResponse;
 
 use self::chooser::RandomWeightChooser;
-use self::grpc::message::request::SubscribeServiceRequest;
-use self::grpc::message::response::SubscribeServiceResponse;
-use self::grpc::message::GrpcRequestMessage;
-use self::grpc::message::GrpcResponseMessage;
+use self::handler::NamingPushRequestHandler;
+use self::message::request::NotifySubscriberRequest;
+use self::message::request::SubscribeServiceRequest;
+use self::message::response::SubscribeServiceResponse;
 
 mod cache;
 mod chooser;
 mod dto;
-mod grpc;
+mod handler;
+mod message;
 
 pub(self) mod constants {
 
@@ -53,8 +56,6 @@ pub(self) mod constants {
 
     pub const DEFAULT_NAMESPACE: &str = "public";
 
-    pub const APP_FILED: &str = "app";
-
     pub const DEFAULT_APP_NAME: &str = "unknown";
 
     pub mod request {
@@ -65,9 +66,8 @@ pub(self) mod constants {
 }
 
 pub(crate) struct NacosNamingService {
-    grpc_service: Arc<GrpcService>,
+    nacos_grpc_client: Arc<NacosGrpcClient>,
     namespace: String,
-    app_name: String,
 }
 
 impl NacosNamingService {
@@ -80,10 +80,10 @@ impl NacosNamingService {
             namespace = self::constants::DEFAULT_NAMESPACE.to_owned();
         }
 
-        let grpc_service = GrpcServiceBuilder::new()
+        let nacos_grpc_client = NacosGrpcClientBuilder::new()
             .address(client_props.server_addr)
             .namespace(namespace.clone())
-            .app_name(app_name.clone())
+            .app_name(app_name)
             .client_version(client_props.client_version)
             .support_remote_connection(true)
             .support_config_remote_metrics(true)
@@ -98,12 +98,16 @@ impl NacosNamingService {
                 self::constants::LABEL_MODULE_NAMING.to_owned(),
             )
             .add_labels(client_props.labels)
+            .register_bi_call_handler::<NotifySubscriberRequest>(Box::new(
+                NamingPushRequestHandler {
+                    event_scope: namespace.clone(),
+                },
+            ))
             .build()?;
 
         Ok(NacosNamingService {
-            grpc_service,
+            nacos_grpc_client,
             namespace,
-            app_name,
         })
     }
 
@@ -115,9 +119,9 @@ impl NacosNamingService {
         R: GrpcRequestMessage + 'static,
         P: GrpcResponseMessage + 'static,
     {
-        let grpc_service = self.grpc_service.clone();
+        let nacos_grpc_client = self.nacos_grpc_client.clone();
 
-        let task = async move { grpc_service.unary_call_async::<R, P>(request).await };
+        let task = async move { nacos_grpc_client.unary_call_async::<R, P>(request).await };
 
         Box::new(Box::pin(task))
     }
@@ -592,7 +596,7 @@ pub(crate) mod tests {
 
     use tracing::info;
 
-    use crate::api::events::{naming::InstancesChangeEvent, HandEventFuture, NacosEventSubscriber};
+    use crate::api::events::{naming::InstancesChangeEvent, NacosEventSubscriber};
 
     use super::*;
 
@@ -854,7 +858,6 @@ pub(crate) mod tests {
         info!("response. {:?}", all_instances);
 
         thread::sleep(ten_millis);
-
         Ok(())
     }
 
@@ -980,7 +983,6 @@ pub(crate) mod tests {
 
             thread::sleep(ten_millis);
         });
-
         Ok(())
     }
 
@@ -990,9 +992,8 @@ pub(crate) mod tests {
     impl NacosEventSubscriber for InstancesChangeEventSubscriber {
         type EventType = InstancesChangeEvent;
 
-        fn on_event(&self, event: &Self::EventType) -> Option<HandEventFuture> {
+        fn on_event(&self, event: &Self::EventType) {
             println!("subscriber notify: {:?}", event);
-            None
         }
     }
 
