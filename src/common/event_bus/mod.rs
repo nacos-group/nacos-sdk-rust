@@ -58,12 +58,9 @@ mod __private {
                         for subscriber in subscribers {
                             let event = event.clone();
                             let subscriber = subscriber.clone();
-                            let hand_event_future = subscriber.on_event(event);
-                            if hand_event_future.is_none() {
-                                continue;
-                            }
-                            let hand_event_future = hand_event_future.unwrap();
-                            executor::spawn(hand_event_future);
+                            executor::spawn(async move {
+                                subscriber.on_event(event);
+                            });
                         }
                     } else {
                         warn!("{:?} has not been subscribed by anyone.", key);
@@ -154,7 +151,7 @@ mod tests {
     use core::time;
     use std::{any::Any, sync::Arc, thread};
 
-    use crate::api::events::{HandEventFuture, NacosEvent, NacosEventSubscriber, Subscriber};
+    use crate::api::events::{NacosEvent, NacosEventSubscriber, Subscriber};
 
     #[derive(Clone, Debug)]
     pub(crate) struct NamingChangeEvent {
@@ -165,6 +162,10 @@ mod tests {
         fn as_any(&self) -> &dyn Any {
             self
         }
+
+        fn event_identity(&self) -> String {
+            "NamingChangeEvent".to_string()
+        }
     }
 
     #[derive(Hash, PartialEq)]
@@ -173,9 +174,8 @@ mod tests {
     impl NacosEventSubscriber for NamingChangeSubscriber {
         type EventType = NamingChangeEvent;
 
-        fn on_event(&self, event: &Self::EventType) -> Option<HandEventFuture> {
+        fn on_event(&self, event: &Self::EventType) {
             println!("it has already received an event. {:?}", event);
-            None
         }
     }
 

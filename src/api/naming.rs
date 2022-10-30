@@ -261,11 +261,11 @@ impl NamingServiceBuilder {
         NamingServiceBuilder { client_props }
     }
 
-    pub fn build(self) -> impl NamingService {
+    pub fn build(self) -> Result<impl NamingService> {
         NacosNamingService::new(self.client_props)
     }
 
-    pub async fn build_async(self) -> impl NamingService {
+    pub async fn build_async(self) -> Result<impl NamingService> {
         NacosNamingService::new(self.client_props)
     }
 }

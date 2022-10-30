@@ -17,27 +17,30 @@ use crate::api::naming::{AsyncFuture, NamingService, ServiceInstance};
 use crate::api::props::ClientProps;
 
 use crate::common::event_bus;
-use crate::naming::grpc::message::request::BatchInstanceRequest;
-use crate::naming::grpc::message::request::InstanceRequest;
-use crate::naming::grpc::message::request::ServiceListRequest;
-use crate::naming::grpc::message::request::ServiceQueryRequest;
-use crate::naming::grpc::message::response::BatchInstanceResponse;
-use crate::naming::grpc::message::response::InstanceResponse;
-use crate::naming::grpc::message::response::QueryServiceResponse;
-use crate::naming::grpc::message::response::ServiceListResponse;
-
-use crate::naming::grpc::{GrpcService, GrpcServiceBuilder};
+use crate::common::remote::grpc::message::GrpcRequestMessage;
+use crate::common::remote::grpc::message::GrpcResponseMessage;
+use crate::common::remote::grpc::NacosGrpcClient;
+use crate::common::remote::grpc::NacosGrpcClientBuilder;
+use crate::naming::message::request::BatchInstanceRequest;
+use crate::naming::message::request::InstanceRequest;
+use crate::naming::message::request::ServiceListRequest;
+use crate::naming::message::request::ServiceQueryRequest;
+use crate::naming::message::response::BatchInstanceResponse;
+use crate::naming::message::response::InstanceResponse;
+use crate::naming::message::response::QueryServiceResponse;
+use crate::naming::message::response::ServiceListResponse;
 
 use self::chooser::RandomWeightChooser;
-use self::grpc::message::request::SubscribeServiceRequest;
-use self::grpc::message::response::SubscribeServiceResponse;
-use self::grpc::message::GrpcRequestMessage;
-use self::grpc::message::GrpcResponseMessage;
+use self::handler::NamingPushRequestHandler;
+use self::message::request::NotifySubscriberRequest;
+use self::message::request::SubscribeServiceRequest;
+use self::message::response::SubscribeServiceResponse;
 
 mod cache;
 mod chooser;
 mod dto;
-mod grpc;
+mod handler;
+mod message;
 
 pub(self) mod constants {
 
@@ -53,8 +56,6 @@ pub(self) mod constants {
 
     pub const DEFAULT_NAMESPACE: &str = "public";
 
-    pub const APP_FILED: &str = "app";
-
     pub const DEFAULT_APP_NAME: &str = "unknown";
 
     pub mod request {
@@ -65,13 +66,12 @@ pub(self) mod constants {
 }
 
 pub(crate) struct NacosNamingService {
-    grpc_service: Arc<GrpcService>,
+    nacos_grpc_client: Arc<NacosGrpcClient>,
     namespace: String,
-    app_name: String,
 }
 
 impl NacosNamingService {
-    pub(crate) fn new(client_props: ClientProps) -> Self {
+    pub(crate) fn new(client_props: ClientProps) -> Result<Self> {
         let app_name = client_props
             .app_name
             .unwrap_or_else(|| self::constants::DEFAULT_APP_NAME.to_owned());
@@ -80,10 +80,10 @@ impl NacosNamingService {
             namespace = self::constants::DEFAULT_NAMESPACE.to_owned();
         }
 
-        let grpc_service = GrpcServiceBuilder::new()
+        let nacos_grpc_client = NacosGrpcClientBuilder::new()
             .address(client_props.server_addr)
             .namespace(namespace.clone())
-            .app_name(app_name.clone())
+            .app_name(app_name)
             .client_version(client_props.client_version)
             .support_remote_connection(true)
             .support_remote_metrics(true)
@@ -98,13 +98,17 @@ impl NacosNamingService {
                 self::constants::LABEL_MODULE_NAMING.to_owned(),
             )
             .add_labels(client_props.labels)
-            .build();
+            .register_bi_call_handler::<NotifySubscriberRequest>(Box::new(
+                NamingPushRequestHandler {
+                    event_scope: namespace.clone(),
+                },
+            ))
+            .build()?;
 
-        NacosNamingService {
-            grpc_service,
+        Ok(NacosNamingService {
+            nacos_grpc_client,
             namespace,
-            app_name,
-        }
+        })
     }
 
     fn request_to_server<R, P>(
@@ -115,9 +119,9 @@ impl NacosNamingService {
         R: GrpcRequestMessage + 'static,
         P: GrpcResponseMessage + 'static,
     {
-        let grpc_service = self.grpc_service.clone();
+        let nacos_grpc_client = self.nacos_grpc_client.clone();
 
-        let task = async move { grpc_service.unary_call_async::<R, P>(request).await };
+        let task = async move { nacos_grpc_client.unary_call_async::<R, P>(request).await };
 
         Box::new(Box::pin(task))
     }
@@ -592,20 +596,20 @@ pub(crate) mod tests {
 
     use tracing::info;
 
-    use crate::api::events::{naming::InstancesChangeEvent, HandEventFuture, NacosEventSubscriber};
+    use crate::api::events::{naming::InstancesChangeEvent, NacosEventSubscriber};
 
     use super::*;
 
     #[test]
     #[ignore]
-    fn test_register_service() {
+    fn test_register_service() -> Result<()> {
         let props = ClientProps::new().server_addr("127.0.0.1:9848");
 
         let mut metadata = HashMap::<String, String>::new();
         metadata.insert("netType".to_string(), "external".to_string());
         metadata.insert("version".to_string(), "2.0".to_string());
 
-        let naming_service = NacosNamingService::new(props);
+        let naming_service = NacosNamingService::new(props)?;
         let service_instance = ServiceInstance {
             ip: "127.0.0.1".to_string(),
             port: 9090,
@@ -630,18 +634,19 @@ pub(crate) mod tests {
 
         let ten_millis = time::Duration::from_secs(100);
         thread::sleep(ten_millis);
+        Ok(())
     }
 
     #[test]
     #[ignore]
-    fn test_register_and_deregister_service() {
+    fn test_register_and_deregister_service() -> Result<()> {
         let props = ClientProps::new().server_addr("127.0.0.1:9848");
 
         let mut metadata = HashMap::<String, String>::new();
         metadata.insert("netType".to_string(), "external".to_string());
         metadata.insert("version".to_string(), "2.0".to_string());
 
-        let naming_service = NacosNamingService::new(props);
+        let naming_service = NacosNamingService::new(props)?;
         let service_instance = ServiceInstance {
             ip: "127.0.0.1".to_string(),
             port: 9090,
@@ -676,18 +681,19 @@ pub(crate) mod tests {
 
         let ten_millis = time::Duration::from_secs(10);
         thread::sleep(ten_millis);
+        Ok(())
     }
 
     #[test]
     #[ignore]
-    fn test_batch_register_service() {
+    fn test_batch_register_service() -> Result<()> {
         let props = ClientProps::new().server_addr("127.0.0.1:9848");
 
         let mut metadata = HashMap::<String, String>::new();
         metadata.insert("netType".to_string(), "external".to_string());
         metadata.insert("version".to_string(), "2.0".to_string());
 
-        let naming_service = NacosNamingService::new(props);
+        let naming_service = NacosNamingService::new(props)?;
         let service_instance1 = ServiceInstance {
             ip: "127.0.0.1".to_string(),
             port: 9090,
@@ -727,18 +733,19 @@ pub(crate) mod tests {
 
         let ten_millis = time::Duration::from_secs(10);
         thread::sleep(ten_millis);
+        Ok(())
     }
 
     #[test]
     #[ignore]
-    fn test_batch_register_service_and_query_all_instances() {
+    fn test_batch_register_service_and_query_all_instances() -> Result<()> {
         let props = ClientProps::new().server_addr("127.0.0.1:9848");
 
         let mut metadata = HashMap::<String, String>::new();
         metadata.insert("netType".to_string(), "external".to_string());
         metadata.insert("version".to_string(), "2.0".to_string());
 
-        let naming_service = NacosNamingService::new(props);
+        let naming_service = NacosNamingService::new(props)?;
         let service_instance1 = ServiceInstance {
             ip: "127.0.0.1".to_string(),
             port: 9090,
@@ -788,18 +795,19 @@ pub(crate) mod tests {
         info!("response. {:?}", all_instances);
 
         thread::sleep(ten_millis);
+        Ok(())
     }
 
     #[test]
     #[ignore]
-    fn test_select_instance() {
+    fn test_select_instance() -> Result<()> {
         let props = ClientProps::new().server_addr("127.0.0.1:9848");
 
         let mut metadata = HashMap::<String, String>::new();
         metadata.insert("netType".to_string(), "external".to_string());
         metadata.insert("version".to_string(), "2.0".to_string());
 
-        let naming_service = NacosNamingService::new(props);
+        let naming_service = NacosNamingService::new(props)?;
         let service_instance1 = ServiceInstance {
             ip: "127.0.0.1".to_string(),
             port: 9090,
@@ -850,18 +858,19 @@ pub(crate) mod tests {
         info!("response. {:?}", all_instances);
 
         thread::sleep(ten_millis);
+        Ok(())
     }
 
     #[test]
     #[ignore]
-    fn test_select_one_healthy_instance() {
+    fn test_select_one_healthy_instance() -> Result<()> {
         let props = ClientProps::new().server_addr("127.0.0.1:9848");
 
         let mut metadata = HashMap::<String, String>::new();
         metadata.insert("netType".to_string(), "external".to_string());
         metadata.insert("version".to_string(), "2.0".to_string());
 
-        let naming_service = NacosNamingService::new(props);
+        let naming_service = NacosNamingService::new(props)?;
         let service_instance1 = ServiceInstance {
             ip: "127.0.0.1".to_string(),
             port: 9090,
@@ -915,18 +924,20 @@ pub(crate) mod tests {
 
             thread::sleep(ten_millis);
         });
+
+        Ok(())
     }
 
     #[test]
     #[ignore]
-    fn test_get_service_list() {
+    fn test_get_service_list() -> Result<()> {
         let props = ClientProps::new().server_addr("127.0.0.1:9848");
 
         let mut metadata = HashMap::<String, String>::new();
         metadata.insert("netType".to_string(), "external".to_string());
         metadata.insert("version".to_string(), "2.0".to_string());
 
-        let naming_service = NacosNamingService::new(props);
+        let naming_service = NacosNamingService::new(props)?;
         let service_instance1 = ServiceInstance {
             ip: "127.0.0.1".to_string(),
             port: 9090,
@@ -973,6 +984,7 @@ pub(crate) mod tests {
 
             thread::sleep(ten_millis);
         });
+        Ok(())
     }
 
     #[derive(Hash, PartialEq)]
@@ -981,22 +993,21 @@ pub(crate) mod tests {
     impl NacosEventSubscriber for InstancesChangeEventSubscriber {
         type EventType = InstancesChangeEvent;
 
-        fn on_event(&self, event: &Self::EventType) -> Option<HandEventFuture> {
+        fn on_event(&self, event: &Self::EventType) {
             println!("subscriber notify: {:?}", event);
-            None
         }
     }
 
     #[test]
     #[ignore]
-    fn test_service_push() {
+    fn test_service_push() -> Result<()> {
         let props = ClientProps::new().server_addr("127.0.0.1:9848");
 
         let mut metadata = HashMap::<String, String>::new();
         metadata.insert("netType".to_string(), "external".to_string());
         metadata.insert("version".to_string(), "2.0".to_string());
 
-        let naming_service = NacosNamingService::new(props);
+        let naming_service = NacosNamingService::new(props)?;
         let service_instance1 = ServiceInstance {
             ip: "127.0.0.1".to_string(),
             port: 9090,
@@ -1046,5 +1057,6 @@ pub(crate) mod tests {
 
         let ten_millis = time::Duration::from_secs(30);
         thread::sleep(ten_millis);
+        Ok(())
     }
 }
