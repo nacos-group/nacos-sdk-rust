@@ -203,11 +203,11 @@ impl NacosGrpcClient {
 
     pub(crate) async fn setup(&self, set_up: NacosServerSetUP) -> Result<()> {
         info!("set up");
-        let namespace = Some(set_up.namespace);
+
         let setup_request = ConnectionSetupRequest {
             client_version: set_up.client_version,
             abilities: set_up.abilities,
-            namespace,
+            tenant: set_up.namespace,
             labels: set_up.labels,
             ..Default::default()
         };
@@ -298,15 +298,15 @@ impl NacosClientAbilities {
         self.remote_ability.support_remote_connection(enable);
     }
 
-    pub(crate) fn support_remote_metrics(&mut self, enable: bool) {
+    pub(crate) fn support_config_remote_metrics(&mut self, enable: bool) {
         self.config_ability.support_remote_metrics(enable);
     }
 
-    pub(crate) fn support_delta_push(&mut self, enable: bool) {
+    pub(crate) fn support_naming_delta_push(&mut self, enable: bool) {
         self.naming_ability.support_delta_push(enable);
     }
 
-    pub(crate) fn support_remote_metric(&mut self, enable: bool) {
+    pub(crate) fn support_naming_remote_metric(&mut self, enable: bool) {
         self.naming_ability.support_remote_metric(enable);
     }
 }
@@ -369,7 +369,7 @@ impl NacosClientNamingAbility {
     }
 
     fn support_remote_metric(&mut self, enable: bool) {
-        self.support_delta_push = enable;
+        self.support_remote_metric = enable;
     }
 }
 
@@ -435,18 +435,18 @@ impl NacosGrpcClientBuilder {
         self
     }
 
-    pub(crate) fn support_remote_metrics(mut self, enable: bool) -> Self {
-        self.abilities.support_remote_metrics(enable);
+    pub(crate) fn support_config_remote_metrics(mut self, enable: bool) -> Self {
+        self.abilities.support_config_remote_metrics(enable);
         self
     }
 
-    pub(crate) fn support_delta_push(mut self, enable: bool) -> Self {
-        self.abilities.support_delta_push(enable);
+    pub(crate) fn support_naming_delta_push(mut self, enable: bool) -> Self {
+        self.abilities.support_naming_delta_push(enable);
         self
     }
 
-    pub(crate) fn support_remote_metric(mut self, enable: bool) -> Self {
-        self.abilities.support_remote_metric(enable);
+    pub(crate) fn support_naming_remote_metric(mut self, enable: bool) -> Self {
+        self.abilities.support_naming_remote_metric(enable);
         self
     }
 

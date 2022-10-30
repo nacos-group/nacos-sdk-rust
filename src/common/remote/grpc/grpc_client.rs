@@ -113,7 +113,7 @@ impl GrpcClient {
         request_receiver.close();
         while (request_receiver.recv().await).is_some() {}
 
-        warn!("streaming_send_task quit");
+        warn!("streaming_send_task  quit");
     }
 
     async fn streaming_receive_task(
