@@ -282,7 +282,7 @@ impl ConfigWorker {
                 );
                 let remote_client_clone = self.remote_client.clone();
                 futures::executor::block_on(async move {
-                    let _ = remote_client_clone.unary_call_async::<ConfigBatchListenRequest, ConfigChangeBatchListenResponse>(req);
+                    let _ = remote_client_clone.unary_call_async::<ConfigBatchListenRequest, ConfigChangeBatchListenResponse>(req).await;
                 });
 
                 mutex.insert(group_key.clone(), cache_data);
