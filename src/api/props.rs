@@ -7,7 +7,7 @@ pub struct ClientProps {
     pub(crate) server_addr: String,
     pub(crate) namespace: String,
     /// app_name
-    pub(crate) app_name: Option<String>,
+    pub(crate) app_name: String,
     /// metadata
     pub(crate) labels: HashMap<String, String>,
     // client_version
@@ -25,7 +25,7 @@ impl ClientProps {
             server_addr: String::from(crate::api::constants::DEFAULT_SERVER_ADDR),
             /// public is "", Should define a more meaningful namespace
             namespace: String::from(""),
-            app_name: None,
+            app_name: crate::api::constants::UNKNOWN.to_string(),
             labels: HashMap::default(),
             client_version,
         }
@@ -46,7 +46,7 @@ impl ClientProps {
     /// Sets the app_name.
     pub fn app_name(mut self, app_name: impl Into<String>) -> Self {
         let name = app_name.into();
-        self.app_name = Some(name.clone());
+        self.app_name = name.clone();
         self.labels
             .insert(crate::api::constants::KEY_LABEL_APP_NAME.to_string(), name);
         self

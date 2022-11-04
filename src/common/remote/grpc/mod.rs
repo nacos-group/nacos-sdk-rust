@@ -2,7 +2,7 @@ use std::{collections::HashMap, sync::Arc, thread::sleep, time::Duration};
 
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 
 use crate::common::{
     event_bus, executor,
@@ -463,6 +463,7 @@ impl NacosGrpcClientBuilder {
         T: GrpcMessageData,
     {
         let key = T::identity().to_string();
+        debug!("register_bi_call_handler key={}", key);
         let value = self.bi_call_handlers.get_mut(&key);
         if let Some(vec) = value {
             vec.push(call_handler);

@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use tracing::{error, info};
+use tracing::{debug, error};
 
 use crate::{
     api::events::NacosEventSubscriber,
@@ -22,7 +22,7 @@ impl NacosEventSubscriber for GrpcConnectHealthCheckEventSubscriber {
     type EventType = GrpcConnectHealthCheckEvent;
 
     fn on_event(&self, _: &Self::EventType) {
-        info!("received grpc connection health check event.");
+        debug!("received grpc connection health check event.");
 
         let nacos_grpc_client = self.nacos_grpc_client.clone();
         executor::spawn(async move {

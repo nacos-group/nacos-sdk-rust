@@ -11,7 +11,7 @@ use crate::{
     nacos_proto::v2::{Metadata, Payload},
 };
 use std::fmt::Debug;
-use tracing::{error, info};
+use tracing::{debug, error};
 
 pub(crate) mod request;
 pub(crate) mod response;
@@ -60,7 +60,7 @@ where
     }
 
     pub(crate) fn from_payload(payload: Payload) -> Result<Self> {
-        info!("from payload: {:?}", payload);
+        debug!("from payload: {:?}", payload);
         let meta_data = payload.metadata;
         if meta_data.is_none() {
             return Err(GrpcPayloadMetaDataEmpty);
