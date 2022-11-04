@@ -1,8 +1,6 @@
 mod cache;
-mod client_request;
-mod client_response;
-mod server_request;
-mod server_response;
+mod handler;
+mod message;
 mod util;
 mod worker;
 
@@ -17,14 +15,12 @@ pub(crate) struct NacosConfigService {
 }
 
 impl NacosConfigService {
-    pub fn new(client_props: ClientProps, config_filters: Vec<Box<dyn ConfigFilter>>) -> Self {
-        let client_worker = ConfigWorker::new(client_props, config_filters);
-        Self { client_worker }
-    }
-
-    /// start Once
-    pub(crate) async fn start(&mut self) {
-        self.client_worker.start().await;
+    pub fn new(
+        client_props: ClientProps,
+        config_filters: Vec<Box<dyn ConfigFilter>>,
+    ) -> crate::api::error::Result<Self> {
+        let client_worker = ConfigWorker::new(client_props, config_filters)?;
+        Ok(Self { client_worker })
     }
 }
 

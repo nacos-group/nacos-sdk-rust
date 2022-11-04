@@ -4,7 +4,7 @@ use crate::api::{error, plugin, props};
 ///
 /// # Examples
 ///
-/// ```rust
+/// ```ignore
 ///  let mut config_service = nacos_sdk::api::config::ConfigServiceBuilder::new(
 ///        nacos_sdk::api::props::ClientProps::new()
 ///           .server_addr("0.0.0.0:9848")
@@ -12,8 +12,7 @@ use crate::api::{error, plugin, props};
 ///           .namespace("")
 ///           .app_name("todo-your-app-name"),
 ///   )
-///   .build()//.await
-///   ;
+///   .build()?;
 /// ```
 #[doc(alias("config", "sdk", "api"))]
 pub trait ConfigService {
@@ -183,7 +182,7 @@ pub mod constants {
 ///
 /// # Examples
 ///
-/// ```rust
+/// ```ignore
 ///  let mut config_service = nacos_sdk::api::config::ConfigServiceBuilder::new(
 ///        nacos_sdk::api::props::ClientProps::new()
 ///           .server_addr("0.0.0.0:9848")
@@ -191,8 +190,7 @@ pub mod constants {
 ///           .namespace("")
 ///           .app_name("todo-your-app-name"),
 ///   )
-///   .build()//.await
-///   ;
+///   .build()?;
 /// ```
 #[doc(alias("config", "builder"))]
 pub struct ConfigServiceBuilder {
@@ -241,11 +239,8 @@ impl ConfigServiceBuilder {
     }
 
     /// Builds a new [`ConfigService`].
-    pub async fn build(self) -> impl ConfigService {
-        let mut config_service =
-            crate::config::NacosConfigService::new(self.client_props, self.config_filters);
-        config_service.start().await;
-        config_service
+    pub fn build(self) -> error::Result<impl ConfigService> {
+        crate::config::NacosConfigService::new(self.client_props, self.config_filters)
     }
 }
 
@@ -274,7 +269,7 @@ mod tests {
 
         let (data_id, group) = ("test_api_config_service".to_string(), "TEST".to_string());
 
-        let mut config_service = ConfigServiceBuilder::default().build().await;
+        let mut config_service = ConfigServiceBuilder::default().build().unwrap();
 
         // publish a config
         let publish_resp = config_service
@@ -344,7 +339,7 @@ mod tests {
             .with_max_level(tracing::Level::DEBUG)
             .init();
 
-        let mut config_service = ConfigServiceBuilder::default().build().await;
+        let mut config_service = ConfigServiceBuilder::default().build().unwrap();
 
         // remove a config not exit
         let remove_resp =
@@ -362,7 +357,7 @@ mod tests {
             .with_max_level(tracing::Level::DEBUG)
             .init();
 
-        let mut config_service = ConfigServiceBuilder::default().build().await;
+        let mut config_service = ConfigServiceBuilder::default().build().unwrap();
 
         // publish a config
         let publish_resp = config_service
@@ -384,7 +379,7 @@ mod tests {
             .with_max_level(tracing::Level::DEBUG)
             .init();
 
-        let mut config_service = ConfigServiceBuilder::default().build().await;
+        let mut config_service = ConfigServiceBuilder::default().build().unwrap();
 
         let mut params = HashMap::new();
         params.insert(
@@ -413,7 +408,7 @@ mod tests {
             .with_max_level(tracing::Level::DEBUG)
             .init();
 
-        let mut config_service = ConfigServiceBuilder::default().build().await;
+        let mut config_service = ConfigServiceBuilder::default().build().unwrap();
 
         // publish a config with beta
         let publish_resp = config_service
@@ -436,7 +431,7 @@ mod tests {
             .with_max_level(tracing::Level::DEBUG)
             .init();
 
-        let mut config_service = ConfigServiceBuilder::default().build().await;
+        let mut config_service = ConfigServiceBuilder::default().build().unwrap();
 
         let data_id = "test_api_config_service_publish_config_cas".to_string();
         let group = "TEST".to_string();

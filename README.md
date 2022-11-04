@@ -24,8 +24,7 @@ nacos-sdk = { version = "0.1", features = ["default"] }
             .namespace("")
             .app_name("simple_app"),
     )
-    .build()
-    .await;
+    .build()?;
 
     // example get a config
     let config_resp = config_service.get_config("todo-data-id".to_string(), "todo-group".to_string());
@@ -96,9 +95,11 @@ gRPC 交互的 Payload 和 Metadata 由 `Protocol Buffers` 序列化，具体的
 
 #### Config 配置管理模块
 - [x] 客户端创建 api
+- [x] 发布配置 api 与实现
+- [x] 删除配置 api 与实现
 - [x] 获取配置 api 与实现
 - [x] 监听配置 api 与实现，List-Watch 机制，具备 list 兜底逻辑
-- [ ] 配置 Filter，提供配置解密默认实现；配置获取后，内存缓存，磁盘缓存均是原文，仅返回到用户时经过配置 Filter
+- [x] 配置 Filter，提供配置解密默认实现；配置获取后，内存缓存，磁盘缓存均是原文，仅返回到用户时经过配置 Filter
 
 #### Naming 服务注册模块
 - [ ] 客户端创建 api

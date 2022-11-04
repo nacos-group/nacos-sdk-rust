@@ -20,8 +20,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .namespace("")
             .app_name("simple_app"),
     )
-    .build()
-    .await;
+    .build()?;
     let config_resp =
         config_service.get_config("hongwen.properties".to_string(), "LOVE".to_string());
     match config_resp {

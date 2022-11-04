@@ -56,8 +56,6 @@ pub(self) mod constants {
 
     pub const DEFAULT_NAMESPACE: &str = "public";
 
-    pub const DEFAULT_APP_NAME: &str = "unknown";
-
     pub mod request {
         pub const INSTANCE_REQUEST_REGISTER: &str = "registerInstance";
         pub const DE_REGISTER_INSTANCE: &str = "deregisterInstance";
@@ -72,9 +70,6 @@ pub(crate) struct NacosNamingService {
 
 impl NacosNamingService {
     pub(crate) fn new(client_props: ClientProps) -> Result<Self> {
-        let app_name = client_props
-            .app_name
-            .unwrap_or_else(|| self::constants::DEFAULT_APP_NAME.to_owned());
         let mut namespace = client_props.namespace;
         if namespace.is_empty() {
             namespace = self::constants::DEFAULT_NAMESPACE.to_owned();
@@ -83,7 +78,7 @@ impl NacosNamingService {
         let nacos_grpc_client = NacosGrpcClientBuilder::new()
             .address(client_props.server_addr)
             .namespace(namespace.clone())
-            .app_name(app_name)
+            .app_name(client_props.app_name)
             .client_version(client_props.client_version)
             .support_remote_connection(true)
             .support_config_remote_metrics(true)
