@@ -3,12 +3,9 @@ use std::{
     sync::Arc,
 };
 
-use crate::api::error::Result;
-use futures::Future;
 use tracing::warn;
 pub mod naming;
 
-pub type HandEventFuture = Box<dyn Future<Output = Result<()>> + Send + Unpin + 'static>;
 pub trait NacosEvent: Any + Send + Sync + 'static {
     fn event_type(&self) -> TypeId {
         TypeId::of::<Self>()

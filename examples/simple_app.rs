@@ -26,15 +26,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // ----------  Config  -------------
     let mut config_service = ConfigServiceBuilder::new(client_props.clone()).build()?;
-    let config_resp =
-        config_service.get_config("hongwen.properties".to_string(), "LOVE".to_string());
+    let config_resp = config_service.get_config("todo-data-id".to_string(), "LOVE".to_string());
     match config_resp {
         Ok(config_resp) => tracing::info!("get the config {}", config_resp),
         Err(err) => tracing::error!("get the config {:?}", err),
     }
 
     let _listen = config_service.add_listener(
-        "hongwen.properties".to_string(),
+        "todo-data-id".to_string(),
         "LOVE".to_string(),
         std::sync::Arc::new(SimpleConfigChangeListener {}),
     );
