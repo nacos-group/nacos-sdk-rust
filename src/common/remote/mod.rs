@@ -14,3 +14,10 @@ pub(crate) fn generate_request_id() -> String {
     }
     seq.to_string()
 }
+
+/// make address's port plus 1000
+pub(crate) fn into_grpc_server_addr(address: &str) -> String {
+    let v: Vec<&str> = address.split(':').collect();
+    let port = v.get(1).unwrap().parse::<u32>().unwrap() + 1000;
+    format!("{}:{}", v.first().unwrap(), port)
+}

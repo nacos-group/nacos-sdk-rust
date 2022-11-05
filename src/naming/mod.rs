@@ -598,7 +598,7 @@ pub(crate) mod tests {
     #[test]
     #[ignore]
     fn test_register_service() -> Result<()> {
-        let props = ClientProps::new().server_addr("127.0.0.1:9848");
+        let props = ClientProps::new().server_addr("127.0.0.1:8848");
 
         let mut metadata = HashMap::<String, String>::new();
         metadata.insert("netType".to_string(), "external".to_string());
@@ -635,7 +635,7 @@ pub(crate) mod tests {
     #[test]
     #[ignore]
     fn test_register_and_deregister_service() -> Result<()> {
-        let props = ClientProps::new().server_addr("127.0.0.1:9848");
+        let props = ClientProps::new().server_addr("127.0.0.1:8848");
 
         let mut metadata = HashMap::<String, String>::new();
         metadata.insert("netType".to_string(), "external".to_string());
@@ -682,7 +682,7 @@ pub(crate) mod tests {
     #[test]
     #[ignore]
     fn test_batch_register_service() -> Result<()> {
-        let props = ClientProps::new().server_addr("127.0.0.1:9848");
+        let props = ClientProps::new().server_addr("127.0.0.1:8848");
 
         let mut metadata = HashMap::<String, String>::new();
         metadata.insert("netType".to_string(), "external".to_string());
@@ -734,7 +734,7 @@ pub(crate) mod tests {
     #[test]
     #[ignore]
     fn test_batch_register_service_and_query_all_instances() -> Result<()> {
-        let props = ClientProps::new().server_addr("127.0.0.1:9848");
+        let props = ClientProps::new().server_addr("127.0.0.1:8848");
 
         let mut metadata = HashMap::<String, String>::new();
         metadata.insert("netType".to_string(), "external".to_string());
@@ -796,7 +796,7 @@ pub(crate) mod tests {
     #[test]
     #[ignore]
     fn test_select_instance() -> Result<()> {
-        let props = ClientProps::new().server_addr("127.0.0.1:9848");
+        let props = ClientProps::new().server_addr("127.0.0.1:8848");
 
         let mut metadata = HashMap::<String, String>::new();
         metadata.insert("netType".to_string(), "external".to_string());
@@ -859,7 +859,7 @@ pub(crate) mod tests {
     #[test]
     #[ignore]
     fn test_select_one_healthy_instance() -> Result<()> {
-        let props = ClientProps::new().server_addr("127.0.0.1:9848");
+        let props = ClientProps::new().server_addr("127.0.0.1:8848");
 
         let mut metadata = HashMap::<String, String>::new();
         metadata.insert("netType".to_string(), "external".to_string());
@@ -925,7 +925,7 @@ pub(crate) mod tests {
     #[test]
     #[ignore]
     fn test_get_service_list() -> Result<()> {
-        let props = ClientProps::new().server_addr("127.0.0.1:9848");
+        let props = ClientProps::new().server_addr("127.0.0.1:8848");
 
         let mut metadata = HashMap::<String, String>::new();
         metadata.insert("netType".to_string(), "external".to_string());
@@ -995,7 +995,7 @@ pub(crate) mod tests {
     #[test]
     #[ignore]
     fn test_service_push() -> Result<()> {
-        let props = ClientProps::new().server_addr("127.0.0.1:9848");
+        let props = ClientProps::new().server_addr("127.0.0.1:8848");
 
         let mut metadata = HashMap::<String, String>::new();
         metadata.insert("netType".to_string(), "external".to_string());
