@@ -38,6 +38,7 @@ impl GrpcClient {
         let env = Arc::new(Environment::new(2));
         let grpc_channel = ChannelBuilder::new(env)
             .load_balancing_policy(LbPolicy::PickFirst)
+            .use_local_subchannel_pool(true) // same target-addr build multi sub-channel, independent link, not reused.
             .connect(address);
 
         let deadline = Duration::from_secs(3);
