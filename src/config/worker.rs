@@ -67,6 +67,7 @@ impl ConfigWorker {
             ))
             .build()?;
 
+        // todo Event/Subscriber instead of mpsc Sender/Receiver
         tokio::spawn(Self::notify_change_to_cache_data(
             Arc::clone(&remote_client),
             Arc::clone(&cache_data_map),
@@ -281,7 +282,7 @@ impl ConfigWorker {
                     ),
                 );
                 let remote_client_clone = self.remote_client.clone();
-                futures::executor::block_on(async move {
+                crate::common::executor::spawn(async move {
                     let _ = remote_client_clone.unary_call_async::<ConfigBatchListenRequest, ConfigChangeBatchListenResponse>(req).await;
                 });
 
@@ -340,29 +341,26 @@ impl ConfigWorker {
             if !listen_context_vec.is_empty() {
                 let req =
                     ConfigBatchListenRequest::new(true).config_listen_context(listen_context_vec);
-                let remote_client_clone = remote_client.clone();
-                let notify_change_tx_clone = notify_change_tx.clone();
-                let future = async move {
-                    let resp = remote_client_clone
-                        .unary_call_async::<ConfigBatchListenRequest, ConfigChangeBatchListenResponse>(req)
-                        .await;
-                    if let Ok(resp) = resp {
-                        if resp.is_success() {
-                            if let Some(change_context_vec) = resp.changed_configs {
-                                for context in change_context_vec {
-                                    // notify config change
-                                    let group_key = util::group_key(
-                                        &context.data_id,
-                                        &context.group,
-                                        &context.namespace,
-                                    );
-                                    let _ = notify_change_tx_clone.send(group_key).await;
-                                }
+                let resp = remote_client
+                    .unary_call_async::<ConfigBatchListenRequest, ConfigChangeBatchListenResponse>(
+                        req,
+                    )
+                    .await;
+                if let Ok(resp) = resp {
+                    if resp.is_success() {
+                        if let Some(change_context_vec) = resp.changed_configs {
+                            for context in change_context_vec {
+                                // notify config change
+                                let group_key = util::group_key(
+                                    &context.data_id,
+                                    &context.group,
+                                    &context.namespace,
+                                );
+                                let _ = notify_change_tx.send(group_key).await;
                             }
                         }
                     }
-                };
-                futures::executor::block_on(future);
+                }
             }
             tokio::time::sleep(std::time::Duration::from_secs(60)).await;
         }
