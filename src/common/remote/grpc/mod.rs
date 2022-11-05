@@ -63,7 +63,7 @@ impl NacosGrpcClient {
         set_up: NacosServerSetUP,
     ) -> Result<()> {
         // switch server
-        info!("switch server starting");
+        warn!("switch server starting");
         {
             let mut old_grpc_client = self.grpc_client.write().await;
             old_grpc_client.shutdown().await;
@@ -72,7 +72,7 @@ impl NacosGrpcClient {
             let new_client = GrpcClient::new(server_address.as_str()).await?;
             *old_grpc_client = new_client;
         }
-        info!("init new grpc client.");
+        warn!("init new grpc client.");
 
         self.init(set_up).await
     }
@@ -190,7 +190,7 @@ impl NacosGrpcClient {
     }
 
     pub(crate) async fn check_server(&self) -> Result<ServerCheckResponse> {
-        info!("check server");
+        debug!("check server");
         let request = ServerCheckRequest::default();
         let request = GrpcMessageBuilder::new(request).build();
         let grpc_client = self.grpc_client.read().await;
@@ -202,7 +202,7 @@ impl NacosGrpcClient {
     }
 
     pub(crate) async fn setup(&self, set_up: NacosServerSetUP) -> Result<()> {
-        info!("set up");
+        debug!("set up");
 
         let setup_request = ConnectionSetupRequest {
             client_version: set_up.client_version,
