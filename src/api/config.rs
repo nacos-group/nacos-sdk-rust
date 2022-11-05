@@ -7,7 +7,7 @@ use crate::api::{error, plugin, props};
 /// ```ignore
 ///  let mut config_service = nacos_sdk::api::config::ConfigServiceBuilder::new(
 ///        nacos_sdk::api::props::ClientProps::new()
-///           .server_addr("0.0.0.0:9848")
+///           .server_addr("0.0.0.0:8848")
 ///           // Attention! "public" is "", it is recommended to customize the namespace with clear meaning.
 ///           .namespace("")
 ///           .app_name("todo-your-app-name"),
@@ -185,7 +185,7 @@ pub mod constants {
 /// ```ignore
 ///  let mut config_service = nacos_sdk::api::config::ConfigServiceBuilder::new(
 ///        nacos_sdk::api::props::ClientProps::new()
-///           .server_addr("0.0.0.0:9848")
+///           .server_addr("0.0.0.0:8848")
 ///           // Attention! "public" is "", it is recommended to customize the namespace with clear meaning.
 ///           .namespace("")
 ///           .app_name("todo-your-app-name"),

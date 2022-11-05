@@ -395,12 +395,12 @@ impl NacosGrpcClientBuilder {
         let abilities = NacosClientAbilities::new();
 
         NacosGrpcClientBuilder {
-            address: "localhost:9848".to_string(),
+            address: crate::api::constants::DEFAULT_SERVER_ADDR.to_string(),
             labels,
             abilities,
             client_version: "".to_string(),
             namespace: "".to_string(),
-            app_name: "unknown".to_string(),
+            app_name: crate::api::constants::UNKNOWN.to_string(),
             bi_call_handlers: Default::default(),
         }
     }

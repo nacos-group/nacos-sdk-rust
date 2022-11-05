@@ -19,7 +19,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .init();
 
     let client_props = ClientProps::new()
-        .server_addr("0.0.0.0:9848")
+        .server_addr("0.0.0.0:8848")
         // Attention! "public" is "", it is recommended to customize the namespace with clear meaning.
         .namespace("")
         .app_name("simple_app");

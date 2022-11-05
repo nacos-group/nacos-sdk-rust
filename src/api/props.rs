@@ -3,7 +3,7 @@ use std::collections::HashMap;
 /// Configures settings for Client.
 #[derive(Debug, Clone)]
 pub struct ClientProps {
-    /// server_addr like 127.0.0.1:9848
+    /// server_addr like 127.0.0.1:8848
     pub(crate) server_addr: String,
     pub(crate) namespace: String,
     /// app_name

@@ -34,6 +34,8 @@ pub(crate) struct GrpcClient {
 
 impl GrpcClient {
     pub(crate) async fn new(address: &str) -> Result<Self> {
+        let address = crate::common::remote::into_grpc_server_addr(address);
+        let address = address.as_str();
         info!("init grpc client: {}", address);
         let env = Arc::new(Environment::new(2));
         let grpc_channel = ChannelBuilder::new(env)
