@@ -93,7 +93,7 @@ impl NacosNamingService {
                 self::constants::LABEL_MODULE_NAMING.to_owned(),
             )
             .add_labels(client_props.labels)
-            .register_bi_call_handler::<NotifySubscriberRequest>(Box::new(
+            .register_bi_call_handler::<NotifySubscriberRequest>(Arc::new(
                 NamingPushRequestHandler {
                     event_scope: namespace.clone(),
                 },
@@ -178,7 +178,7 @@ impl NacosNamingService {
         service_name: String,
         group_name: Option<String>,
         clusters: Vec<String>,
-        subscriber: Arc<Box<dyn Subscriber>>,
+        subscriber: Arc<dyn Subscriber>,
         subscribe: bool,
     ) -> AsyncFuture<()> {
         if subscribe {
@@ -545,7 +545,7 @@ impl NamingService for NacosNamingService {
         service_name: String,
         group_name: Option<String>,
         clusters: Vec<String>,
-        subscriber: Arc<Box<dyn Subscriber>>,
+        subscriber: Arc<dyn Subscriber>,
     ) -> Result<()> {
         let future = self.subscribe_async(service_name, group_name, clusters, subscriber);
         futures::executor::block_on(future)
@@ -556,7 +556,7 @@ impl NamingService for NacosNamingService {
         service_name: String,
         group_name: Option<String>,
         clusters: Vec<String>,
-        subscriber: Arc<Box<dyn Subscriber>>,
+        subscriber: Arc<dyn Subscriber>,
     ) -> AsyncFuture<()> {
         self.subscribe_opt(service_name, group_name, clusters, subscriber, true)
     }
@@ -566,7 +566,7 @@ impl NamingService for NacosNamingService {
         service_name: String,
         group_name: Option<String>,
         clusters: Vec<String>,
-        subscriber: Arc<Box<dyn Subscriber>>,
+        subscriber: Arc<dyn Subscriber>,
     ) -> Result<()> {
         let future = self.unsubscribe_async(service_name, group_name, clusters, subscriber);
         futures::executor::block_on(future)
@@ -577,7 +577,7 @@ impl NamingService for NacosNamingService {
         service_name: String,
         group_name: Option<String>,
         clusters: Vec<String>,
-        subscriber: Arc<Box<dyn Subscriber>>,
+        subscriber: Arc<dyn Subscriber>,
     ) -> AsyncFuture<()> {
         self.subscribe_opt(service_name, group_name, clusters, subscriber, false)
     }
@@ -589,7 +589,7 @@ pub(crate) mod tests {
     use core::time;
     use std::{collections::HashMap, thread};
 
-    use tracing::info;
+    use tracing::{info, metadata::LevelFilter};
 
     use crate::api::events::{naming::InstancesChangeEvent, NacosEventSubscriber};
 
@@ -1030,6 +1030,7 @@ pub(crate) mod tests {
             .with_level(true)
             .with_line_number(true)
             .with_thread_ids(true)
+            .with_max_level(LevelFilter::DEBUG)
             .init();
 
         let ret = naming_service.batch_register_instance(
@@ -1039,7 +1040,7 @@ pub(crate) mod tests {
         );
         info!("response. {:?}", ret);
 
-        let subscriber = Arc::new(Box::new(InstancesChangeEventSubscriber) as Box<dyn Subscriber>);
+        let subscriber = Arc::new(InstancesChangeEventSubscriber);
         let ret = naming_service.subscribe(
             "test-service".to_string(),
             Some(constants::DEFAULT_GROUP.to_string()),

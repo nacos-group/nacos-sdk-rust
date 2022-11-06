@@ -17,7 +17,7 @@ pub trait NacosEvent: Any + Send + Sync + 'static {
 }
 
 pub trait Subscriber: Send + Sync + 'static {
-    fn on_event(&self, event: Arc<Box<dyn NacosEvent>>);
+    fn on_event(&self, event: Arc<dyn NacosEvent>);
 
     fn event_type(&self) -> TypeId;
 
@@ -25,7 +25,7 @@ pub trait Subscriber: Send + Sync + 'static {
 }
 
 impl<T: NacosEventSubscriber> Subscriber for T {
-    fn on_event(&self, event: Arc<Box<dyn NacosEvent>>) {
+    fn on_event(&self, event: Arc<dyn NacosEvent>) {
         let event_identity = event.event_identity();
         let event = event.as_any().downcast_ref::<T::EventType>();
         if event.is_none() {

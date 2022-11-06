@@ -21,19 +21,19 @@ mod __private {
         pub static ref EVENT_BUS: EventBus = EventBus::new();
     }
 
-    type SubscribersContainerType = Arc<RwLock<HashMap<TypeId, Vec<Arc<Box<dyn Subscriber>>>>>>;
+    type SubscribersContainerType = Arc<RwLock<HashMap<TypeId, Vec<Arc<dyn Subscriber>>>>>;
 
     pub struct EventBus {
         subscribers: SubscribersContainerType,
-        sender: Arc<Sender<Box<dyn NacosEvent>>>,
+        sender: Arc<Sender<Arc<dyn NacosEvent>>>,
     }
 
     impl EventBus {
         pub fn new() -> Self {
-            let (sender, receiver) = channel::<Box<dyn NacosEvent>>(2048);
+            let (sender, receiver) = channel::<Arc<dyn NacosEvent>>(2048);
 
             let subscribers = Arc::new(RwLock::new(
-                HashMap::<TypeId, Vec<Arc<Box<dyn Subscriber>>>>::new(),
+                HashMap::<TypeId, Vec<Arc<dyn Subscriber>>>::new(),
             ));
             Self::hand_event(receiver, subscribers.clone());
             EventBus {
@@ -43,7 +43,7 @@ mod __private {
         }
 
         fn hand_event(
-            mut receiver: Receiver<Box<dyn NacosEvent>>,
+            mut receiver: Receiver<Arc<dyn NacosEvent>>,
             subscribers: SubscribersContainerType,
         ) {
             executor::spawn(async move {
@@ -54,7 +54,6 @@ mod __private {
                     let subscribers = lock_guard.get(&key);
 
                     if let Some(subscribers) = subscribers {
-                        let event = Arc::new(event);
                         for subscriber in subscribers {
                             let event = event.clone();
                             let subscriber = subscriber.clone();
@@ -69,7 +68,7 @@ mod __private {
             });
         }
 
-        pub fn post(&self, event: Box<dyn NacosEvent>) {
+        pub fn post(&self, event: Arc<dyn NacosEvent>) {
             let sender = self.sender.clone();
 
             executor::spawn(async move {
@@ -77,7 +76,7 @@ mod __private {
             });
         }
 
-        pub fn register(&self, subscriber: Arc<Box<dyn Subscriber>>) {
+        pub fn register(&self, subscriber: Arc<dyn Subscriber>) {
             let subscribers = self.subscribers.clone();
             let subscriber = subscriber.clone();
             executor::spawn(async move {
@@ -95,7 +94,7 @@ mod __private {
             });
         }
 
-        pub fn unregister(&self, subscriber: Arc<Box<dyn Subscriber>>) {
+        pub fn unregister(&self, subscriber: Arc<dyn Subscriber>) {
             let subscribers = self.subscribers.clone();
             let subscriber = subscriber.clone();
 
@@ -120,11 +119,19 @@ mod __private {
         }
 
         fn index_of_subscriber(
-            vec: &[Arc<Box<dyn Subscriber>>],
-            target: &Arc<Box<dyn Subscriber>>,
+            vec: &[Arc<dyn Subscriber>],
+            target: &Arc<dyn Subscriber>,
         ) -> Option<usize> {
             for (index, subscriber) in vec.iter().enumerate() {
-                if Arc::ptr_eq(subscriber, target) {
+                let subscriber_trait_ptr = subscriber.as_ref() as *const dyn Subscriber;
+                let (subscriber_data_ptr, _): (*const u8, *const u8) =
+                    unsafe { std::mem::transmute(subscriber_trait_ptr) };
+
+                let target_trait_ptr = target.as_ref() as *const dyn Subscriber;
+                let (target_data_ptr, _): (*const u8, *const u8) =
+                    unsafe { std::mem::transmute(target_trait_ptr) };
+
+                if subscriber_data_ptr == target_data_ptr {
                     return Some(index);
                 }
             }
@@ -133,15 +140,15 @@ mod __private {
     }
 }
 
-pub fn post(event: Box<dyn NacosEvent>) {
+pub fn post(event: Arc<dyn NacosEvent>) {
     __private::EVENT_BUS.post(event);
 }
 
-pub fn register(subscriber: Arc<Box<dyn Subscriber>>) {
+pub fn register(subscriber: Arc<dyn Subscriber>) {
     __private::EVENT_BUS.register(subscriber);
 }
 
-pub fn unregister(subscriber: Arc<Box<dyn Subscriber>>) {
+pub fn unregister(subscriber: Arc<dyn Subscriber>) {
     __private::EVENT_BUS.unregister(subscriber);
 }
 
@@ -151,7 +158,7 @@ mod tests {
     use core::time;
     use std::{any::Any, sync::Arc, thread};
 
-    use crate::api::events::{NacosEvent, NacosEventSubscriber, Subscriber};
+    use crate::api::events::{NacosEvent, NacosEventSubscriber};
 
     #[derive(Clone, Debug)]
     pub(crate) struct NamingChangeEvent {
@@ -185,11 +192,11 @@ mod tests {
             message: "test".to_owned(),
         };
 
-        let subscriber = Arc::new(Box::new(NamingChangeSubscriber) as Box<dyn Subscriber>);
+        let subscriber = Arc::new(NamingChangeSubscriber);
 
         super::register(subscriber);
 
-        super::post(Box::new(event));
+        super::post(Arc::new(event));
 
         let three_millis = time::Duration::from_secs(3);
         thread::sleep(three_millis);
@@ -201,11 +208,11 @@ mod tests {
             message: "register".to_owned(),
         };
 
-        let subscriber = Arc::new(Box::new(NamingChangeSubscriber) as Box<dyn Subscriber>);
+        let subscriber = Arc::new(NamingChangeSubscriber);
 
         super::register(subscriber.clone());
 
-        super::post(Box::new(event));
+        super::post(Arc::new(event));
 
         let one_millis = time::Duration::from_secs(1);
         thread::sleep(one_millis);
@@ -215,7 +222,7 @@ mod tests {
         let event = NamingChangeEvent {
             message: "unregister".to_owned(),
         };
-        super::post(Box::new(event));
+        super::post(Arc::new(event));
 
         let one_millis = time::Duration::from_secs(1);
         thread::sleep(one_millis);
