@@ -224,7 +224,7 @@ pub trait NamingService {
         service_name: String,
         group_name: Option<String>,
         clusters: Vec<String>,
-        subscriber: Arc<Box<dyn Subscriber>>,
+        subscriber: Arc<dyn Subscriber>,
     ) -> Result<()>;
 
     fn subscribe_async(
@@ -232,7 +232,7 @@ pub trait NamingService {
         service_name: String,
         group_name: Option<String>,
         clusters: Vec<String>,
-        subscriber: Arc<Box<dyn Subscriber>>,
+        subscriber: Arc<dyn Subscriber>,
     ) -> AsyncFuture<()>;
 
     fn unsubscribe(
@@ -240,7 +240,7 @@ pub trait NamingService {
         service_name: String,
         group_name: Option<String>,
         clusters: Vec<String>,
-        subscriber: Arc<Box<dyn Subscriber>>,
+        subscriber: Arc<dyn Subscriber>,
     ) -> Result<()>;
 
     fn unsubscribe_async(
@@ -248,7 +248,7 @@ pub trait NamingService {
         service_name: String,
         group_name: Option<String>,
         clusters: Vec<String>,
-        subscriber: Arc<Box<dyn Subscriber>>,
+        subscriber: Arc<dyn Subscriber>,
     ) -> AsyncFuture<()>;
 }
 

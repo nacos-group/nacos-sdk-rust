@@ -62,7 +62,7 @@ impl ServiceInfoHolder {
                 group_name: service_info.group_name.clone(),
                 hosts: service_info.hosts.clone(),
             };
-            event_bus::post(Box::new(instance_change_event));
+            event_bus::post(Arc::new(instance_change_event));
             disk_cache::write(service_info.clone(), self.cache_dir.clone());
         }
 

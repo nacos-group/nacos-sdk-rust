@@ -3,7 +3,7 @@ use nacos_sdk::api::config::{
 };
 use nacos_sdk::api::constants;
 use nacos_sdk::api::events::naming::InstancesChangeEvent;
-use nacos_sdk::api::events::{NacosEventSubscriber, Subscriber};
+use nacos_sdk::api::events::NacosEventSubscriber;
 use nacos_sdk::api::naming::{NamingService, NamingServiceBuilder, ServiceInstance};
 use nacos_sdk::api::props::ClientProps;
 use std::time::Duration;
@@ -45,8 +45,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // ----------  Naming  -------------
     let mut naming_service = NamingServiceBuilder::new(client_props).build()?;
 
-    let subscriber =
-        std::sync::Arc::new(Box::new(SimpleInstancesChangeEventSubscriber) as Box<dyn Subscriber>);
+    let subscriber = std::sync::Arc::new(SimpleInstancesChangeEventSubscriber);
     let _subscribe_ret = naming_service.subscribe(
         "test-service".to_string(),
         Some(constants::DEFAULT_GROUP.to_string()),

@@ -424,11 +424,9 @@ impl GrpcClient {
 
                             // send event
                             let event = GrpcReconnectedEvent {};
-                            event_bus::post(Box::new(event));
-                        } else {
-                            // health check
-                            event_bus::post(Box::new(GrpcConnectHealthCheckEvent {}));
+                            event_bus::post(Arc::new(event));
                         }
+
                         let deadline = Duration::from_secs(5);
                         grpc_channel
                             .wait_for_state_change(ConnectivityState::GRPC_CHANNEL_READY, deadline)
@@ -454,7 +452,8 @@ impl GrpcClient {
                     }
                     ConnectivityState::GRPC_CHANNEL_IDLE => {
                         debug!("the current grpc connection state is in idle");
-                        event_bus::post(Box::new(GrpcConnectHealthCheckEvent {}));
+                        // health check
+                        event_bus::post(Arc::new(GrpcConnectHealthCheckEvent {}));
                         let deadline = Duration::from_secs(5);
                         grpc_channel
                             .wait_for_state_change(ConnectivityState::GRPC_CHANNEL_IDLE, deadline)

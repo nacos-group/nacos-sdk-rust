@@ -60,7 +60,7 @@ impl GrpcPayloadHandler for NamingPushRequestHandler {
 
         executor::spawn(async move {
             info!("NamingPushRequestHandler receive message: {:?}", event);
-            event_bus::post(Box::new(event))
+            event_bus::post(Arc::new(event))
         });
     }
 }

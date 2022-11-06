@@ -62,7 +62,7 @@ impl ConfigWorker {
                 constants::LABEL_MODULE_CONFIG.to_owned(),
             )
             .add_labels(client_props.labels.clone())
-            .register_bi_call_handler::<ConfigChangeNotifyRequest>(Box::new(
+            .register_bi_call_handler::<ConfigChangeNotifyRequest>(Arc::new(
                 ConfigChangeNotifyHandler { notify_change_tx },
             ))
             .build()?;

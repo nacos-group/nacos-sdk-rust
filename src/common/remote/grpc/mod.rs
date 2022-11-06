@@ -1,7 +1,7 @@
 use std::{collections::HashMap, sync::Arc, thread::sleep, time::Duration};
 
 use serde::{Deserialize, Serialize};
-use tokio::sync::RwLock;
+use tokio::{sync::RwLock, task::JoinHandle};
 use tracing::{debug, error, info, warn};
 
 use crate::common::{
@@ -17,9 +17,12 @@ use crate::common::{
 
 use self::{
     grpc_client::GrpcClient,
-    handler::GrpcPayloadHandler,
+    handler::{
+        client_detection_request_handler::ClientDetectionRequestHandler, GrpcPayloadHandler,
+    },
     message::{
-        response::ServerCheckResponse, GrpcMessageData, GrpcRequestMessage, GrpcResponseMessage,
+        request::ClientDetectionRequest, response::ServerCheckResponse, GrpcMessageData,
+        GrpcRequestMessage, GrpcResponseMessage,
     },
     subscribers::{GrpcConnectHealthCheckEventSubscriber, GrpcReconnectedEventSubscriber},
 };
@@ -32,7 +35,7 @@ pub(crate) mod handler;
 pub(crate) mod message;
 pub(crate) mod subscribers;
 
-type HandlerMap = Arc<RwLock<HashMap<String, Vec<Arc<Box<dyn GrpcPayloadHandler>>>>>>;
+type HandlerMap = Arc<RwLock<HashMap<String, Vec<Arc<dyn GrpcPayloadHandler>>>>>;
 const APP_FILED: &str = "app";
 
 pub(crate) struct NacosGrpcClient {
@@ -79,12 +82,20 @@ impl NacosGrpcClient {
 
     pub(crate) async fn init(&self, set_up: NacosServerSetUP) -> Result<()> {
         // receive bi message
-        self.receive_bi_payload().await;
+
+        let receive_bi_task_join_handler = self.receive_bi_payload().await;
+
+        let mut retry_count = 0;
+        let retry_wait_time = 300;
 
         let mut connection_id = None;
-        for _ in 0..5 {
+        while !receive_bi_task_join_handler.is_finished() {
+            sleep(Duration::from_millis(retry_count * retry_wait_time));
+            retry_count += 1;
+
             // setup
             let setup_ret = self.setup(set_up.clone()).await;
+
             if let Err(e) = setup_ret {
                 error!("setup server error: {:?}", e);
                 continue;
@@ -110,11 +121,14 @@ impl NacosGrpcClient {
             connection_id = check_server_response.connection_id;
             break;
         }
-
         if connection_id.is_none() {
             return Err(ClientUnhealthy(
                 "init failed, cannot get connection id".to_string(),
             ));
+        }
+
+        if receive_bi_task_join_handler.is_finished() {
+            return Err(ClientUnhealthy("init failed".to_string()));
         }
 
         let connection_id = connection_id.unwrap();
@@ -129,7 +143,7 @@ impl NacosGrpcClient {
         Ok(())
     }
 
-    pub(crate) async fn receive_bi_payload(&self) {
+    pub(crate) async fn receive_bi_payload(&self) -> JoinHandle<()> {
         info!("starting receive bi payload");
         let handler_map = self.bi_handler_map.clone();
 
@@ -186,7 +200,7 @@ impl NacosGrpcClient {
             while (response_receiver.recv().await).is_some() {}
 
             warn!("receive_bi_payload_task quit!");
-        });
+        })
     }
 
     pub(crate) async fn check_server(&self) -> Result<ServerCheckResponse> {
@@ -213,7 +227,6 @@ impl NacosGrpcClient {
         };
 
         self.bi_call(setup_request).await?;
-        sleep(Duration::from_millis(400));
         Ok(())
     }
 
@@ -253,13 +266,13 @@ impl NacosGrpcClient {
     pub(crate) async fn register_bi_call_handler(
         &self,
         key: String,
-        handler: Box<dyn GrpcPayloadHandler>,
+        handler: Arc<dyn GrpcPayloadHandler>,
     ) {
         let mut write = self.bi_handler_map.write().await;
         if let Some(vec) = write.get_mut(&key) {
-            vec.push(Arc::new(handler));
+            vec.push(handler);
         } else {
-            let vec = vec![Arc::new(handler)];
+            let vec = vec![handler];
             write.insert(key, vec);
         }
     }
@@ -386,7 +399,7 @@ pub(crate) struct NacosGrpcClientBuilder {
 
     app_name: String,
 
-    bi_call_handlers: HashMap<String, Vec<Box<dyn GrpcPayloadHandler>>>,
+    bi_call_handlers: HashMap<String, Vec<Arc<dyn GrpcPayloadHandler>>>,
 }
 
 impl NacosGrpcClientBuilder {
@@ -457,7 +470,7 @@ impl NacosGrpcClientBuilder {
 
     pub(crate) fn register_bi_call_handler<T>(
         mut self,
-        call_handler: Box<dyn GrpcPayloadHandler>,
+        call_handler: Arc<dyn GrpcPayloadHandler>,
     ) -> Self
     where
         T: GrpcMessageData,
@@ -496,8 +509,8 @@ impl NacosGrpcClientBuilder {
                 nacos_grpc_client: nacos_grpc_client.clone(),
             };
 
-            event_bus::register(Arc::new(Box::new(reconnect_subscriber)));
-            event_bus::register(Arc::new(Box::new(health_check_subscriber)));
+            event_bus::register(Arc::new(reconnect_subscriber));
+            event_bus::register(Arc::new(health_check_subscriber));
 
             // register grpc payload handler
             for (key, handlers) in self.bi_call_handlers {
@@ -507,6 +520,14 @@ impl NacosGrpcClientBuilder {
                         .await;
                 }
             }
+
+            // register default handler
+            nacos_grpc_client
+                .register_bi_call_handler(
+                    ClientDetectionRequest::identity().to_string(),
+                    Arc::new(ClientDetectionRequestHandler),
+                )
+                .await;
 
             Ok(nacos_grpc_client)
         })
