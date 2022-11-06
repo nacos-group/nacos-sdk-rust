@@ -39,8 +39,9 @@ members = [
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [features]
 default = ["config", "naming"]
-config = []
-naming = []
+config = ["auth-by-http"]
+naming = ["auth-by-http"]
+auth-by-http = []
 
 [dependencies]
 nacos_macro = { version = "0.1.0", path = "nacos-macro" }
