@@ -25,6 +25,7 @@ where
     RT.spawn(future)
 }
 
+#[allow(dead_code)]
 pub(crate) fn schedule<F>(future: F, delay: Duration) -> JoinHandle<F::Output>
 where
     F: Future + Send + 'static,
@@ -36,6 +37,7 @@ where
     })
 }
 
+#[allow(dead_code)]
 pub(crate) fn schedule_at_fixed_rate<Fut>(
     func: impl Fn() -> Option<Fut> + Send + 'static,
     duration: Duration,
@@ -56,6 +58,7 @@ where
     })
 }
 
+#[allow(dead_code)]
 pub(crate) fn schedule_at_fixed_delay<Fut>(
     func: impl Fn() -> Option<Fut> + Send + 'static,
     duration: Duration,

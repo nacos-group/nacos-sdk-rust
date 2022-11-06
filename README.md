@@ -12,7 +12,7 @@ Add the dependency in `Cargo.toml`:
 
 ```toml
 [dependencies]
-nacos-sdk = { version = "0.1", features = ["default"] }
+nacos-sdk = { version = "0.2", features = ["default"] }
 ```
 
 ### Usage of Config
@@ -53,6 +53,49 @@ nacos-sdk = { version = "0.1", features = ["default"] }
     }
 ```
 
+### Usage of Naming
+```rust
+    let mut naming_service = NamingServiceBuilder::new(
+        ClientProps::new()
+            .server_addr("0.0.0.0:8848")
+            // Attention! "public" is "", it is recommended to customize the namespace with clear meaning.
+            .namespace("")
+            .app_name("simple_app"),
+    )
+    .build()?;
+
+    pub struct ExampleInstancesChangeEventSubscriber;
+
+    impl NacosEventSubscriber for ExampleInstancesChangeEventSubscriber {
+        type EventType = InstancesChangeEvent;
+    
+        fn on_event(&self, event: &Self::EventType) {
+            tracing::info!("subscriber notify event={:?}", event);
+        }
+    }
+
+    // example naming subscriber
+    let subscriber = Arc::new(ExampleInstancesChangeEventSubscriber);
+    let _subscribe_ret = naming_service.subscribe(
+        "test-service".to_string(),
+        Some(constants::DEFAULT_GROUP.to_string()),
+        Vec::default(),
+        subscriber,
+    );
+
+    // example naming register instances
+    let service_instance1 = ServiceInstance {
+        ip: "127.0.0.1".to_string(),
+        port: 9090,
+        ..Default::default()
+    };
+    let _register_instance_ret = naming_service.batch_register_instance(
+        "test-service".to_string(),
+        Some(constants::DEFAULT_GROUP.to_string()),
+        vec![service_instance1],
+    );
+```
+
 ## 开发说明
 - Build with `cargo build`
 > Note: The proto buf client generation is built into cargo build process so updating the proto files under proto/ is enough to update the proto buf client.
@@ -63,7 +106,6 @@ nacos-sdk = { version = "0.1", features = ["default"] }
 - 请 `cargo fmt --all` 格式化代码再提交
 > Run `cargo fmt --all` - this will find and fix code formatting issues.
 
-- Rust 入门，还有太多东西不规范，仍需斟酌各种实现逻辑
 - 测试用例暂未能实现自动化，开发过程需本地启动 [nacos server](https://github.com/alibaba/nacos) `-Dnacos.standalone=true`
 
 ### 主要依赖包
@@ -102,12 +144,12 @@ gRPC 交互的 Payload 和 Metadata 由 `Protocol Buffers` 序列化，具体的
 - [x] 配置 Filter，提供配置解密默认实现；配置获取后，内存缓存，磁盘缓存均是原文，仅返回到用户时经过配置 Filter
 
 #### Naming 服务注册模块
-- [ ] 客户端创建 api
-- [ ] 注册服务 api 与实现
-- [ ] 反注册服务 api 与实现
-- [ ] 批量注册服务 api 与实现
-- [ ] 获取服务 api 与实现
-- [ ] 订阅服务 api 与实现，List-Watch 机制，具备 list 兜底逻辑
+- [x] 客户端创建 api
+- [x] 注册服务 api 与实现
+- [x] 反注册服务 api 与实现
+- [x] 批量注册服务 api 与实现
+- [x] 获取服务 api 与实现
+- [x] 订阅服务 api 与实现，List-Watch 机制，具备 list 兜底逻辑
 - [ ] 服务防推空，默认开启，可选关闭。
 
 #### Common 通用能力
