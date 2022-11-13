@@ -1,3 +1,6 @@
+use std::collections::HashMap;
+use std::sync::Arc;
+
 use crate::api::{error, plugin, props};
 
 /// Api [`ConfigService`].
@@ -58,7 +61,7 @@ pub trait ConfigService {
         content: String,
         content_type: Option<String>,
         cas_md5: Option<String>,
-        params: std::collections::HashMap<String, String>,
+        params: HashMap<String, String>,
     ) -> error::Result<bool>;
 
     /// Remove config, return true/false.
@@ -69,7 +72,7 @@ pub trait ConfigService {
         &mut self,
         data_id: String,
         group: String,
-        listener: std::sync::Arc<dyn ConfigChangeListener>,
+        listener: Arc<dyn ConfigChangeListener>,
     ) -> error::Result<()>;
 
     /// Remove a Listener.
@@ -77,7 +80,7 @@ pub trait ConfigService {
         &mut self,
         data_id: String,
         group: String,
-        listener: std::sync::Arc<dyn ConfigChangeListener>,
+        listener: Arc<dyn ConfigChangeListener>,
     ) -> error::Result<()>;
 }
 
@@ -195,7 +198,7 @@ pub mod constants {
 #[doc(alias("config", "builder"))]
 pub struct ConfigServiceBuilder {
     client_props: props::ClientProps,
-    auth_plugin: Option<std::sync::Arc<dyn plugin::AuthPlugin>>,
+    auth_plugin: Option<Arc<dyn plugin::AuthPlugin>>,
     config_filters: Vec<Box<dyn plugin::ConfigFilter>>,
 }
 
@@ -218,8 +221,13 @@ impl ConfigServiceBuilder {
         }
     }
 
+    #[cfg(feature = "auth-by-http")]
+    pub fn enable_auth_plugin_http(mut self) -> Self {
+        self.with_auth_plugin(Arc::new(plugin::HttpLoginAuthPlugin::default()))
+    }
+
     /// Set [`plugin::AuthPlugin`]
-    pub fn with_auth_plugin(mut self, auth_plugin: std::sync::Arc<dyn plugin::AuthPlugin>) -> Self {
+    pub fn with_auth_plugin(mut self, auth_plugin: Arc<dyn plugin::AuthPlugin>) -> Self {
         self.auth_plugin = Some(auth_plugin);
         self
     }
@@ -250,7 +258,7 @@ impl ConfigServiceBuilder {
     /// Builds a new [`ConfigService`].
     pub fn build(self) -> error::Result<impl ConfigService> {
         let auth_plugin = match self.auth_plugin {
-            None => std::sync::Arc::new(plugin::NoopAuthPlugin::default()),
+            None => Arc::new(plugin::NoopAuthPlugin::default()),
             Some(plugin) => plugin,
         };
         crate::config::NacosConfigService::new(self.client_props, auth_plugin, self.config_filters)
