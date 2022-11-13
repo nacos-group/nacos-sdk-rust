@@ -618,7 +618,7 @@ mod tests {
 
         let mut client_worker = ConfigWorker::new(
             ClientProps::new().namespace(n.clone()),
-            Arc::new(NoopAuthPlugin),
+            Arc::new(NoopAuthPlugin::default()),
             Vec::new(),
         )
         .unwrap();
@@ -649,7 +649,7 @@ mod tests {
 
         let mut client_worker = ConfigWorker::new(
             ClientProps::new().namespace(n.clone()),
-            Arc::new(NoopAuthPlugin),
+            Arc::new(NoopAuthPlugin::default()),
             Vec::new(),
         )
         .unwrap();

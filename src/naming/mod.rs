@@ -614,6 +614,7 @@ pub(crate) mod tests {
     use tracing::info;
 
     use crate::api::events::{naming::InstancesChangeEvent, NacosEventSubscriber};
+    use crate::api::plugin::NoopAuthPlugin;
 
     use super::*;
 
@@ -626,7 +627,7 @@ pub(crate) mod tests {
         metadata.insert("netType".to_string(), "external".to_string());
         metadata.insert("version".to_string(), "2.0".to_string());
 
-        let naming_service = NacosNamingService::new(props)?;
+        let naming_service = NacosNamingService::new(props, Arc::new(NoopAuthPlugin::default()))?;
         let service_instance = ServiceInstance {
             ip: "127.0.0.1".to_string(),
             port: 9090,
@@ -663,7 +664,7 @@ pub(crate) mod tests {
         metadata.insert("netType".to_string(), "external".to_string());
         metadata.insert("version".to_string(), "2.0".to_string());
 
-        let naming_service = NacosNamingService::new(props)?;
+        let naming_service = NacosNamingService::new(props, Arc::new(NoopAuthPlugin::default()))?;
         let service_instance = ServiceInstance {
             ip: "127.0.0.1".to_string(),
             port: 9090,
@@ -710,7 +711,7 @@ pub(crate) mod tests {
         metadata.insert("netType".to_string(), "external".to_string());
         metadata.insert("version".to_string(), "2.0".to_string());
 
-        let naming_service = NacosNamingService::new(props)?;
+        let naming_service = NacosNamingService::new(props, Arc::new(NoopAuthPlugin::default()))?;
         let service_instance1 = ServiceInstance {
             ip: "127.0.0.1".to_string(),
             port: 9090,
@@ -762,7 +763,7 @@ pub(crate) mod tests {
         metadata.insert("netType".to_string(), "external".to_string());
         metadata.insert("version".to_string(), "2.0".to_string());
 
-        let naming_service = NacosNamingService::new(props)?;
+        let naming_service = NacosNamingService::new(props, Arc::new(NoopAuthPlugin::default()))?;
         let service_instance1 = ServiceInstance {
             ip: "127.0.0.1".to_string(),
             port: 9090,
@@ -824,7 +825,7 @@ pub(crate) mod tests {
         metadata.insert("netType".to_string(), "external".to_string());
         metadata.insert("version".to_string(), "2.0".to_string());
 
-        let naming_service = NacosNamingService::new(props)?;
+        let naming_service = NacosNamingService::new(props, Arc::new(NoopAuthPlugin::default()))?;
         let service_instance1 = ServiceInstance {
             ip: "127.0.0.1".to_string(),
             port: 9090,
@@ -887,7 +888,7 @@ pub(crate) mod tests {
         metadata.insert("netType".to_string(), "external".to_string());
         metadata.insert("version".to_string(), "2.0".to_string());
 
-        let naming_service = NacosNamingService::new(props)?;
+        let naming_service = NacosNamingService::new(props, Arc::new(NoopAuthPlugin::default()))?;
         let service_instance1 = ServiceInstance {
             ip: "127.0.0.1".to_string(),
             port: 9090,
@@ -953,7 +954,7 @@ pub(crate) mod tests {
         metadata.insert("netType".to_string(), "external".to_string());
         metadata.insert("version".to_string(), "2.0".to_string());
 
-        let naming_service = NacosNamingService::new(props)?;
+        let naming_service = NacosNamingService::new(props, Arc::new(NoopAuthPlugin::default()))?;
         let service_instance1 = ServiceInstance {
             ip: "127.0.0.1".to_string(),
             port: 9090,
@@ -1023,7 +1024,7 @@ pub(crate) mod tests {
         metadata.insert("netType".to_string(), "external".to_string());
         metadata.insert("version".to_string(), "2.0".to_string());
 
-        let naming_service = NacosNamingService::new(props)?;
+        let naming_service = NacosNamingService::new(props, Arc::new(NoopAuthPlugin::default()))?;
         let service_instance1 = ServiceInstance {
             ip: "127.0.0.1".to_string(),
             port: 9090,
