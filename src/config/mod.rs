@@ -5,7 +5,7 @@ mod util;
 mod worker;
 
 use crate::api::config::ConfigService;
-use crate::api::plugin::ConfigFilter;
+use crate::api::plugin::{AuthPlugin, ConfigFilter};
 use crate::api::props::ClientProps;
 use crate::config::worker::ConfigWorker;
 
@@ -17,9 +17,10 @@ pub(crate) struct NacosConfigService {
 impl NacosConfigService {
     pub fn new(
         client_props: ClientProps,
+        auth_plugin: std::sync::Arc<dyn AuthPlugin>,
         config_filters: Vec<Box<dyn ConfigFilter>>,
     ) -> crate::api::error::Result<Self> {
-        let client_worker = ConfigWorker::new(client_props, config_filters)?;
+        let client_worker = ConfigWorker::new(client_props, auth_plugin, config_filters)?;
         Ok(Self { client_worker })
     }
 }

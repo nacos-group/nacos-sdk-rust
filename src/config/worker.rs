@@ -1,7 +1,7 @@
 use crate::api::config::ConfigResponse;
-use crate::api::plugin::{ConfigFilter, ConfigReq, ConfigResp};
+use crate::api::plugin::{AuthContext, AuthPlugin, ConfigFilter, ConfigReq, ConfigResp};
 use crate::api::props::ClientProps;
-use crate::common::remote::grpc::message::GrpcResponseMessage;
+use crate::common::remote::grpc::message::{GrpcRequestMessage, GrpcResponseMessage};
 use crate::common::remote::grpc::{NacosGrpcClient, NacosGrpcClientBuilder};
 use crate::config::cache::CacheData;
 use crate::config::handler::ConfigChangeNotifyHandler;
@@ -28,6 +28,7 @@ pub(self) mod constants {
 pub(crate) struct ConfigWorker {
     client_props: ClientProps,
     remote_client: Arc<NacosGrpcClient>,
+    auth_plugin: Arc<dyn AuthPlugin>,
     cache_data_map: Arc<Mutex<HashMap<String, CacheData>>>,
     config_filters: Arc<Vec<Box<dyn ConfigFilter>>>,
 }
@@ -35,6 +36,7 @@ pub(crate) struct ConfigWorker {
 impl ConfigWorker {
     pub(crate) fn new(
         client_props: ClientProps,
+        auth_plugin: Arc<dyn AuthPlugin>,
         config_filters: Vec<Box<dyn ConfigFilter>>,
     ) -> crate::api::error::Result<Self> {
         let cache_data_map = Arc::new(Mutex::new(HashMap::new()));
@@ -70,18 +72,38 @@ impl ConfigWorker {
         // todo Event/Subscriber instead of mpsc Sender/Receiver
         tokio::spawn(Self::notify_change_to_cache_data(
             Arc::clone(&remote_client),
+            Arc::clone(&auth_plugin),
             Arc::clone(&cache_data_map),
             notify_change_rx,
         ));
         tokio::spawn(Self::list_ensure_cache_data_newest(
             Arc::clone(&remote_client),
+            Arc::clone(&auth_plugin),
             Arc::clone(&cache_data_map),
             notify_change_tx_clone,
         ));
 
+        let server_list = Arc::new(vec![client_props.server_addr.clone()]);
+        let plugin = Arc::clone(&auth_plugin);
+        let auth_context =
+            Arc::new(AuthContext::default().add_params(client_props.auth_context.clone()));
+        plugin.set_server_list(server_list.to_vec());
+        plugin.login(AuthContext::default().add_params(auth_context.params.clone()));
+        crate::common::executor::schedule_at_fixed_delay(
+            move || {
+                plugin.set_server_list(server_list.to_vec());
+                plugin.login(AuthContext::default().add_params(auth_context.params.clone()));
+                Some(async {
+                    tracing::debug!("auth_plugin schedule at fixed delay");
+                })
+            },
+            tokio::time::Duration::from_secs(30),
+        );
+
         Ok(Self {
             client_props,
             remote_client,
+            auth_plugin,
             cache_data_map,
             config_filters,
         })
@@ -95,6 +117,7 @@ impl ConfigWorker {
         let namespace = self.client_props.namespace.clone();
         let config_resp = Self::get_config_inner(
             self.remote_client.clone(),
+            self.auth_plugin.clone(),
             data_id.clone(),
             group.clone(),
             namespace.clone(),
@@ -140,6 +163,7 @@ impl ConfigWorker {
 
         Self::publish_config_inner(
             self.remote_client.clone(),
+            self.auth_plugin.clone(),
             conf_req.data_id,
             conf_req.group,
             conf_req.namespace,
@@ -169,6 +193,7 @@ impl ConfigWorker {
 
         Self::publish_config_inner(
             self.remote_client.clone(),
+            self.auth_plugin.clone(),
             conf_req.data_id,
             conf_req.group,
             conf_req.namespace,
@@ -198,6 +223,7 @@ impl ConfigWorker {
 
         Self::publish_config_inner(
             self.remote_client.clone(),
+            self.auth_plugin.clone(),
             conf_req.data_id,
             conf_req.group,
             conf_req.namespace,
@@ -228,6 +254,7 @@ impl ConfigWorker {
 
         Self::publish_config_inner(
             self.remote_client.clone(),
+            self.auth_plugin.clone(),
             conf_req.data_id,
             conf_req.group,
             conf_req.namespace,
@@ -246,7 +273,13 @@ impl ConfigWorker {
         group: String,
     ) -> crate::api::error::Result<bool> {
         let namespace = self.client_props.namespace.clone();
-        Self::remove_config_inner(self.remote_client.clone(), data_id, group, namespace)
+        Self::remove_config_inner(
+            self.remote_client.clone(),
+            self.auth_plugin.clone(),
+            data_id,
+            group,
+            namespace,
+        )
     }
 
     /// Add listener.
@@ -266,6 +299,7 @@ impl ConfigWorker {
                 // listen immediately upon initialization
                 let config_resp = Self::get_config_inner(
                     self.remote_client.clone(),
+                    self.auth_plugin.clone(),
                     cache_data.data_id.clone(),
                     cache_data.group.clone(),
                     cache_data.namespace.clone(),
@@ -318,6 +352,7 @@ impl ConfigWorker {
     /// List-Watch, list ensure cache-data newest.
     async fn list_ensure_cache_data_newest(
         remote_client: Arc<NacosGrpcClient>,
+        auth_plugin: Arc<dyn AuthPlugin>,
         cache_data_map: Arc<Mutex<HashMap<String, CacheData>>>,
         notify_change_tx: tokio::sync::mpsc::Sender<String>,
     ) {
@@ -339,8 +374,10 @@ impl ConfigWorker {
                 }
             }
             if !listen_context_vec.is_empty() {
-                let req =
+                let mut req =
                     ConfigBatchListenRequest::new(true).config_listen_context(listen_context_vec);
+                req.add_headers(auth_plugin.get_login_identity().contexts);
+
                 let resp = remote_client
                     .unary_call_async::<ConfigBatchListenRequest, ConfigChangeBatchListenResponse>(
                         req,
@@ -369,6 +406,7 @@ impl ConfigWorker {
     /// Notify change to cache_data.
     async fn notify_change_to_cache_data(
         remote_client: Arc<NacosGrpcClient>,
+        auth_plugin: Arc<dyn AuthPlugin>,
         cache_data_map: Arc<Mutex<HashMap<String, CacheData>>>,
         mut notify_change_rx: tokio::sync::mpsc::Receiver<String>,
     ) {
@@ -389,6 +427,8 @@ impl ConfigWorker {
                             // get the newest config to notify
                             let config_resp = Self::get_config_inner(
                                 remote_client.clone(),
+                                auth_plugin.clone(),
+                                // auth_plugin.clone(),
                                 c.data_id.clone(),
                                 c.group.clone(),
                                 c.namespace.clone(),
@@ -423,11 +463,13 @@ impl ConfigWorker {
 
     fn get_config_inner(
         remote_client: Arc<NacosGrpcClient>,
+        auth_plugin: Arc<dyn AuthPlugin>,
         data_id: String,
         group: String,
         namespace: String,
     ) -> crate::api::error::Result<ConfigQueryResponse> {
-        let req = ConfigQueryRequest::new(data_id, group, namespace);
+        let mut req = ConfigQueryRequest::new(data_id, group, namespace);
+        req.add_headers(auth_plugin.get_login_identity().contexts);
 
         let future = async move {
             let resp = remote_client
@@ -468,6 +510,7 @@ impl ConfigWorker {
     #[allow(clippy::too_many_arguments)]
     fn publish_config_inner(
         remote_client: Arc<NacosGrpcClient>,
+        auth_plugin: Arc<dyn AuthPlugin>,
         data_id: String,
         group: String,
         namespace: String,
@@ -480,6 +523,8 @@ impl ConfigWorker {
     ) -> crate::api::error::Result<bool> {
         let mut req =
             ConfigPublishRequest::new(data_id, group, namespace, content).cas_md5(cas_md5);
+        req.add_headers(auth_plugin.get_login_identity().contexts);
+
         // Customize parameters have low priority
         if let Some(params) = params {
             req.add_addition_params(params);
@@ -524,11 +569,13 @@ impl ConfigWorker {
 
     fn remove_config_inner(
         remote_client: Arc<NacosGrpcClient>,
+        auth_plugin: Arc<dyn AuthPlugin>,
         data_id: String,
         group: String,
         namespace: String,
     ) -> crate::api::error::Result<bool> {
-        let req = ConfigRemoveRequest::new(data_id, group, namespace);
+        let mut req = ConfigRemoveRequest::new(data_id, group, namespace);
+        req.add_headers(auth_plugin.get_login_identity().contexts);
 
         let future = async move {
             let resp = remote_client
@@ -558,6 +605,7 @@ impl ConfigWorker {
 #[cfg(test)]
 mod tests {
     use crate::api::config::{ConfigChangeListener, ConfigResponse};
+    use crate::api::plugin::NoopAuthPlugin;
     use crate::api::props::ClientProps;
     use crate::config::util;
     use crate::config::worker::ConfigWorker;
@@ -568,8 +616,12 @@ mod tests {
     async fn test_client_worker_add_listener() {
         let (d, g, n) = ("D".to_string(), "G".to_string(), "N".to_string());
 
-        let mut client_worker =
-            ConfigWorker::new(ClientProps::new().namespace(n.clone()), Vec::new()).unwrap();
+        let mut client_worker = ConfigWorker::new(
+            ClientProps::new().namespace(n.clone()),
+            Arc::new(NoopAuthPlugin),
+            Vec::new(),
+        )
+        .unwrap();
 
         // test add listener1
         let lis1_arc = Arc::new(TestConfigChangeListener1 {});
@@ -595,8 +647,12 @@ mod tests {
     async fn test_client_worker_add_listener_then_remove() {
         let (d, g, n) = ("D".to_string(), "G".to_string(), "N".to_string());
 
-        let mut client_worker =
-            ConfigWorker::new(ClientProps::new().namespace(n.clone()), Vec::new()).unwrap();
+        let mut client_worker = ConfigWorker::new(
+            ClientProps::new().namespace(n.clone()),
+            Arc::new(NoopAuthPlugin),
+            Vec::new(),
+        )
+        .unwrap();
 
         // test add listener1
         let lis1_arc = Arc::new(TestConfigChangeListener1 {});

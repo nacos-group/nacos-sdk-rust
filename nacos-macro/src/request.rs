@@ -41,6 +41,10 @@ pub(crate) fn grpc_request(
                 #std::mem::take(&mut self.headers)
             }
 
+            fn add_headers(&mut self, map: #std::collections::HashMap<String, String>) {
+                self.headers.extend(map.into_iter());
+            }
+
             fn request_id(&self) -> Option<&String> {
                 self.request_id.as_ref()
             }

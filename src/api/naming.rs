@@ -1,5 +1,6 @@
 use std::{collections::HashMap, sync::Arc};
 
+use crate::api::plugin;
 use crate::{api::error::Result, naming::NacosNamingService};
 use futures::Future;
 use serde::{Deserialize, Serialize};
@@ -254,19 +255,37 @@ pub trait NamingService {
 
 pub struct NamingServiceBuilder {
     client_props: ClientProps,
+    auth_plugin: Option<Arc<dyn plugin::AuthPlugin>>,
 }
 
 impl NamingServiceBuilder {
     pub fn new(client_props: ClientProps) -> Self {
-        NamingServiceBuilder { client_props }
+        NamingServiceBuilder {
+            client_props,
+            auth_plugin: None,
+        }
+    }
+
+    /// Set [`plugin::AuthPlugin`]
+    pub fn with_auth_plugin(mut self, auth_plugin: Arc<dyn plugin::AuthPlugin>) -> Self {
+        self.auth_plugin = Some(auth_plugin);
+        self
     }
 
     pub fn build(self) -> Result<impl NamingService> {
-        NacosNamingService::new(self.client_props)
+        let auth_plugin = match self.auth_plugin {
+            None => Arc::new(plugin::NoopAuthPlugin::default()),
+            Some(plugin) => plugin,
+        };
+        NacosNamingService::new(self.client_props, auth_plugin)
     }
 
     pub async fn build_async(self) -> Result<impl NamingService> {
-        NacosNamingService::new(self.client_props)
+        let auth_plugin = match self.auth_plugin {
+            None => Arc::new(plugin::NoopAuthPlugin::default()),
+            Some(plugin) => plugin,
+        };
+        NacosNamingService::new(self.client_props, auth_plugin)
     }
 }
 
@@ -274,6 +293,7 @@ impl Default for NamingServiceBuilder {
     fn default() -> Self {
         NamingServiceBuilder {
             client_props: ClientProps::new(),
+            auth_plugin: None,
         }
     }
 }

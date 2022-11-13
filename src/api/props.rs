@@ -64,14 +64,16 @@ impl ClientProps {
     /// Add auth username.
     #[cfg(feature = "auth-by-http")]
     pub fn auth_username(mut self, username: impl Into<String>) -> Self {
-        self.auth_context.insert(crate::api::plugin::USERNAME.into(), username.into());
+        self.auth_context
+            .insert(crate::api::plugin::USERNAME.into(), username.into());
         self
     }
 
     /// Add auth password.
     #[cfg(feature = "auth-by-http")]
     pub fn auth_password(mut self, password: impl Into<String>) -> Self {
-        self.auth_context.insert(crate::api::plugin::PASSWORD.into(), password.into());
+        self.auth_context
+            .insert(crate::api::plugin::PASSWORD.into(), password.into());
         self
     }
 

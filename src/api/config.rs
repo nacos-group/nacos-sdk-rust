@@ -195,6 +195,7 @@ pub mod constants {
 #[doc(alias("config", "builder"))]
 pub struct ConfigServiceBuilder {
     client_props: props::ClientProps,
+    auth_plugin: Option<std::sync::Arc<dyn plugin::AuthPlugin>>,
     config_filters: Vec<Box<dyn plugin::ConfigFilter>>,
 }
 
@@ -202,6 +203,7 @@ impl Default for ConfigServiceBuilder {
     fn default() -> Self {
         ConfigServiceBuilder {
             client_props: props::ClientProps::new(),
+            auth_plugin: None,
             config_filters: Vec::new(),
         }
     }
@@ -211,8 +213,15 @@ impl ConfigServiceBuilder {
     pub fn new(client_props: props::ClientProps) -> Self {
         ConfigServiceBuilder {
             client_props,
+            auth_plugin: None,
             config_filters: Vec::new(),
         }
+    }
+
+    /// Set [`plugin::AuthPlugin`]
+    pub fn with_auth_plugin(mut self, auth_plugin: std::sync::Arc<dyn plugin::AuthPlugin>) -> Self {
+        self.auth_plugin = Some(auth_plugin);
+        self
     }
 
     pub fn with_config_filters(
@@ -240,7 +249,11 @@ impl ConfigServiceBuilder {
 
     /// Builds a new [`ConfigService`].
     pub fn build(self) -> error::Result<impl ConfigService> {
-        crate::config::NacosConfigService::new(self.client_props, self.config_filters)
+        let auth_plugin = match self.auth_plugin {
+            None => std::sync::Arc::new(plugin::NoopAuthPlugin::default()),
+            Some(plugin) => plugin,
+        };
+        crate::config::NacosConfigService::new(self.client_props, auth_plugin, self.config_filters)
     }
 }
 
