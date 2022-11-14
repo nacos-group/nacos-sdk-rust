@@ -7,3 +7,7 @@ pub use config_filter::*;
 mod encryption;
 #[cfg(feature = "config")]
 pub use encryption::*;
+
+/// Auth login plugin.
+mod auth;
+pub use auth::*;
