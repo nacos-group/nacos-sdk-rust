@@ -133,6 +133,8 @@ pub(crate) trait GrpcRequestMessage: GrpcMessageData {
 
     fn take_headers(&mut self) -> HashMap<String, String>;
 
+    fn add_headers(&mut self, map: HashMap<String, String>);
+
     fn request_id(&self) -> Option<&String>;
 
     fn module(&self) -> &str;
