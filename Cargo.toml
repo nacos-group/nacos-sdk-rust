@@ -29,7 +29,7 @@ homepage = "https://nacos.io"
 description = "Nacos client in Rust."
 categories = ["network-programming", "development-tools"]
 keywords = ["microservices", "config", "naming", "service-discovery", "config-management"]
-exclude = [".github", "proto", "build.rs"]
+exclude = [".github", "proto", "tests"]
 
 [workspace]
 members = [
@@ -64,11 +64,10 @@ local_ipaddress = "0.1.3"
 rand = "0.8.5"
 url="2.3.1"
 
-[build-dependencies]
+[dev-dependencies]
 grpcio-compiler = { version = "0.12", default-features = false, features = ["prost-codec"] }
 prost-build = "0.11"
 
-[dev-dependencies]
 tracing-subscriber = { version = "0.3", features = ["default"] }
 
 [[example]]
