@@ -14,12 +14,15 @@
 // limitations under the License.
 //
 
-fn main() -> Result<(), std::io::Error> {
+// This test helps to keep files generated and used by grpcio(proto) update to date.
+// If the generated files has been changed, please commit they.
+#[test]
+#[ignore]
+fn build_proto() {
     grpcio_compiler::prost_codegen::compile_protos(
         &["./proto/nacos_grpc_service.proto"],
         &["./proto"],
         "src",
     )
     .unwrap();
-    Ok(())
 }
