@@ -61,12 +61,6 @@ where
 
     pub(crate) fn from_payload(payload: Payload) -> Result<Self> {
         debug!("from payload: {:?}", payload);
-        let meta_data = payload.metadata;
-        if meta_data.is_none() {
-            return Err(GrpcPayloadMetaDataEmpty);
-        }
-        let meta_data = meta_data.unwrap();
-
         let body = payload.body;
         if body.is_none() {
             return Err(GrpcPayloadBodyEmpty);
@@ -83,8 +77,18 @@ where
             return Err(error);
         }
         let body = body.unwrap();
-        let client_ip = meta_data.client_ip;
-        let headers = meta_data.headers;
+
+        let client_ip;
+        let headers;
+        let meta_data = payload.metadata;
+        if meta_data.is_none() {
+            client_ip = "".to_string();
+            headers = HashMap::new();
+        } else {
+            let meta_data = meta_data.unwrap();
+            client_ip = meta_data.client_ip;
+            headers = meta_data.headers;
+        }
 
         Ok(GrpcMessage {
             headers,

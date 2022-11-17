@@ -267,7 +267,7 @@ impl NamingServiceBuilder {
     }
 
     #[cfg(feature = "auth-by-http")]
-    pub fn enable_auth_plugin_http(mut self) -> Self {
+    pub fn enable_auth_plugin_http(self) -> Self {
         self.with_auth_plugin(Arc::new(plugin::HttpLoginAuthPlugin::default()))
     }
 

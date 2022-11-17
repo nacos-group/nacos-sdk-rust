@@ -621,6 +621,15 @@ pub(crate) mod tests {
     #[test]
     #[ignore]
     fn test_register_service() -> Result<()> {
+        tracing_subscriber::fmt()
+            .with_thread_names(true)
+            .with_file(true)
+            .with_level(true)
+            .with_line_number(true)
+            .with_thread_ids(true)
+            .with_max_level(LevelFilter::DEBUG)
+            .init();
+
         let props = ClientProps::new().server_addr("127.0.0.1:8848");
 
         let mut metadata = HashMap::<String, String>::new();
@@ -634,14 +643,6 @@ pub(crate) mod tests {
             metadata,
             ..Default::default()
         };
-
-        tracing_subscriber::fmt()
-            .with_thread_names(true)
-            .with_file(true)
-            .with_level(true)
-            .with_line_number(true)
-            .with_thread_ids(true)
-            .init();
 
         let ret = naming_service.register_service(
             "test-service".to_string(),
@@ -658,6 +659,15 @@ pub(crate) mod tests {
     #[test]
     #[ignore]
     fn test_register_and_deregister_service() -> Result<()> {
+        tracing_subscriber::fmt()
+            .with_thread_names(true)
+            .with_file(true)
+            .with_level(true)
+            .with_line_number(true)
+            .with_thread_ids(true)
+            .with_max_level(LevelFilter::DEBUG)
+            .init();
+
         let props = ClientProps::new().server_addr("127.0.0.1:8848");
 
         let mut metadata = HashMap::<String, String>::new();
@@ -671,14 +681,6 @@ pub(crate) mod tests {
             metadata,
             ..Default::default()
         };
-
-        tracing_subscriber::fmt()
-            .with_thread_names(true)
-            .with_file(true)
-            .with_level(true)
-            .with_line_number(true)
-            .with_thread_ids(true)
-            .init();
 
         let ret = naming_service.register_service(
             "test-service".to_string(),
@@ -705,6 +707,15 @@ pub(crate) mod tests {
     #[test]
     #[ignore]
     fn test_batch_register_service() -> Result<()> {
+        tracing_subscriber::fmt()
+            .with_thread_names(true)
+            .with_file(true)
+            .with_level(true)
+            .with_line_number(true)
+            .with_thread_ids(true)
+            .with_max_level(LevelFilter::DEBUG)
+            .init();
+
         let props = ClientProps::new().server_addr("127.0.0.1:8848");
 
         let mut metadata = HashMap::<String, String>::new();
@@ -735,13 +746,6 @@ pub(crate) mod tests {
 
         let instance_vec = vec![service_instance1, service_instance2, service_instance3];
 
-        tracing_subscriber::fmt()
-            .with_thread_names(true)
-            .with_file(true)
-            .with_level(true)
-            .with_line_number(true)
-            .with_thread_ids(true)
-            .init();
         let ret = naming_service.batch_register_instance(
             "test-service".to_string(),
             Some(constants::DEFAULT_GROUP.to_string()),
@@ -757,6 +761,15 @@ pub(crate) mod tests {
     #[test]
     #[ignore]
     fn test_batch_register_service_and_query_all_instances() -> Result<()> {
+        tracing_subscriber::fmt()
+            .with_thread_names(true)
+            .with_file(true)
+            .with_level(true)
+            .with_line_number(true)
+            .with_thread_ids(true)
+            .with_max_level(LevelFilter::DEBUG)
+            .init();
+
         let props = ClientProps::new().server_addr("127.0.0.1:8848");
 
         let mut metadata = HashMap::<String, String>::new();
@@ -785,14 +798,6 @@ pub(crate) mod tests {
             ..Default::default()
         };
         let instance_vec = vec![service_instance1, service_instance2, service_instance3];
-
-        tracing_subscriber::fmt()
-            .with_thread_names(true)
-            .with_file(true)
-            .with_level(true)
-            .with_line_number(true)
-            .with_thread_ids(true)
-            .init();
 
         let ret = naming_service.batch_register_instance(
             "test-service".to_string(),
@@ -819,6 +824,15 @@ pub(crate) mod tests {
     #[test]
     #[ignore]
     fn test_select_instance() -> Result<()> {
+        tracing_subscriber::fmt()
+            .with_thread_names(true)
+            .with_file(true)
+            .with_level(true)
+            .with_line_number(true)
+            .with_thread_ids(true)
+            .with_max_level(LevelFilter::DEBUG)
+            .init();
+
         let props = ClientProps::new().server_addr("127.0.0.1:8848");
 
         let mut metadata = HashMap::<String, String>::new();
@@ -847,14 +861,6 @@ pub(crate) mod tests {
             ..Default::default()
         };
         let instance_vec = vec![service_instance1, service_instance2, service_instance3];
-
-        tracing_subscriber::fmt()
-            .with_thread_names(true)
-            .with_file(true)
-            .with_level(true)
-            .with_line_number(true)
-            .with_thread_ids(true)
-            .init();
 
         let ret = naming_service.batch_register_instance(
             "test-service".to_string(),
@@ -882,6 +888,15 @@ pub(crate) mod tests {
     #[test]
     #[ignore]
     fn test_select_one_healthy_instance() -> Result<()> {
+        tracing_subscriber::fmt()
+            .with_thread_names(true)
+            .with_file(true)
+            .with_level(true)
+            .with_line_number(true)
+            .with_thread_ids(true)
+            .with_max_level(LevelFilter::DEBUG)
+            .init();
+
         let props = ClientProps::new().server_addr("127.0.0.1:8848");
 
         let mut metadata = HashMap::<String, String>::new();
@@ -911,43 +926,42 @@ pub(crate) mod tests {
         };
         let instance_vec = vec![service_instance1, service_instance2, service_instance3];
 
-        let collector = tracing_subscriber::fmt()
-            .with_thread_names(true)
-            .with_file(true)
-            .with_level(true)
-            .with_line_number(true)
-            .with_thread_ids(true)
-            .finish();
+        let ret = naming_service.batch_register_instance(
+            "test-service".to_string(),
+            Some(constants::DEFAULT_GROUP.to_string()),
+            instance_vec,
+        );
+        info!("response. {:?}", ret);
 
-        tracing::subscriber::with_default(collector, || {
-            let ret = naming_service.batch_register_instance(
+        let ten_millis = time::Duration::from_secs(10);
+        thread::sleep(ten_millis);
+
+        for _ in 0..3 {
+            let all_instances = naming_service.select_one_healthy_instance(
                 "test-service".to_string(),
                 Some(constants::DEFAULT_GROUP.to_string()),
-                instance_vec,
+                Vec::default(),
+                false,
             );
-            info!("response. {:?}", ret);
+            info!("response. {:?}", all_instances);
+        }
 
-            let ten_millis = time::Duration::from_secs(10);
-            thread::sleep(ten_millis);
-
-            for _ in 0..3 {
-                let all_instances = naming_service.select_one_healthy_instance(
-                    "test-service".to_string(),
-                    Some(constants::DEFAULT_GROUP.to_string()),
-                    Vec::default(),
-                    false,
-                );
-                info!("response. {:?}", all_instances);
-            }
-
-            thread::sleep(ten_millis);
-        });
+        thread::sleep(ten_millis);
         Ok(())
     }
 
     #[test]
     #[ignore]
     fn test_get_service_list() -> Result<()> {
+        tracing_subscriber::fmt()
+            .with_thread_names(true)
+            .with_file(true)
+            .with_level(true)
+            .with_line_number(true)
+            .with_thread_ids(true)
+            .with_max_level(LevelFilter::DEBUG)
+            .init();
+
         let props = ClientProps::new().server_addr("127.0.0.1:8848");
 
         let mut metadata = HashMap::<String, String>::new();
@@ -977,30 +991,20 @@ pub(crate) mod tests {
         };
         let instance_vec = vec![service_instance1, service_instance2, service_instance3];
 
-        let collector = tracing_subscriber::fmt()
-            .with_thread_names(true)
-            .with_file(true)
-            .with_level(true)
-            .with_line_number(true)
-            .with_thread_ids(true)
-            .finish();
+        let ret = naming_service.batch_register_instance(
+            "test-service".to_string(),
+            Some(constants::DEFAULT_GROUP.to_string()),
+            instance_vec,
+        );
+        info!("response. {:?}", ret);
 
-        tracing::subscriber::with_default(collector, || {
-            let ret = naming_service.batch_register_instance(
-                "test-service".to_string(),
-                Some(constants::DEFAULT_GROUP.to_string()),
-                instance_vec,
-            );
-            info!("response. {:?}", ret);
+        let ten_millis = time::Duration::from_secs(10);
+        thread::sleep(ten_millis);
 
-            let ten_millis = time::Duration::from_secs(10);
-            thread::sleep(ten_millis);
+        let service_list = naming_service.get_service_list(1, 50, None);
+        info!("response. {:?}", service_list);
 
-            let service_list = naming_service.get_service_list(1, 50, None);
-            info!("response. {:?}", service_list);
-
-            thread::sleep(ten_millis);
-        });
+        thread::sleep(ten_millis);
         Ok(())
     }
 
@@ -1018,6 +1022,15 @@ pub(crate) mod tests {
     #[test]
     #[ignore]
     fn test_service_push() -> Result<()> {
+        tracing_subscriber::fmt()
+            .with_thread_names(true)
+            .with_file(true)
+            .with_level(true)
+            .with_line_number(true)
+            .with_thread_ids(true)
+            .with_max_level(LevelFilter::DEBUG)
+            .init();
+
         let props = ClientProps::new().server_addr("127.0.0.1:8848");
 
         let mut metadata = HashMap::<String, String>::new();
@@ -1046,15 +1059,6 @@ pub(crate) mod tests {
             ..Default::default()
         };
         let instance_vec = vec![service_instance1, service_instance2, service_instance3];
-
-        tracing_subscriber::fmt()
-            .with_thread_names(true)
-            .with_file(true)
-            .with_level(true)
-            .with_line_number(true)
-            .with_thread_ids(true)
-            .with_max_level(LevelFilter::DEBUG)
-            .init();
 
         let ret = naming_service.batch_register_instance(
             "test-service".to_string(),
