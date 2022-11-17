@@ -1,10 +1,10 @@
 use std::sync::Arc;
 
-use crate::api::error::Result;
 use crate::api::events::naming::InstancesChangeEvent;
+use crate::common::remote::grpc::bi_channel::ResponseWriter;
 use crate::common::remote::grpc::handler::GrpcPayloadHandler;
 use crate::common::remote::grpc::message::{GrpcMessage, GrpcMessageBuilder};
-use tokio::sync::mpsc::Sender;
+
 use tracing::{error, info};
 
 use crate::common::event_bus;
@@ -19,7 +19,7 @@ pub(crate) struct NamingPushRequestHandler {
 }
 
 impl GrpcPayloadHandler for NamingPushRequestHandler {
-    fn hand(&self, bi_sender: Arc<Sender<Result<Payload>>>, payload: Payload) {
+    fn hand(&self, response_writer: ResponseWriter, payload: Payload) {
         executor::spawn(async move {
             let response = NotifySubscriberResponse::ok();
             let grpc_message = GrpcMessageBuilder::new(response).build();
@@ -33,7 +33,7 @@ impl GrpcPayloadHandler for NamingPushRequestHandler {
             }
             let payload = payload.unwrap();
 
-            let ret = bi_sender.send(Ok(payload)).await;
+            let ret = response_writer.write(payload).await;
             if let Err(e) = ret {
                 error!("bi_sender send grpc message to server error. {:?}", e);
             }

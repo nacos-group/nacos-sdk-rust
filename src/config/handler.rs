@@ -1,12 +1,11 @@
-use crate::api::error::Result;
 use crate::common::executor;
+use crate::common::remote::grpc::bi_channel::ResponseWriter;
 use crate::common::remote::grpc::handler::GrpcPayloadHandler;
 use crate::common::remote::grpc::message::{GrpcMessage, GrpcMessageBuilder};
 use crate::config::message::request::ConfigChangeNotifyRequest;
 use crate::config::message::response::ConfigChangeNotifyResponse;
 use crate::config::util;
 use crate::nacos_proto::v2::Payload;
-use std::sync::Arc;
 use tokio::sync::mpsc::Sender;
 
 /// Handler for ConfigChangeNotify
@@ -15,7 +14,7 @@ pub(crate) struct ConfigChangeNotifyHandler {
 }
 
 impl GrpcPayloadHandler for ConfigChangeNotifyHandler {
-    fn hand(&self, bi_sender: Arc<Sender<Result<Payload>>>, payload: Payload) {
+    fn hand(&self, response_writer: ResponseWriter, payload: Payload) {
         tracing::debug!("[ConfigChangeNotifyHandler] receive config-change, handle start.");
 
         let request = GrpcMessage::<ConfigChangeNotifyRequest>::from_payload(payload);
@@ -50,7 +49,7 @@ impl GrpcPayloadHandler for ConfigChangeNotifyHandler {
             let grpc_message = GrpcMessageBuilder::new(response).build();
             let resp_payload = grpc_message.into_payload().unwrap();
 
-            let ret = bi_sender.send(Ok(resp_payload)).await;
+            let ret = response_writer.write(resp_payload).await;
             if let Err(e) = ret {
                 tracing::error!("bi_sender send grpc message to server error. {}", e);
             }

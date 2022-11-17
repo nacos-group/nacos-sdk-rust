@@ -1,7 +1,7 @@
 use std::{collections::HashMap, sync::Arc, thread::sleep, time::Duration};
 
 use serde::{Deserialize, Serialize};
-use tokio::{sync::RwLock, task::JoinHandle};
+use tokio::sync::RwLock;
 use tracing::{debug, error, info, warn};
 
 use crate::common::{
@@ -16,6 +16,7 @@ use crate::common::{
 };
 
 use self::{
+    bi_channel::BiChannel,
     grpc_client::GrpcClient,
     handler::{
         client_detection_request_handler::ClientDetectionRequestHandler, GrpcPayloadHandler,
@@ -29,13 +30,14 @@ use self::{
 use crate::api::error::Error::ClientUnhealthy;
 use crate::api::error::Result;
 
+pub(crate) mod bi_channel;
 pub mod events;
 pub(crate) mod grpc_client;
 pub(crate) mod handler;
 pub(crate) mod message;
 pub(crate) mod subscribers;
 
-type HandlerMap = Arc<RwLock<HashMap<String, Vec<Arc<dyn GrpcPayloadHandler>>>>>;
+type HandlerMap = HashMap<String, Vec<Arc<dyn GrpcPayloadHandler>>>;
 const APP_FILED: &str = "app";
 
 pub(crate) struct NacosGrpcClient {
@@ -50,7 +52,7 @@ impl NacosGrpcClient {
         let grpc_client = GrpcClient::new(address.as_str()).await?;
         let grpc_client = RwLock::new(grpc_client);
 
-        let bi_handler_map = Arc::new(RwLock::new(HashMap::new()));
+        let bi_handler_map = HashMap::new();
 
         Ok(NacosGrpcClient {
             grpc_client,
@@ -81,23 +83,29 @@ impl NacosGrpcClient {
     }
 
     pub(crate) async fn init(&self, set_up: NacosServerSetUP) -> Result<()> {
-        // receive bi message
-
-        let receive_bi_task_join_handler = self.receive_bi_payload().await;
+        debug!("init nacos grpc client.");
 
         let mut retry_count = 0;
         let retry_wait_time = 300;
 
         let mut connection_id = None;
-        while !receive_bi_task_join_handler.is_finished() {
+
+        let bi_channel = self.open_bi_channel().await;
+        if let Err(e) = bi_channel {
+            error!("set up error: {:?}", e);
+            return Err(e);
+        }
+
+        let bi_channel = bi_channel.unwrap();
+        while !bi_channel.is_closed() {
             sleep(Duration::from_millis(retry_count * retry_wait_time));
             retry_count += 1;
 
-            // setup
-            let setup_ret = self.setup(set_up.clone()).await;
-
-            if let Err(e) = setup_ret {
-                error!("setup server error: {:?}", e);
+            // set up
+            debug!("set up grpc connection.");
+            let set_up_ret = self.setup(&bi_channel, set_up.clone()).await;
+            if let Err(e) = set_up_ret {
+                error!("set up error. {:?}", e);
                 continue;
             }
 
@@ -112,23 +120,19 @@ impl NacosGrpcClient {
                 error!("check server error. {:?}", check_server_response.message);
                 continue;
             }
-
             if check_server_response.connection_id.is_none() {
                 error!("init failed, cannot get connection id");
                 continue;
             }
-
             connection_id = check_server_response.connection_id;
             break;
         }
+
         if connection_id.is_none() {
+            let _ = bi_channel.close().await;
             return Err(ClientUnhealthy(
                 "init failed, cannot get connection id".to_string(),
             ));
-        }
-
-        if receive_bi_task_join_handler.is_finished() {
-            return Err(ClientUnhealthy("init failed".to_string()));
         }
 
         let connection_id = connection_id.unwrap();
@@ -140,70 +144,45 @@ impl NacosGrpcClient {
             *self_connection_id = connection_id;
         }
 
+        debug!("nacos grpc client init complete.");
         Ok(())
     }
 
-    pub(crate) async fn receive_bi_payload(&self) -> JoinHandle<()> {
-        info!("starting receive bi payload");
-        let handler_map = self.bi_handler_map.clone();
-
+    async fn open_bi_channel(&self) -> Result<BiChannel> {
         let grpc_client = self.grpc_client.read().await;
-        let (response_sender, mut response_receiver) = grpc_client.streaming_call().await;
-
-        executor::spawn(async move {
-            while let Some(payload) = response_receiver.recv().await {
-                if let Err(e) = payload {
-                    error!(
-                        "receive_bi_payload_task receive an error message, close channel. {:?}",
-                        e
-                    );
-                    response_receiver.close();
-                    while (response_receiver.recv().await).is_some() {}
-                    break;
-                }
-
-                let mut payload = payload.unwrap();
+        let handler_map = self.bi_handler_map.clone();
+        debug!("open bi channel");
+        let bi_channel = grpc_client
+            .open_bi_channel(move |mut payload, response_writer| {
                 let metadata = payload.metadata.take();
                 if metadata.is_none() {
-                    continue;
+                    return;
                 }
                 let metadata = metadata.unwrap();
                 let type_url = &metadata.r#type;
-
-                info!(
-                    "receive_bi_payload_task receive a message from the server, message type :{:?}",
-                    type_url
-                );
-                let read = handler_map.read().await;
-                let handlers = read.get(type_url);
-
+                let handlers = handler_map.get(type_url);
                 if let Some(handlers) = handlers {
-                    payload.metadata = Some(metadata);
                     for handler in handlers {
-                        let sender = response_sender.clone();
-                        let handler = handler.clone();
                         let payload = payload.clone();
+                        let handler = handler.clone();
+                        let response_writer = response_writer.clone();
                         executor::spawn(async move {
-                            handler.hand(sender, payload);
+                            handler.hand(response_writer, payload);
                         });
                     }
                 } else {
                     let default_handler = DefaultHandler;
-                    let sender = response_sender.clone();
                     executor::spawn(async move {
-                        default_handler.hand(sender, payload);
+                        default_handler.hand(response_writer.clone(), payload);
                     });
                 }
-            }
+            })
+            .await?;
 
-            response_receiver.close();
-            while (response_receiver.recv().await).is_some() {}
-
-            warn!("receive_bi_payload_task quit!");
-        })
+        Ok(bi_channel)
     }
 
-    pub(crate) async fn check_server(&self) -> Result<ServerCheckResponse> {
+    async fn check_server(&self) -> Result<ServerCheckResponse> {
         debug!("check server");
         let request = ServerCheckRequest::default();
         let request = GrpcMessageBuilder::new(request).build();
@@ -215,10 +194,10 @@ impl NacosGrpcClient {
         Ok(message.into_body())
     }
 
-    pub(crate) async fn setup(&self, set_up: NacosServerSetUP) -> Result<()> {
+    async fn setup(&self, bi_channel: &BiChannel, set_up: NacosServerSetUP) -> Result<()> {
         debug!("set up");
 
-        let setup_request = ConnectionSetupRequest {
+        let mut setup_request = ConnectionSetupRequest {
             client_version: set_up.client_version,
             abilities: set_up.abilities,
             tenant: set_up.namespace,
@@ -226,7 +205,16 @@ impl NacosGrpcClient {
             ..Default::default()
         };
 
-        self.bi_call(setup_request).await?;
+        let request_headers = setup_request.take_headers();
+
+        let grpc_message = GrpcMessageBuilder::new(setup_request)
+            .header(APP_FILED.to_owned(), self.app_name.clone())
+            .headers(request_headers)
+            .build();
+
+        let payload = grpc_message.into_payload()?;
+
+        bi_channel.write(payload).await?;
         Ok(())
     }
 
@@ -248,32 +236,16 @@ impl NacosGrpcClient {
         Ok(body)
     }
 
-    pub(crate) async fn bi_call<R>(&self, mut request: R) -> Result<()>
-    where
-        R: GrpcRequestMessage + 'static,
-    {
-        let request_headers = request.take_headers();
-
-        let grpc_message = GrpcMessageBuilder::new(request)
-            .header(APP_FILED.to_owned(), self.app_name.clone())
-            .headers(request_headers)
-            .build();
-
-        let grpc_client = self.grpc_client.read().await;
-        grpc_client.bi_call(grpc_message).await
-    }
-
     pub(crate) async fn register_bi_call_handler(
-        &self,
+        &mut self,
         key: String,
         handler: Arc<dyn GrpcPayloadHandler>,
     ) {
-        let mut write = self.bi_handler_map.write().await;
-        if let Some(vec) = write.get_mut(&key) {
+        if let Some(vec) = self.bi_handler_map.get_mut(&key) {
             vec.push(handler);
         } else {
             let vec = vec![handler];
-            write.insert(key, vec);
+            self.bi_handler_map.insert(key, vec);
         }
     }
 }
@@ -489,28 +461,13 @@ impl NacosGrpcClientBuilder {
 
     pub(crate) fn build(self) -> Result<Arc<NacosGrpcClient>> {
         futures::executor::block_on(async move {
-            let nacos_grpc_client = NacosGrpcClient::new(self.address, self.app_name).await?;
+            let mut nacos_grpc_client = NacosGrpcClient::new(self.address, self.app_name).await?;
             let server_set_up = NacosServerSetUP {
                 labels: self.labels,
                 client_version: self.client_version,
                 abilities: self.abilities,
                 namespace: self.namespace,
             };
-            nacos_grpc_client.init(server_set_up.clone()).await?;
-
-            let nacos_grpc_client = Arc::new(nacos_grpc_client);
-
-            // register event subscriber
-            let reconnect_subscriber = GrpcReconnectedEventSubscriber {
-                nacos_grpc_client: nacos_grpc_client.clone(),
-                set_up_info: server_set_up.clone(),
-            };
-            let health_check_subscriber = GrpcConnectHealthCheckEventSubscriber {
-                nacos_grpc_client: nacos_grpc_client.clone(),
-            };
-
-            event_bus::register(Arc::new(reconnect_subscriber));
-            event_bus::register(Arc::new(health_check_subscriber));
 
             // register grpc payload handler
             for (key, handlers) in self.bi_call_handlers {
@@ -529,6 +486,21 @@ impl NacosGrpcClientBuilder {
                 )
                 .await;
 
+            let nacos_grpc_client = Arc::new(nacos_grpc_client);
+
+            // register event subscriber
+            let reconnect_subscriber = GrpcReconnectedEventSubscriber {
+                nacos_grpc_client: nacos_grpc_client.clone(),
+                set_up_info: server_set_up.clone(),
+            };
+            let health_check_subscriber = GrpcConnectHealthCheckEventSubscriber {
+                nacos_grpc_client: nacos_grpc_client.clone(),
+            };
+
+            event_bus::register(Arc::new(reconnect_subscriber));
+            event_bus::register(Arc::new(health_check_subscriber));
+
+            nacos_grpc_client.init(server_set_up).await?;
             Ok(nacos_grpc_client)
         })
     }
