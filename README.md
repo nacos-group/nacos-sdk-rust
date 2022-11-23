@@ -155,7 +155,7 @@ gRPC 交互的 Payload 和 Metadata 由 `Protocol Buffers` 序列化，具体的
 #### Common 通用能力
 - [ ] 创建参数，自定义传参 + ENV 环境变量读取，后者优先级高；ENV 统一前缀，例如 `NACOS_CLIENT_CONFIG_*` 于配置管理， `NACOS_CLIENT_NAMING_*` 于服务注册
 - [x] 通用客户端请求交互，Request/Response 通用 gRPC 逻辑，提供给 Config/Naming
-- [ ] Auth 鉴权；账密登陆 accessToken，ak/sk
+- [x] Auth 鉴权；账密登陆 username/password，TODO accessKey/secretKey
 - [x] 通用日志，`tracing::info!()`
 - [ ] Monitor，`opentelemetry`
 - [ ] 数据落盘与加载（用于服务端宕机弱依赖）
