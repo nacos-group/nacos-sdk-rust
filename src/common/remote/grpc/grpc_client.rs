@@ -269,12 +269,12 @@ impl PartialEq for GrpcClientState {
     }
 }
 
-impl Into<i8> for GrpcClientState {
-    fn into(self) -> i8 {
-        match self {
-            Self::Healthy => 0,
-            Self::Unhealthy => 1,
-            Self::Shutdown => 2,
+impl From<GrpcClientState> for i8 {
+    fn from(state: GrpcClientState) -> Self {
+        match state {
+            GrpcClientState::Healthy => 0,
+            GrpcClientState::Unhealthy => 1,
+            GrpcClientState::Shutdown => 2,
         }
     }
 }

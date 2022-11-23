@@ -5,7 +5,6 @@ use std::collections::HashMap;
 
 use crate::{
     api::error::Error::GrpcPayloadBodyEmpty,
-    api::error::Error::GrpcPayloadMetaDataEmpty,
     api::error::Error::Serialization,
     api::error::Result,
     nacos_proto::v2::{Metadata, Payload},
@@ -81,13 +80,13 @@ where
         let client_ip;
         let headers;
         let meta_data = payload.metadata;
-        if meta_data.is_none() {
-            client_ip = "".to_string();
-            headers = HashMap::new();
-        } else {
-            let meta_data = meta_data.unwrap();
+
+        if let Some(meta_data) = meta_data {
             client_ip = meta_data.client_ip;
             headers = meta_data.headers;
+        } else {
+            client_ip = "".to_string();
+            headers = HashMap::new();
         }
 
         Ok(GrpcMessage {

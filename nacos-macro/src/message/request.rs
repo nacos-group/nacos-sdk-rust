@@ -3,7 +3,7 @@ use syn::{parse_quote, ItemStruct, Path};
 
 use quote::quote;
 
-use crate::{Crates, MacroArgs};
+use super::{Crates, MacroArgs};
 
 pub(crate) fn grpc_request(
     macro_args: MacroArgs,
@@ -91,8 +91,8 @@ pub(crate) fn grpc_request(
     ));
 
     match macro_args.module {
-        crate::Module::Naming => naming_request(&mut item_struct),
-        crate::Module::Config => config_request(&mut item_struct),
+        super::Module::Naming => naming_request(&mut item_struct),
+        super::Module::Config => config_request(&mut item_struct),
         _ => {}
     }
 

@@ -3,7 +3,7 @@ use syn::{parse_quote, ItemStruct, Path};
 
 use quote::quote;
 
-use crate::{Crates, MacroArgs};
+use super::{Crates, MacroArgs};
 
 const SUCCESS_RESPONSE: (i32, &str) = (200, "Response ok");
 const FAIL_RESPONSE: (i32, &str) = (500, "Response fail");

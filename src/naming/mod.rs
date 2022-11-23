@@ -4,7 +4,6 @@ use futures::Future;
 use tracing::info;
 
 use crate::api::error::Error::NamingBatchRegisterServiceFailed;
-use crate::api::error::Error::NamingDeregisterServiceFailed;
 use crate::api::error::Error::NamingQueryServiceFailed;
 use crate::api::error::Error::NamingRegisterServiceFailed;
 use crate::api::error::Error::NamingServiceListFailed;
@@ -36,12 +35,20 @@ use self::handler::NamingPushRequestHandler;
 use self::message::request::NotifySubscriberRequest;
 use self::message::request::SubscribeServiceRequest;
 use self::message::response::SubscribeServiceResponse;
+use self::redo::AutomaticRequest;
+use self::redo::NamingRedoTask;
+use self::redo::RedoTask;
+use self::redo::RedoTaskExecutor;
+use self::subscribers::redo_task_disconnect_event_subscriber::RedoTaskDisconnectEventSubscriber;
+use self::subscribers::redo_task_reconnect_event_subscriber::RedoTaskReconnectEventSubscriber;
 
 mod cache;
 mod chooser;
 mod dto;
 mod handler;
 mod message;
+mod redo;
+mod subscribers;
 
 pub(self) mod constants {
 
@@ -56,18 +63,13 @@ pub(self) mod constants {
     pub const DEFAULT_GROUP: &str = "DEFAULT_GROUP";
 
     pub const DEFAULT_NAMESPACE: &str = "public";
-
-    pub mod request {
-        pub const INSTANCE_REQUEST_REGISTER: &str = "registerInstance";
-        pub const DE_REGISTER_INSTANCE: &str = "deregisterInstance";
-        pub const BATCH_REGISTER_INSTANCE: &str = "batchRegisterInstance";
-    }
 }
 
 pub(crate) struct NacosNamingService {
     nacos_grpc_client: Arc<NacosGrpcClient>,
     auth_plugin: Arc<dyn AuthPlugin>,
     namespace: String,
+    redo_task_executor: Arc<RedoTaskExecutor>,
 }
 
 impl NacosNamingService {
@@ -119,7 +121,18 @@ impl NacosNamingService {
             tokio::time::Duration::from_secs(30),
         );
 
+        let redo_task_executor = Arc::new(RedoTaskExecutor::new());
+        // redo grpc event subscriber
+        event_bus::register(Arc::new(RedoTaskDisconnectEventSubscriber {
+            redo_task_executor: redo_task_executor.clone(),
+        }));
+
+        event_bus::register(Arc::new(RedoTaskReconnectEventSubscriber {
+            redo_task_executor: redo_task_executor.clone(),
+        }));
+
         Ok(NacosNamingService {
+            redo_task_executor,
             nacos_grpc_client,
             auth_plugin,
             namespace,
@@ -142,110 +155,6 @@ impl NacosNamingService {
 
         Box::new(Box::pin(task))
     }
-
-    fn instance_opt(
-        &self,
-        service_name: String,
-        group_name: Option<String>,
-        service_instance: ServiceInstance,
-        r_type: String,
-    ) -> AsyncFuture<InstanceResponse> {
-        let group_name =
-            Some(group_name.unwrap_or_else(|| self::constants::DEFAULT_GROUP.to_owned()));
-        let namespace = Some(self.namespace.clone());
-        let service_name = Some(service_name);
-
-        let request = InstanceRequest {
-            r_type,
-            instance: service_instance,
-            namespace,
-            service_name,
-            group_name,
-            ..Default::default()
-        };
-
-        let request_to_server_task =
-            self.request_to_server::<InstanceRequest, InstanceResponse>(request);
-        Box::new(Box::pin(async move { request_to_server_task.await }))
-    }
-
-    fn batch_instances_opt(
-        &self,
-        service_name: String,
-        group_name: Option<String>,
-        service_instances: Vec<ServiceInstance>,
-        r_type: String,
-    ) -> AsyncFuture<BatchInstanceResponse> {
-        let group_name =
-            Some(group_name.unwrap_or_else(|| self::constants::DEFAULT_GROUP.to_owned()));
-        let namespace = Some(self.namespace.clone());
-        let service_name = Some(service_name);
-
-        let request = BatchInstanceRequest {
-            r_type,
-            instances: service_instances,
-            namespace,
-            service_name,
-            group_name,
-            ..Default::default()
-        };
-
-        let request_to_server_task =
-            self.request_to_server::<BatchInstanceRequest, BatchInstanceResponse>(request);
-        Box::new(Box::pin(async move { request_to_server_task.await }))
-    }
-
-    fn subscribe_opt(
-        &self,
-        service_name: String,
-        group_name: Option<String>,
-        clusters: Vec<String>,
-        subscriber: Arc<dyn Subscriber>,
-        subscribe: bool,
-    ) -> AsyncFuture<()> {
-        if subscribe {
-            event_bus::register(subscriber);
-        } else {
-            event_bus::unregister(subscriber);
-        }
-
-        let clusters = clusters.join(",");
-        let group_name =
-            Some(group_name.unwrap_or_else(|| self::constants::DEFAULT_GROUP.to_owned()));
-        let service_name = Some(service_name);
-        let namespace = Some(self.namespace.clone());
-
-        let request = SubscribeServiceRequest {
-            service_name,
-            group_name,
-            namespace,
-            subscribe,
-            clusters,
-            ..Default::default()
-        };
-
-        let request_task =
-            self.request_to_server::<SubscribeServiceRequest, SubscribeServiceResponse>(request);
-
-        Box::new(Box::pin(async move {
-            let response = request_task.await?;
-            if !response.is_success() {
-                let SubscribeServiceResponse {
-                    result_code,
-                    error_code,
-                    message,
-                    ..
-                } = response;
-                return Err(NamingSubscribeServiceFailed(
-                    result_code,
-                    error_code,
-                    message.unwrap_or_default(),
-                ));
-            }
-            info!("SubscribeServiceResponse: {:?}", response);
-            Ok(())
-        }))
-    }
 }
 
 impl NamingService for NacosNamingService {
@@ -265,15 +174,25 @@ impl NamingService for NacosNamingService {
         group_name: Option<String>,
         service_instance: ServiceInstance,
     ) -> AsyncFuture<()> {
-        let instance_opt_task = self.instance_opt(
-            service_name,
-            group_name,
-            service_instance,
-            self::constants::request::INSTANCE_REQUEST_REGISTER.to_owned(),
-        );
+        let namespace = Some(self.namespace.clone());
+        let group_name = group_name.or_else(|| Some(self::constants::DEFAULT_GROUP.to_owned()));
+        let request =
+            InstanceRequest::register(service_instance, Some(service_name), namespace, group_name);
+
+        // automatic request
+        let auto_request: Arc<dyn AutomaticRequest> = Arc::new(request.clone());
+        let redo_task = NamingRedoTask::new(auto_request, self.nacos_grpc_client.clone());
+        let redo_task_executor = self.redo_task_executor.clone();
+
+        let request_to_server_task =
+            self.request_to_server::<InstanceRequest, InstanceResponse>(request);
 
         Box::new(Box::pin(async move {
-            let body = instance_opt_task.await?;
+            let redo_task = Arc::new(redo_task);
+            redo_task.active();
+            redo_task_executor.add_task(redo_task.clone()).await;
+
+            let body = request_to_server_task.await?;
             if !body.is_success() {
                 let InstanceResponse {
                     result_code,
@@ -288,6 +207,7 @@ impl NamingService for NacosNamingService {
                 ));
             }
 
+            redo_task.frozen();
             Ok(())
         }))
     }
@@ -308,15 +228,25 @@ impl NamingService for NacosNamingService {
         group_name: Option<String>,
         service_instance: ServiceInstance,
     ) -> AsyncFuture<()> {
-        let instance_opt_task = self.instance_opt(
-            service_name,
-            group_name,
+        let namespace = Some(self.namespace.clone());
+        let group_name = group_name.or_else(|| Some(self::constants::DEFAULT_GROUP.to_owned()));
+        let request = InstanceRequest::deregister(
             service_instance,
-            self::constants::request::DE_REGISTER_INSTANCE.to_owned(),
+            Some(service_name),
+            namespace,
+            group_name,
         );
 
+        // automatic request
+        let auto_request: Arc<dyn AutomaticRequest> = Arc::new(request.clone());
+        let redo_task = NamingRedoTask::new(auto_request, self.nacos_grpc_client.clone());
+        let redo_task_executor = self.redo_task_executor.clone();
+
+        let request_to_server_task =
+            self.request_to_server::<InstanceRequest, InstanceResponse>(request);
+
         Box::new(Box::pin(async move {
-            let body = instance_opt_task.await?;
+            let body = request_to_server_task.await?;
             if !body.is_success() {
                 let InstanceResponse {
                     result_code,
@@ -324,13 +254,16 @@ impl NamingService for NacosNamingService {
                     message,
                     ..
                 } = body;
-                return Err(NamingDeregisterServiceFailed(
+                return Err(NamingRegisterServiceFailed(
                     result_code,
                     error_code,
                     message.unwrap_or_default(),
                 ));
             }
 
+            redo_task_executor
+                .remove_task(redo_task.task_key().as_str())
+                .await;
             Ok(())
         }))
     }
@@ -352,15 +285,25 @@ impl NamingService for NacosNamingService {
         group_name: Option<String>,
         service_instances: Vec<ServiceInstance>,
     ) -> AsyncFuture<()> {
-        let batch_instance_opt_task = self.batch_instances_opt(
-            service_name,
-            group_name,
-            service_instances,
-            self::constants::request::BATCH_REGISTER_INSTANCE.to_owned(),
-        );
+        let namespace = Some(self.namespace.clone());
+        let group_name = group_name.or_else(|| Some(self::constants::DEFAULT_GROUP.to_owned()));
+        let request =
+            BatchInstanceRequest::new(service_instances, namespace, Some(service_name), group_name);
+
+        // automatic request
+        let auto_request: Arc<dyn AutomaticRequest> = Arc::new(request.clone());
+        let redo_task = NamingRedoTask::new(auto_request, self.nacos_grpc_client.clone());
+        let redo_task_executor = self.redo_task_executor.clone();
+
+        let request_to_server_task =
+            self.request_to_server::<BatchInstanceRequest, BatchInstanceResponse>(request);
 
         Box::new(Box::pin(async move {
-            let body = batch_instance_opt_task.await?;
+            let redo_task = Arc::new(redo_task);
+            redo_task.active();
+            redo_task_executor.add_task(redo_task.clone()).await;
+
+            let body = request_to_server_task.await?;
             if !body.is_success() {
                 let BatchInstanceResponse {
                     result_code,
@@ -374,7 +317,7 @@ impl NamingService for NacosNamingService {
                     message.unwrap_or_default(),
                 ));
             }
-
+            redo_task.frozen();
             Ok(())
         }))
     }
@@ -399,8 +342,7 @@ impl NamingService for NacosNamingService {
     ) -> AsyncFuture<Vec<ServiceInstance>> {
         //TODO add subscribe logic
         let cluster = clusters.join(",");
-        let group_name =
-            Some(group_name.unwrap_or_else(|| self::constants::DEFAULT_GROUP.to_owned()));
+        let group_name = group_name.or_else(|| Some(self::constants::DEFAULT_GROUP.to_owned()));
         let namespace = Some(self.namespace.clone());
         let service_name = Some(service_name);
 
@@ -462,6 +404,7 @@ impl NamingService for NacosNamingService {
         subscribe: bool,
         healthy: bool,
     ) -> AsyncFuture<Vec<ServiceInstance>> {
+        let group_name = group_name.or_else(|| Some(self::constants::DEFAULT_GROUP.to_owned()));
         let get_all_instances_task =
             self.get_all_instances_async(service_name, group_name, clusters, subscribe);
 
@@ -496,6 +439,7 @@ impl NamingService for NacosNamingService {
         clusters: Vec<String>,
         subscribe: bool,
     ) -> AsyncFuture<ServiceInstance> {
+        let group_name = group_name.or_else(|| Some(self::constants::DEFAULT_GROUP.to_owned()));
         let service_name_for_tip = service_name.clone();
         let select_task =
             self.select_instance_async(service_name, group_name, clusters, subscribe, true);
@@ -528,8 +472,7 @@ impl NamingService for NacosNamingService {
         page_size: i32,
         group_name: Option<String>,
     ) -> AsyncFuture<(Vec<String>, i32)> {
-        let group_name =
-            Some(group_name.unwrap_or_else(|| self::constants::DEFAULT_GROUP.to_owned()));
+        let group_name = group_name.or_else(|| Some(self::constants::DEFAULT_GROUP.to_owned()));
         let namespace = Some(self.namespace.clone());
 
         let request = ServiceListRequest {
@@ -580,7 +523,47 @@ impl NamingService for NacosNamingService {
         clusters: Vec<String>,
         subscriber: Arc<dyn Subscriber>,
     ) -> AsyncFuture<()> {
-        self.subscribe_opt(service_name, group_name, clusters, subscriber, true)
+        let clusters = clusters.join(",");
+        let group_name =
+            Some(group_name.unwrap_or_else(|| self::constants::DEFAULT_GROUP.to_owned()));
+        let service_name = Some(service_name);
+        let namespace = Some(self.namespace.clone());
+
+        let request =
+            SubscribeServiceRequest::new(true, clusters, service_name, namespace, group_name);
+
+        // automatic request
+        let auto_request: Arc<dyn AutomaticRequest> = Arc::new(request.clone());
+        let redo_task = NamingRedoTask::new(auto_request, self.nacos_grpc_client.clone());
+        let redo_task_executor = self.redo_task_executor.clone();
+
+        let request_task =
+            self.request_to_server::<SubscribeServiceRequest, SubscribeServiceResponse>(request);
+
+        Box::new(Box::pin(async move {
+            let redo_task = Arc::new(redo_task);
+            redo_task.active();
+            redo_task_executor.add_task(redo_task.clone()).await;
+
+            let response = request_task.await?;
+            if !response.is_success() {
+                let SubscribeServiceResponse {
+                    result_code,
+                    error_code,
+                    message,
+                    ..
+                } = response;
+                return Err(NamingSubscribeServiceFailed(
+                    result_code,
+                    error_code,
+                    message.unwrap_or_default(),
+                ));
+            }
+            event_bus::register(subscriber);
+            info!("SubscribeServiceResponse: {:?}", response);
+            redo_task.frozen();
+            Ok(())
+        }))
     }
 
     fn unsubscribe(
@@ -601,7 +584,45 @@ impl NamingService for NacosNamingService {
         clusters: Vec<String>,
         subscriber: Arc<dyn Subscriber>,
     ) -> AsyncFuture<()> {
-        self.subscribe_opt(service_name, group_name, clusters, subscriber, false)
+        let clusters = clusters.join(",");
+        let group_name =
+            Some(group_name.unwrap_or_else(|| self::constants::DEFAULT_GROUP.to_owned()));
+        let service_name = Some(service_name);
+        let namespace = Some(self.namespace.clone());
+
+        let request =
+            SubscribeServiceRequest::new(false, clusters, service_name, namespace, group_name);
+
+        // automatic request
+        let auto_request: Arc<dyn AutomaticRequest> = Arc::new(request.clone());
+        let redo_task = NamingRedoTask::new(auto_request, self.nacos_grpc_client.clone());
+        let redo_task_executor = self.redo_task_executor.clone();
+
+        let request_task =
+            self.request_to_server::<SubscribeServiceRequest, SubscribeServiceResponse>(request);
+
+        Box::new(Box::pin(async move {
+            let response = request_task.await?;
+            if !response.is_success() {
+                let SubscribeServiceResponse {
+                    result_code,
+                    error_code,
+                    message,
+                    ..
+                } = response;
+                return Err(NamingSubscribeServiceFailed(
+                    result_code,
+                    error_code,
+                    message.unwrap_or_default(),
+                ));
+            }
+            event_bus::unregister(subscriber);
+            info!("SubscribeServiceResponse: {:?}", response);
+            redo_task_executor
+                .remove_task(redo_task.task_key().as_str())
+                .await;
+            Ok(())
+        }))
     }
 }
 
@@ -689,7 +710,7 @@ pub(crate) mod tests {
         );
         info!("response. {:?}", ret);
 
-        let ten_millis = time::Duration::from_secs(10);
+        let ten_millis = time::Duration::from_secs(30);
         thread::sleep(ten_millis);
 
         let ret = naming_service.deregister_instance(
@@ -699,7 +720,7 @@ pub(crate) mod tests {
         );
         info!("response. {:?}", ret);
 
-        let ten_millis = time::Duration::from_secs(10);
+        let ten_millis = time::Duration::from_secs(30);
         thread::sleep(ten_millis);
         Ok(())
     }
@@ -753,7 +774,7 @@ pub(crate) mod tests {
         );
         info!("response. {:?}", ret);
 
-        let ten_millis = time::Duration::from_secs(10);
+        let ten_millis = time::Duration::from_secs(300);
         thread::sleep(ten_millis);
         Ok(())
     }
@@ -1077,7 +1098,7 @@ pub(crate) mod tests {
 
         info!("response. {:?}", ret);
 
-        let ten_millis = time::Duration::from_secs(30);
+        let ten_millis = time::Duration::from_secs(300);
         thread::sleep(ten_millis);
         Ok(())
     }
