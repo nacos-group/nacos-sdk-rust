@@ -47,12 +47,11 @@ impl AuthPlugin for HttpLoginAuthPlugin {
         let username = auth_context.params.get(USERNAME).unwrap();
         let password = auth_context.params.get(PASSWORD).unwrap();
 
-        let mut server_addr = String::new();
-        {
+        let server_addr = {
             let mutex = self.server_list.read().unwrap();
             // todo random one
-            server_addr = mutex.first().unwrap().to_string();
-        }
+            mutex.first().unwrap().to_string()
+        };
 
         // todo support https
         let login_url = format!(
