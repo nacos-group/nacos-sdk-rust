@@ -39,8 +39,8 @@ use self::redo::AutomaticRequest;
 use self::redo::NamingRedoTask;
 use self::redo::RedoTask;
 use self::redo::RedoTaskExecutor;
-use self::subscribers::redo_task_disconnect_event_subscriber::RedoTaskDisconnectEventSubscriber;
-use self::subscribers::redo_task_reconnect_event_subscriber::RedoTaskReconnectEventSubscriber;
+use self::subscribers::RedoTaskDisconnectEventSubscriber;
+use self::subscribers::RedoTaskReconnectEventSubscriber;
 
 mod cache;
 mod chooser;
@@ -181,7 +181,11 @@ impl NamingService for NacosNamingService {
 
         // automatic request
         let auto_request: Arc<dyn AutomaticRequest> = Arc::new(request.clone());
-        let redo_task = NamingRedoTask::new(auto_request, self.nacos_grpc_client.clone());
+        let redo_task = NamingRedoTask::new(
+            auto_request,
+            self.nacos_grpc_client.clone(),
+            self.auth_plugin.clone(),
+        );
         let redo_task_executor = self.redo_task_executor.clone();
 
         let request_to_server_task =
@@ -239,7 +243,11 @@ impl NamingService for NacosNamingService {
 
         // automatic request
         let auto_request: Arc<dyn AutomaticRequest> = Arc::new(request.clone());
-        let redo_task = NamingRedoTask::new(auto_request, self.nacos_grpc_client.clone());
+        let redo_task = NamingRedoTask::new(
+            auto_request,
+            self.nacos_grpc_client.clone(),
+            self.auth_plugin.clone(),
+        );
         let redo_task_executor = self.redo_task_executor.clone();
 
         let request_to_server_task =
@@ -292,7 +300,11 @@ impl NamingService for NacosNamingService {
 
         // automatic request
         let auto_request: Arc<dyn AutomaticRequest> = Arc::new(request.clone());
-        let redo_task = NamingRedoTask::new(auto_request, self.nacos_grpc_client.clone());
+        let redo_task = NamingRedoTask::new(
+            auto_request,
+            self.nacos_grpc_client.clone(),
+            self.auth_plugin.clone(),
+        );
         let redo_task_executor = self.redo_task_executor.clone();
 
         let request_to_server_task =
@@ -534,7 +546,11 @@ impl NamingService for NacosNamingService {
 
         // automatic request
         let auto_request: Arc<dyn AutomaticRequest> = Arc::new(request.clone());
-        let redo_task = NamingRedoTask::new(auto_request, self.nacos_grpc_client.clone());
+        let redo_task = NamingRedoTask::new(
+            auto_request,
+            self.nacos_grpc_client.clone(),
+            self.auth_plugin.clone(),
+        );
         let redo_task_executor = self.redo_task_executor.clone();
 
         let request_task =
@@ -595,7 +611,11 @@ impl NamingService for NacosNamingService {
 
         // automatic request
         let auto_request: Arc<dyn AutomaticRequest> = Arc::new(request.clone());
-        let redo_task = NamingRedoTask::new(auto_request, self.nacos_grpc_client.clone());
+        let redo_task = NamingRedoTask::new(
+            auto_request,
+            self.nacos_grpc_client.clone(),
+            self.auth_plugin.clone(),
+        );
         let redo_task_executor = self.redo_task_executor.clone();
 
         let request_task =

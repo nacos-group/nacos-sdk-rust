@@ -1,5 +1,7 @@
-use tracing::info;
+use std::sync::Arc;
 
+use crate::api::plugin::AuthPlugin;
+use crate::common::remote::grpc::message::GrpcRequestMessage;
 use crate::{
     common::{
         executor,
@@ -14,18 +16,19 @@ use crate::{
 impl AutomaticRequest for BatchInstanceRequest {
     fn run(
         &self,
+        auth_plugin: Arc<dyn AuthPlugin>,
         nacos_grpc_client: std::sync::Arc<crate::common::remote::grpc::NacosGrpcClient>,
         call_back: crate::naming::redo::CallBack,
     ) {
         let mut request = self.clone();
         request.request_id = Some(generate_request_id());
+        request.add_headers(auth_plugin.get_login_identity().contexts);
 
         executor::spawn(async move {
             let ret = nacos_grpc_client
                 .unary_call_async::<BatchInstanceRequest, BatchInstanceResponse>(request)
                 .await;
             if let Err(e) = ret {
-                info!("batch instance automatic request error: {:?}", e);
                 call_back(Err(e));
             } else {
                 call_back(Ok(()));

@@ -1,6 +1,10 @@
+use std::sync::Arc;
+
+use crate::api::plugin::AuthPlugin;
 use crate::common::executor;
 use crate::common::remote::generate_request_id;
 use crate::common::remote::grpc::message::GrpcMessageData;
+use crate::common::remote::grpc::message::GrpcRequestMessage;
 use crate::naming::message::request::SubscribeServiceRequest;
 use crate::naming::message::response::SubscribeServiceResponse;
 use crate::naming::redo::AutomaticRequest;
@@ -9,11 +13,13 @@ use crate::naming::redo::CallBack;
 impl AutomaticRequest for SubscribeServiceRequest {
     fn run(
         &self,
+        auth_plugin: Arc<dyn AuthPlugin>,
         nacos_grpc_client: std::sync::Arc<crate::common::remote::grpc::NacosGrpcClient>,
         call_back: CallBack,
     ) {
         let mut request = self.clone();
         request.request_id = Some(generate_request_id());
+        request.add_headers(auth_plugin.get_login_identity().contexts);
 
         executor::spawn(async move {
             let ret = nacos_grpc_client
