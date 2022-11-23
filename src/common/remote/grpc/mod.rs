@@ -238,7 +238,12 @@ impl NacosGrpcClient {
                 .take()
                 .map(|data| data.to_string())
                 .unwrap_or_else(|| "error".to_string());
-            return Err(crate::api::error::Error::ErrResult(message));
+            let error_code = body.error_code();
+            debug!("error response: {:?},{:?}", message, error_code);
+            return Err(crate::api::error::Error::ErrResult(format!(
+                "msg:{:?}, code:{:?}",
+                message, error_code
+            )));
         }
         Ok(body)
     }

@@ -10,7 +10,7 @@ use tokio::{
 };
 use tracing::debug;
 
-use crate::api::error::Result;
+use crate::api::{error::Result, plugin::AuthPlugin};
 use crate::common::{executor, remote::grpc::NacosGrpcClient};
 
 pub(crate) mod automatic_request;
@@ -94,7 +94,12 @@ pub(crate) trait RedoTask: Send + Sync + 'static {
 
 type CallBack = Box<dyn Fn(Result<()>) + Send + Sync + 'static>;
 pub(crate) trait AutomaticRequest: Send + Sync + 'static {
-    fn run(&self, nacos_grpc_client: Arc<NacosGrpcClient>, call_back: CallBack);
+    fn run(
+        &self,
+        auth_plugin: Arc<dyn AuthPlugin>,
+        nacos_grpc_client: Arc<NacosGrpcClient>,
+        call_back: CallBack,
+    );
 
     fn name(&self) -> String;
 }
@@ -103,17 +108,20 @@ pub(crate) struct NamingRedoTask {
     active: Arc<AtomicBool>,
     automatic_request: Arc<dyn AutomaticRequest>,
     nacos_grpc_client: Arc<NacosGrpcClient>,
+    auth_plugin: Arc<dyn AuthPlugin>,
 }
 
 impl NamingRedoTask {
     pub(crate) fn new(
         automatic_request: Arc<dyn AutomaticRequest>,
         nacos_grpc_client: Arc<NacosGrpcClient>,
+        auth_plugin: Arc<dyn AuthPlugin>,
     ) -> Self {
         Self {
             active: Arc::new(AtomicBool::new(false)),
             automatic_request,
             nacos_grpc_client,
+            auth_plugin,
         }
     }
 }
@@ -140,6 +148,7 @@ impl RedoTask for NamingRedoTask {
     fn run(&self) {
         let active = self.active.clone();
         self.automatic_request.run(
+            self.auth_plugin.clone(),
             self.nacos_grpc_client.clone(),
             Box::new(move |ret| {
                 if ret.is_ok() {
