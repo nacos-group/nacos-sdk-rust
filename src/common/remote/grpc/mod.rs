@@ -7,6 +7,7 @@ use tracing::{debug, error, info, warn};
 use crate::common::{
     event_bus, executor,
     remote::grpc::{
+        events::NacosGrpcClientInitComplete,
         handler::default_handler::DefaultHandler,
         message::{
             request::{ConnectionSetupRequest, ServerCheckRequest},
@@ -145,6 +146,7 @@ impl NacosGrpcClient {
         }
 
         debug!("nacos grpc client init complete.");
+        event_bus::post(Arc::new(NacosGrpcClientInitComplete {}));
         Ok(())
     }
 
@@ -184,14 +186,11 @@ impl NacosGrpcClient {
 
     async fn check_server(&self) -> Result<ServerCheckResponse> {
         debug!("check server");
-        let request = ServerCheckRequest::default();
-        let request = GrpcMessageBuilder::new(request).build();
-        let grpc_client = self.grpc_client.read().await;
-
-        let message = grpc_client
+        let request = ServerCheckRequest::new();
+        let message = self
             .unary_call_async::<ServerCheckRequest, ServerCheckResponse>(request)
             .await?;
-        Ok(message.into_body())
+        Ok(message)
     }
 
     async fn setup(&self, bi_channel: &BiChannel, set_up: NacosServerSetUP) -> Result<()> {
@@ -233,6 +232,14 @@ impl NacosGrpcClient {
         let grpc_client = self.grpc_client.read().await;
         let ret = grpc_client.unary_call_async::<R, P>(grpc_message).await?;
         let body = ret.into_body();
+        if !body.is_success() {
+            let message = body
+                .message()
+                .take()
+                .map(|data| data.to_string())
+                .unwrap_or_else(|| "error".to_string());
+            return Err(crate::api::error::Error::ErrResult(message));
+        }
         Ok(body)
     }
 
