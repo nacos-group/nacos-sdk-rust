@@ -1,27 +1,20 @@
 use std::sync::Arc;
 
-use crate::api::plugin::AuthPlugin;
 use crate::common::executor;
 use crate::common::remote::generate_request_id;
-use crate::common::remote::grpc::message::{GrpcMessageData, GrpcRequestMessage};
+use crate::common::remote::grpc::message::GrpcMessageData;
 use crate::naming::message::response::InstanceResponse;
-use crate::naming::redo::CallBack;
+use crate::naming::redo::{AutomaticRequestInvoker, CallBack};
 use crate::naming::{message::request::InstanceRequest, redo::AutomaticRequest};
 
 impl AutomaticRequest for InstanceRequest {
-    fn run(
-        &self,
-        auth_plugin: Arc<dyn AuthPlugin>,
-        nacos_grpc_client: std::sync::Arc<crate::common::remote::grpc::NacosGrpcClient>,
-        call_back: CallBack,
-    ) {
+    fn run(&self, invoker: Arc<AutomaticRequestInvoker>, call_back: CallBack) {
         let mut request = self.clone();
         request.request_id = Some(generate_request_id());
-        request.add_headers(auth_plugin.get_login_identity().contexts);
 
         executor::spawn(async move {
-            let ret = nacos_grpc_client
-                .unary_call_async::<InstanceRequest, InstanceResponse>(request)
+            let ret = invoker
+                .invoke::<InstanceRequest, InstanceResponse>(request)
                 .await;
             if let Err(e) = ret {
                 call_back(Err(e));
