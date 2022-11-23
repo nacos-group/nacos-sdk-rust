@@ -78,7 +78,7 @@ impl From<&str> for RequestType {
     fn from(code: &str) -> Self {
         match code {
             "registerInstance" => RequestType::Register,
-            "Deregister" => RequestType::Deregister,
+            "deregisterInstance" => RequestType::Deregister,
             _ => RequestType::Register,
         }
     }
