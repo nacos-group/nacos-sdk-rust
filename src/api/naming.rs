@@ -9,6 +9,7 @@ use super::props::ClientProps;
 
 const DEFAULT_CLUSTER_NAME: &str = "DEFAULT";
 
+/// ServiceInstance for api.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ServiceInstance {
     pub instance_id: Option<String>,
@@ -108,6 +109,7 @@ impl Default for ServiceInstance {
     }
 }
 
+/// NamingChangeEvent when Instance change.
 #[derive(Clone, Debug)]
 pub struct NamingChangeEvent {
     pub service_name: String,
@@ -120,10 +122,26 @@ pub trait InstanceChooser {
     fn choose(self) -> Option<ServiceInstance>;
 }
 
+/// The NamingEventListener receive a event of [`NamingChangeEvent`].
 pub trait NamingEventListener: Send + Sync + 'static {
     fn event(&self, event: Arc<NamingChangeEvent>);
 }
 
+/// Api [`NamingService`].
+///
+/// # Examples
+///
+/// ```ignore
+///  let mut naming_service = nacos_sdk::api::naming::NamingServiceBuilder::new(
+///        nacos_sdk::api::props::ClientProps::new()
+///           .server_addr("0.0.0.0:8848")
+///           // Attention! "public" is "", it is recommended to customize the namespace with clear meaning.
+///           .namespace("")
+///           .app_name("todo-your-app-name"),
+///   )
+///   .build()?;
+/// ```
+#[doc(alias("naming", "sdk", "api"))]
 pub trait NamingService {
     fn register_service(
         &self,
@@ -195,6 +213,21 @@ pub trait NamingService {
     ) -> Result<()>;
 }
 
+/// Builder of api [`NamingService`].
+///
+/// # Examples
+///
+/// ```ignore
+///  let mut naming_service = nacos_sdk::api::naming::NamingServiceBuilder::new(
+///        nacos_sdk::api::props::ClientProps::new()
+///           .server_addr("0.0.0.0:8848")
+///           // Attention! "public" is "", it is recommended to customize the namespace with clear meaning.
+///           .namespace("")
+///           .app_name("todo-your-app-name"),
+///   )
+///   .build()?;
+/// ```
+#[doc(alias("naming", "builder"))]
 pub struct NamingServiceBuilder {
     client_props: ClientProps,
     auth_plugin: Option<Arc<dyn plugin::AuthPlugin>>,

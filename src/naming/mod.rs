@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use tracing::info;
+use tracing::debug;
 
 use crate::api::error::Error::ErrResult;
 use crate::api::error::Result;
@@ -450,7 +450,7 @@ impl NacosNamingService {
             )));
         }
 
-        info!("SubscribeServiceResponse: {:?}", response);
+        debug!("subscribe the {:?}", response);
         redo_task.frozen();
 
         Ok(response.service_info)
@@ -497,7 +497,7 @@ impl NacosNamingService {
                 response.message.unwrap_or_default()
             )));
         }
-        info!("SubscribeServiceResponse: {:?}", response);
+        debug!("unsubscribe the {:?}", response);
         self.redo_task_executor
             .remove_task(redo_task.task_key().as_str())
             .await;
