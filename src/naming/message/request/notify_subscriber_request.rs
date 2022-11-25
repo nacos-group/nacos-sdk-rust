@@ -1,6 +1,6 @@
 use nacos_macro::request;
 
-use crate::api::naming::ServiceInfo;
+use crate::naming::dto::ServiceInfo;
 
 #[request(identity = "NotifySubscriberRequest", module = "naming")]
 pub(crate) struct NotifySubscriberRequest {

@@ -25,9 +25,6 @@ pub enum Error {
     #[error("Serialization failed: {0}")]
     Serialization(#[from] serde_json::Error),
 
-    #[error("Deserialization failed: {0}")]
-    Deserialization(String),
-
     #[error("get result failed: {0}")]
     ErrResult(String),
 
@@ -56,42 +53,4 @@ pub enum Error {
 
     #[error("tokio mpsc send failed: {0}")]
     TokioMpscSendPayloadFailed(#[from] tokio::sync::mpsc::error::SendError<Payload>),
-
-    #[error("grpc payload metadata is empty")]
-    GrpcPayloadMetaDataEmpty,
-
-    #[error("grpc payload body is empty")]
-    GrpcPayloadBodyEmpty,
-
-    #[error("No response returned")]
-    ServerNoResponse,
-
-    #[error("naming service register service failed: resultCode: {0}, errorCode:{1}, message:{2}")]
-    NamingRegisterServiceFailed(i32, i32, String),
-
-    #[error(
-        "naming service deregister service failed: resultCode: {0}, errorCode:{1}, message:{2}"
-    )]
-    NamingDeregisterServiceFailed(i32, i32, String),
-
-    #[error("naming service batch register services failed: resultCode: {0}, errorCode:{1}, message:{2}")]
-    NamingBatchRegisterServiceFailed(i32, i32, String),
-
-    #[error("naming service query services failed: resultCode: {0}, errorCode:{1}, message:{2}")]
-    NamingQueryServiceFailed(i32, i32, String),
-
-    #[error("naming service list services failed: resultCode: {0}, errorCode:{1}, message:{2}")]
-    NamingServiceListFailed(i32, i32, String),
-
-    #[error("naming subscribe services failed: resultCode: {0}, errorCode:{1}, message:{2}")]
-    NamingSubscribeServiceFailed(i32, i32, String),
-
-    #[error("Cumulative Weight calculate wrong , the sum of probabilities does not equals 1.")]
-    WeightCalculateFailed,
-
-    #[error("no available service instance can be selected")]
-    NoAvailableServiceInstance(String),
-
-    #[error("{0}")]
-    GroupNameParseErr(String),
 }

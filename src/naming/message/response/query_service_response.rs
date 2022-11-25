@@ -1,6 +1,6 @@
 use nacos_macro::response;
 
-use crate::api::naming::ServiceInfo;
+use crate::naming::dto::ServiceInfo;
 
 #[response(identity = "QueryServiceResponse", module = "naming")]
 pub(crate) struct QueryServiceResponse {

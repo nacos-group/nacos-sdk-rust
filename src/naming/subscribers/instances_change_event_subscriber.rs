@@ -2,11 +2,10 @@ use std::{collections::HashMap, sync::Arc};
 
 use tokio::sync::RwLock;
 
-use crate::{
-    api::naming::{NamingEventListener, ServiceInfo},
-    common::{event_bus::NacosEventSubscriber, executor},
-    naming::events::InstancesChangeEvent,
-};
+use crate::api::naming::{NamingEvent, NamingEventListener};
+use crate::common::{event_bus::NacosEventSubscriber, executor};
+use crate::naming::dto::ServiceInfo;
+use crate::naming::events::InstancesChangeEvent;
 
 type ListenerMap = Arc<RwLock<HashMap<String, Vec<Arc<dyn NamingEventListener>>>>>;
 pub(crate) struct InstancesChangeEventSubscriber {
@@ -117,11 +116,38 @@ impl NacosEventSubscriber for InstancesChangeEventSubscriber {
             }
             let listeners = listeners.unwrap();
 
+            let event = Arc::new(NamingPushEvent {
+                service_info: service_info.clone(),
+            });
+
             for listener in listeners {
-                let service_info = service_info.clone();
+                let event = event.clone();
                 let listener = listener.clone();
-                executor::spawn(async move { listener.event(service_info) });
+                executor::spawn(async move { listener.event(event) });
             }
         });
+    }
+}
+
+#[derive(Clone, Debug)]
+struct NamingPushEvent {
+    service_info: Arc<ServiceInfo>,
+}
+
+impl NamingEvent for NamingPushEvent {
+    fn service_name(&self) -> &str {
+        &self.service_info.name
+    }
+
+    fn group_name(&self) -> &str {
+        &self.service_info.group_name
+    }
+
+    fn clusters(&self) -> &str {
+        &self.service_info.clusters
+    }
+
+    fn instances(&self) -> Option<&Vec<crate::api::naming::ServiceInstance>> {
+        self.service_info.hosts.as_ref()
     }
 }

@@ -2,16 +2,10 @@ use std::sync::Arc;
 
 use tracing::info;
 
-use crate::api::error::Error::NamingBatchRegisterServiceFailed;
-use crate::api::error::Error::NamingQueryServiceFailed;
-use crate::api::error::Error::NamingRegisterServiceFailed;
-use crate::api::error::Error::NamingServiceListFailed;
-use crate::api::error::Error::NamingSubscribeServiceFailed;
-use crate::api::error::Error::NoAvailableServiceInstance;
+use crate::api::error::Error::ErrResult;
 use crate::api::error::Result;
 use crate::api::naming::InstanceChooser;
 use crate::api::naming::NamingEventListener;
-use crate::api::naming::ServiceInfo;
 use crate::api::naming::{NamingService, ServiceInstance};
 use crate::api::plugin::{AuthContext, AuthPlugin};
 use crate::api::props::ClientProps;
@@ -31,6 +25,7 @@ use crate::naming::message::response::QueryServiceResponse;
 use crate::naming::message::response::ServiceListResponse;
 
 use self::chooser::RandomWeightChooser;
+use self::dto::ServiceInfo;
 use self::handler::NamingPushRequestHandler;
 use self::handler::ServiceInfoHolder;
 use self::message::request::NotifySubscriberRequest;
@@ -45,6 +40,7 @@ use self::subscribers::RedoTaskDisconnectEventSubscriber;
 use self::subscribers::RedoTaskReconnectEventSubscriber;
 
 mod chooser;
+mod dto;
 mod events;
 mod handler;
 mod message;
@@ -190,11 +186,12 @@ impl NacosNamingService {
             .request_to_server::<InstanceRequest, InstanceResponse>(request)
             .await?;
         if !body.is_success() {
-            return Err(NamingRegisterServiceFailed(
+            return Err(ErrResult(format!(
+                "naming service register service failed: resultCode: {}, errorCode:{}, message:{}",
                 body.result_code,
                 body.error_code,
-                body.message.unwrap_or_default(),
-            ));
+                body.message.unwrap_or_default()
+            )));
         }
 
         redo_task.frozen();
@@ -225,11 +222,7 @@ impl NacosNamingService {
             .await?;
 
         if !body.is_success() {
-            return Err(NamingRegisterServiceFailed(
-                body.result_code,
-                body.error_code,
-                body.message.unwrap_or_default(),
-            ));
+            return Err(ErrResult(format!("naming service deregister service failed: resultCode: {}, errorCode:{}, message:{}", body.result_code,  body.error_code, body.message.unwrap_or_default())));
         }
 
         // remove redo task from executor
@@ -264,11 +257,7 @@ impl NacosNamingService {
             .request_to_server::<BatchInstanceRequest, BatchInstanceResponse>(request)
             .await?;
         if !body.is_success() {
-            return Err(NamingBatchRegisterServiceFailed(
-                body.result_code,
-                body.error_code,
-                body.message.unwrap_or_default(),
-            ));
+            return Err(ErrResult(format!("naming service batch register services failed: resultCode: {}, errorCode:{}, message:{}", body.result_code,  body.error_code, body.message.unwrap_or_default())));
         }
         redo_task.frozen();
         Ok(())
@@ -319,11 +308,7 @@ impl NacosNamingService {
                 .request_to_server::<ServiceQueryRequest, QueryServiceResponse>(request)
                 .await?;
             if !response.is_success() {
-                return Err(NamingQueryServiceFailed(
-                    response.result_code,
-                    response.error_code,
-                    response.message.unwrap_or_default(),
-                ));
+                return Err(ErrResult(format!("naming service query services failed: resultCode: {}, errorCode:{}, message:{}", response.result_code,  response.error_code, response.message.unwrap_or_default())));
             }
             service_info = Some(response.service_info);
         }
@@ -376,7 +361,10 @@ impl NacosNamingService {
         let chooser = RandomWeightChooser::new(service_name, ret)?;
         let instance = chooser.choose();
         if instance.is_none() {
-            return Err(NoAvailableServiceInstance(service_name_for_tip));
+            return Err(ErrResult(format!(
+                "no available {} service instance can be selected",
+                service_name_for_tip
+            )));
         }
         let instance = instance.unwrap();
         Ok(instance)
@@ -403,11 +391,12 @@ impl NacosNamingService {
             .request_to_server::<ServiceListRequest, ServiceListResponse>(request)
             .await?;
         if !response.is_success() {
-            return Err(NamingServiceListFailed(
+            return Err(ErrResult(format!(
+                "naming service list services failed: resultCode: {}, errorCode:{}, message:{}",
                 response.result_code,
                 response.error_code,
-                response.message.unwrap_or_default(),
-            ));
+                response.message.unwrap_or_default()
+            )));
         }
 
         Ok((response.service_names, response.count))
@@ -453,12 +442,14 @@ impl NacosNamingService {
             .request_to_server::<SubscribeServiceRequest, SubscribeServiceResponse>(request)
             .await?;
         if !response.is_success() {
-            return Err(NamingSubscribeServiceFailed(
+            return Err(ErrResult(format!(
+                "naming subscribe services failed: resultCode: {}, errorCode:{}, message:{}",
                 response.result_code,
                 response.error_code,
-                response.message.unwrap_or_default(),
-            ));
+                response.message.unwrap_or_default()
+            )));
         }
+
         info!("SubscribeServiceResponse: {:?}", response);
         redo_task.frozen();
 
@@ -499,11 +490,12 @@ impl NacosNamingService {
             .request_to_server::<SubscribeServiceRequest, SubscribeServiceResponse>(request)
             .await?;
         if !response.is_success() {
-            return Err(NamingSubscribeServiceFailed(
+            return Err(ErrResult(format!(
+                "naming subscribe services failed: resultCode: {}, errorCode:{}, message:{}",
                 response.result_code,
                 response.error_code,
-                response.message.unwrap_or_default(),
-            ));
+                response.message.unwrap_or_default()
+            )));
         }
         info!("SubscribeServiceResponse: {:?}", response);
         self.redo_task_executor
@@ -624,7 +616,7 @@ pub(crate) mod tests {
 
     use tracing::{info, metadata::LevelFilter};
 
-    use crate::api::plugin::NoopAuthPlugin;
+    use crate::api::{naming::NamingEvent, plugin::NoopAuthPlugin};
 
     use super::*;
 
@@ -1022,8 +1014,8 @@ pub(crate) mod tests {
     pub struct InstancesChangeEventListener;
 
     impl NamingEventListener for InstancesChangeEventListener {
-        fn event(&self, service_info: Arc<crate::api::naming::ServiceInfo>) {
-            info!("InstancesChangeEventListener: {:?}", service_info);
+        fn event(&self, event: Arc<dyn NamingEvent>) {
+            info!("InstancesChangeEventListener: {:?}", event);
         }
     }
 

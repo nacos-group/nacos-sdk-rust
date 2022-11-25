@@ -1,11 +1,11 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::api::naming::ServiceInfo;
 use crate::api::naming::ServiceInstance;
 use crate::common::remote::grpc::bi_channel::ResponseWriter;
 use crate::common::remote::grpc::handler::GrpcPayloadHandler;
 use crate::common::remote::grpc::message::{GrpcMessage, GrpcMessageBuilder};
+use crate::naming::dto::ServiceInfo;
 use crate::naming::events::InstancesChangeEvent;
 
 use tokio::sync::Mutex;

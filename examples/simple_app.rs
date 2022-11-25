@@ -3,7 +3,7 @@ use nacos_sdk::api::config::{
 };
 use nacos_sdk::api::constants;
 use nacos_sdk::api::naming::{
-    NamingEventListener, NamingService, NamingServiceBuilder, ServiceInstance,
+    NamingEvent, NamingEventListener, NamingService, NamingServiceBuilder, ServiceInstance,
 };
 use nacos_sdk::api::props::ClientProps;
 use std::time::Duration;
@@ -92,7 +92,7 @@ impl ConfigChangeListener for SimpleConfigChangeListener {
 pub struct SimpleInstancesChangeListener;
 
 impl NamingEventListener for SimpleInstancesChangeListener {
-    fn event(&self, service_info: std::sync::Arc<nacos_sdk::api::naming::ServiceInfo>) {
-        tracing::info!("subscriber notify: {:?}", service_info);
+    fn event(&self, event: std::sync::Arc<dyn NamingEvent>) {
+        tracing::info!("subscriber notify: {:?}", event);
     }
 }

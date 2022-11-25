@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
-use crate::api::naming::ServiceInfo;
 use crate::api::naming::ServiceInstance;
 use crate::common::event_bus::NacosEvent;
+use crate::naming::dto::ServiceInfo;
 
 #[derive(Clone, Debug)]
 pub struct InstancesChangeEvent {

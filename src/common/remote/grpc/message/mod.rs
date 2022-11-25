@@ -3,12 +3,10 @@ use prost_types::Any;
 use serde::{de::DeserializeOwned, Serialize};
 use std::collections::HashMap;
 
-use crate::{
-    api::error::Error::GrpcPayloadBodyEmpty,
-    api::error::Error::Serialization,
-    api::error::Result,
-    nacos_proto::v2::{Metadata, Payload},
-};
+use crate::api::error::Error::ErrResult;
+use crate::api::error::Error::Serialization;
+use crate::api::error::Result;
+use crate::nacos_proto::v2::{Metadata, Payload};
 use std::fmt::Debug;
 use tracing::error;
 
@@ -61,7 +59,7 @@ where
     pub(crate) fn from_payload(payload: Payload) -> Result<Self> {
         let body = payload.body;
         if body.is_none() {
-            return Err(GrpcPayloadBodyEmpty);
+            return Err(ErrResult("grpc payload body is empty".to_string()));
         }
 
         let body = body.unwrap();
