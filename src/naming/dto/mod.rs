@@ -33,7 +33,7 @@ pub struct ServiceInfo {
 
 const SERVICE_INFO_SEPARATOR: &str = "@@";
 impl ServiceInfo {
-    pub fn new(key: String) -> Result<Self> {
+    pub(crate) fn new(key: String) -> Result<Self> {
         let max_index = 2;
         let cluster_index = 2;
         let service_name_index = 1;
@@ -135,7 +135,7 @@ impl ServiceInfo {
         name.to_string()
     }
 
-    pub fn to_json_str(&self) -> Option<String> {
+    pub(crate) fn to_json_str(&self) -> Option<String> {
         let json = serde_json::to_string(self);
         if let Err(e) = json {
             error!("ServiceInfo to json string failed. {:?}", e);

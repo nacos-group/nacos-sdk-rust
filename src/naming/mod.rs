@@ -42,9 +42,8 @@ use self::redo::RedoTaskExecutor;
 use self::subscribers::RedoTaskDisconnectEventSubscriber;
 use self::subscribers::RedoTaskReconnectEventSubscriber;
 
-mod cache;
 mod chooser;
-mod dto;
+pub mod dto;
 mod handler;
 mod message;
 mod redo;
@@ -98,9 +97,7 @@ impl NacosNamingService {
             )
             .add_labels(client_props.labels)
             .register_bi_call_handler::<NotifySubscriberRequest>(Arc::new(
-                NamingPushRequestHandler {
-                    event_scope: namespace.clone(),
-                },
+                NamingPushRequestHandler::new(namespace.clone()),
             ))
             .build()?;
 

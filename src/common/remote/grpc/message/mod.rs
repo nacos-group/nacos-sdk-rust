@@ -59,7 +59,6 @@ where
     }
 
     pub(crate) fn from_payload(payload: Payload) -> Result<Self> {
-        debug!("from payload: {:?}", payload);
         let body = payload.body;
         if body.is_none() {
             return Err(GrpcPayloadBodyEmpty);
@@ -94,10 +93,6 @@ where
             body,
             client_ip,
         })
-    }
-
-    pub(crate) fn unwrap_all(self) -> (T, HashMap<String, String>, String) {
-        (self.body, self.headers, self.client_ip)
     }
 }
 
