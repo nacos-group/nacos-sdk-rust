@@ -80,7 +80,7 @@ impl ServiceInfoHolder {
     fn new(event_scope: String) -> Self {
         Self {
             service_info_map: Mutex::new(HashMap::new()),
-            push_empty_protection: false,
+            push_empty_protection: true,
             event_scope,
         }
     }
