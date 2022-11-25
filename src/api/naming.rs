@@ -3,7 +3,6 @@ use std::{collections::HashMap, sync::Arc};
 
 use crate::api::plugin;
 use crate::{api::error::Result, naming::NacosNamingService};
-use futures::Future;
 use serde::{Deserialize, Serialize};
 use tracing::error;
 
