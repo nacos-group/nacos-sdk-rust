@@ -68,7 +68,7 @@ nacos-sdk = { version = "0.2", features = ["default"] }
 
     impl NamingEventListener for ExampleInstanceChangeListener {
         fn event(&self, event: std::sync::Arc<NamingChangeEvent>) {
-            tracing::info!("subscriber notify: {:?}", event);
+            tracing::info!("subscriber notify event={:?}", event);
         }
     }
 
