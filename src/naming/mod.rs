@@ -616,7 +616,7 @@ pub(crate) mod tests {
 
     use tracing::{info, metadata::LevelFilter};
 
-    use crate::api::{naming::NamingEvent, plugin::NoopAuthPlugin};
+    use crate::api::{naming::NamingChangeEvent, plugin::NoopAuthPlugin};
 
     use super::*;
 
@@ -1014,7 +1014,7 @@ pub(crate) mod tests {
     pub struct InstancesChangeEventListener;
 
     impl NamingEventListener for InstancesChangeEventListener {
-        fn event(&self, event: Arc<dyn NamingEvent>) {
+        fn event(&self, event: Arc<NamingChangeEvent>) {
             info!("InstancesChangeEventListener: {:?}", event);
         }
     }

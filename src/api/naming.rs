@@ -108,14 +108,12 @@ impl Default for ServiceInstance {
     }
 }
 
-pub trait NamingEvent: Debug {
-    fn service_name(&self) -> &str;
-
-    fn group_name(&self) -> &str;
-
-    fn clusters(&self) -> &str;
-
-    fn instances(&self) -> Option<&Vec<ServiceInstance>>;
+#[derive(Clone, Debug)]
+pub struct NamingChangeEvent {
+    pub service_name: String,
+    pub group_name: String,
+    pub clusters: String,
+    pub instances: Option<Vec<ServiceInstance>>,
 }
 
 pub trait InstanceChooser {
@@ -123,7 +121,7 @@ pub trait InstanceChooser {
 }
 
 pub trait NamingEventListener: Send + Sync + 'static {
-    fn event(&self, event: Arc<dyn NamingEvent>);
+    fn event(&self, event: Arc<NamingChangeEvent>);
 }
 
 pub trait NamingService {

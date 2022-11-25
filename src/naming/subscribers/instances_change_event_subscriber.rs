@@ -2,7 +2,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use tokio::sync::RwLock;
 
-use crate::api::naming::{NamingEvent, NamingEventListener};
+use crate::api::naming::{NamingChangeEvent, NamingEventListener};
 use crate::common::{event_bus::NacosEventSubscriber, executor};
 use crate::naming::dto::ServiceInfo;
 use crate::naming::events::InstancesChangeEvent;
@@ -105,6 +105,16 @@ impl NacosEventSubscriber for InstancesChangeEventSubscriber {
 
         let service_info = event.service_info();
         let listener_map = self.listener_map.clone();
+
+        let naming_event = NamingChangeEvent {
+            service_name: event.service_name().to_string(),
+            group_name: event.group_name().to_string(),
+            clusters: event.clusters().to_string(),
+            instances: event.hosts().map(|data| data.clone()),
+        };
+
+        let naming_event = Arc::new(naming_event);
+
         executor::spawn(async move {
             let grouped_name =
                 ServiceInfo::get_grouped_service_name(&service_info.name, &service_info.group_name);
@@ -116,38 +126,11 @@ impl NacosEventSubscriber for InstancesChangeEventSubscriber {
             }
             let listeners = listeners.unwrap();
 
-            let event = Arc::new(NamingPushEvent {
-                service_info: service_info.clone(),
-            });
-
             for listener in listeners {
-                let event = event.clone();
+                let naming_event = naming_event.clone();
                 let listener = listener.clone();
-                executor::spawn(async move { listener.event(event) });
+                executor::spawn(async move { listener.event(naming_event) });
             }
         });
-    }
-}
-
-#[derive(Clone, Debug)]
-struct NamingPushEvent {
-    service_info: Arc<ServiceInfo>,
-}
-
-impl NamingEvent for NamingPushEvent {
-    fn service_name(&self) -> &str {
-        &self.service_info.name
-    }
-
-    fn group_name(&self) -> &str {
-        &self.service_info.group_name
-    }
-
-    fn clusters(&self) -> &str {
-        &self.service_info.clusters
-    }
-
-    fn instances(&self) -> Option<&Vec<crate::api::naming::ServiceInstance>> {
-        self.service_info.hosts.as_ref()
     }
 }
