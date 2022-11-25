@@ -1,14 +1,12 @@
 use std::sync::Arc;
 use tracing::{debug, error};
 
-use crate::{
-    api::events::NacosEventSubscriber,
-    common::{
-        executor,
-        remote::grpc::{
-            message::{request::HealthCheckRequest, response::HealthCheckResponse},
-            NacosGrpcClient,
-        },
+use crate::common::{
+    event_bus::NacosEventSubscriber,
+    executor,
+    remote::grpc::{
+        message::{request::HealthCheckRequest, response::HealthCheckResponse},
+        NacosGrpcClient,
     },
 };
 

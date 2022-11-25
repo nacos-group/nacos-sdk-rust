@@ -1,7 +1,8 @@
 use std::sync::Arc;
 
-use crate::api::{events::NacosEvent, naming::ServiceInstance};
-use crate::naming::dto::ServiceInfo;
+use crate::api::naming::ServiceInfo;
+use crate::api::naming::ServiceInstance;
+use crate::common::event_bus::NacosEvent;
 
 #[derive(Clone, Debug)]
 pub struct InstancesChangeEvent {
@@ -35,6 +36,10 @@ impl InstancesChangeEvent {
 
     pub fn hosts(&self) -> Option<&Vec<ServiceInstance>> {
         self.service_info.hosts.as_ref()
+    }
+
+    pub fn service_info(&self) -> Arc<ServiceInfo> {
+        self.service_info.clone()
     }
 }
 

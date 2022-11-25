@@ -1,12 +1,12 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::api::events::naming::InstancesChangeEvent;
+use crate::api::naming::ServiceInfo;
 use crate::api::naming::ServiceInstance;
 use crate::common::remote::grpc::bi_channel::ResponseWriter;
 use crate::common::remote::grpc::handler::GrpcPayloadHandler;
 use crate::common::remote::grpc::message::{GrpcMessage, GrpcMessageBuilder};
-use crate::naming::dto::ServiceInfo;
+use crate::naming::events::InstancesChangeEvent;
 
 use tokio::sync::Mutex;
 use tracing::{error, info, warn};
@@ -23,9 +23,9 @@ pub(crate) struct NamingPushRequestHandler {
 }
 
 impl NamingPushRequestHandler {
-    pub(crate) fn new(event_scope: String) -> Self {
+    pub(crate) fn new(service_info_holder: Arc<ServiceInfoHolder>) -> Self {
         Self {
-            service_info_holder: Arc::new(ServiceInfoHolder::new(event_scope)),
+            service_info_holder,
         }
     }
 }
@@ -70,14 +70,14 @@ impl GrpcPayloadHandler for NamingPushRequestHandler {
     }
 }
 
-struct ServiceInfoHolder {
+pub(crate) struct ServiceInfoHolder {
     service_info_map: Mutex<HashMap<String, Arc<ServiceInfo>>>,
     push_empty_protection: bool,
     event_scope: String,
 }
 
 impl ServiceInfoHolder {
-    fn new(event_scope: String) -> Self {
+    pub(crate) fn new(event_scope: String) -> Self {
         Self {
             service_info_map: Mutex::new(HashMap::new()),
             push_empty_protection: true,
@@ -85,14 +85,15 @@ impl ServiceInfoHolder {
         }
     }
 
-    async fn process_service_info(&self, service_info: ServiceInfo) {
+    pub(crate) async fn process_service_info(&self, service_info: ServiceInfo) {
         if self.is_empty_or_error_push(&service_info) {
             return;
         }
 
         let service_info = Arc::new(service_info);
 
-        let name = service_info.get_grouped_service_name();
+        let name =
+            ServiceInfo::get_grouped_service_name(&service_info.name, &service_info.group_name);
         let key = ServiceInfo::get_key(&name, &service_info.clusters);
 
         let mut map = self.service_info_map.lock().await;
@@ -121,7 +122,8 @@ impl ServiceInfoHolder {
         old_service: Option<&Arc<ServiceInfo>>,
         new_service: &ServiceInfo,
     ) -> bool {
-        let name = new_service.get_grouped_service_name();
+        let name =
+            ServiceInfo::get_grouped_service_name(&new_service.name, &new_service.group_name);
         let key = ServiceInfo::get_key(&name, &new_service.clusters);
         let hosts_json = new_service.hosts_to_json();
 
@@ -228,5 +230,20 @@ impl ServiceInfoHolder {
 
     fn is_empty_or_error_push(&self, service_info: &ServiceInfo) -> bool {
         service_info.hosts.is_none() || (self.push_empty_protection && !service_info.validate())
+    }
+
+    pub(crate) async fn get_service_info(
+        &self,
+        group_name: &str,
+        service_name: &str,
+        cluster_str: &str,
+    ) -> Option<ServiceInfo> {
+        let grouped_name = ServiceInfo::get_grouped_service_name(service_name, group_name);
+        let key = ServiceInfo::get_key(&grouped_name, cluster_str);
+
+        let map = self.service_info_map.lock().await;
+        let ret = map.get(&key).map(|data| data.as_ref().clone());
+
+        ret
     }
 }

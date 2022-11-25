@@ -2,9 +2,6 @@ pub mod constants;
 pub mod error;
 pub mod props;
 
-/// Event and Subscriber
-pub mod events;
-
 /// Plugin define.
 pub mod plugin;
 

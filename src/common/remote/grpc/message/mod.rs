@@ -10,7 +10,7 @@ use crate::{
     nacos_proto::v2::{Metadata, Payload},
 };
 use std::fmt::Debug;
-use tracing::{debug, error};
+use tracing::error;
 
 pub(crate) mod request;
 pub(crate) mod response;

@@ -1,6 +1,54 @@
-use std::sync::Arc;
+use std::{
+    any::{Any, TypeId},
+    sync::Arc,
+};
 
-use crate::api::events::{NacosEvent, Subscriber};
+use tracing::warn;
+
+pub(crate) trait NacosEvent: Any + Send + Sync + 'static {
+    fn event_type(&self) -> TypeId {
+        TypeId::of::<Self>()
+    }
+
+    fn as_any(&self) -> &dyn Any;
+
+    fn event_identity(&self) -> String;
+}
+
+pub(crate) trait Subscriber: Send + Sync + 'static {
+    fn on_event(&self, event: Arc<dyn NacosEvent>);
+
+    fn event_type(&self) -> TypeId;
+
+    fn subscriber_type(&self) -> TypeId;
+}
+
+impl<T: NacosEventSubscriber> Subscriber for T {
+    fn on_event(&self, event: Arc<dyn NacosEvent>) {
+        let event_identity = event.event_identity();
+        let event = event.as_any().downcast_ref::<T::EventType>();
+        if event.is_none() {
+            warn!("event {} cannot cast target object", event_identity);
+            return;
+        }
+        let event = event.unwrap();
+        self.on_event(event)
+    }
+
+    fn event_type(&self) -> TypeId {
+        TypeId::of::<T::EventType>()
+    }
+
+    fn subscriber_type(&self) -> TypeId {
+        TypeId::of::<T>()
+    }
+}
+
+pub(crate) trait NacosEventSubscriber: Send + Sync + 'static {
+    type EventType;
+
+    fn on_event(&self, event: &Self::EventType);
+}
 
 mod __private {
 
@@ -12,24 +60,23 @@ mod __private {
     };
     use tracing::warn;
 
-    use crate::{
-        api::events::{NacosEvent, Subscriber},
-        common::executor,
-    };
+    use crate::common::executor;
+
+    use super::{NacosEvent, Subscriber};
 
     lazy_static! {
-        pub static ref EVENT_BUS: EventBus = EventBus::new();
+        pub(crate) static ref EVENT_BUS: EventBus = EventBus::new();
     }
 
     type SubscribersContainerType = Arc<RwLock<HashMap<TypeId, Vec<Arc<dyn Subscriber>>>>>;
 
-    pub struct EventBus {
+    pub(crate) struct EventBus {
         subscribers: SubscribersContainerType,
         sender: Arc<Sender<Arc<dyn NacosEvent>>>,
     }
 
     impl EventBus {
-        pub fn new() -> Self {
+        pub(crate) fn new() -> Self {
             let (sender, receiver) = channel::<Arc<dyn NacosEvent>>(2048);
 
             let subscribers = Arc::new(RwLock::new(
@@ -68,7 +115,7 @@ mod __private {
             });
         }
 
-        pub fn post(&self, event: Arc<dyn NacosEvent>) {
+        pub(crate) fn post(&self, event: Arc<dyn NacosEvent>) {
             let sender = self.sender.clone();
 
             executor::spawn(async move {
@@ -76,7 +123,7 @@ mod __private {
             });
         }
 
-        pub fn register(&self, subscriber: Arc<dyn Subscriber>) {
+        pub(crate) fn register(&self, subscriber: Arc<dyn Subscriber>) {
             let subscribers = self.subscribers.clone();
             let subscriber = subscriber.clone();
             executor::spawn(async move {
@@ -86,6 +133,10 @@ mod __private {
 
                 let vec = lock_guard.get_mut(&key);
                 if let Some(vec) = vec {
+                    let index = Self::index_of_subscriber(vec, &subscriber);
+                    if let Some(index) = index {
+                        vec.remove(index);
+                    }
                     vec.push(subscriber);
                 } else {
                     let vec = vec![subscriber];
@@ -94,7 +145,7 @@ mod __private {
             });
         }
 
-        pub fn unregister(&self, subscriber: Arc<dyn Subscriber>) {
+        pub(crate) fn unregister(&self, subscriber: Arc<dyn Subscriber>) {
             let subscribers = self.subscribers.clone();
             let subscriber = subscriber.clone();
 
@@ -140,15 +191,15 @@ mod __private {
     }
 }
 
-pub fn post(event: Arc<dyn NacosEvent>) {
+pub(crate) fn post(event: Arc<dyn NacosEvent>) {
     __private::EVENT_BUS.post(event);
 }
 
-pub fn register(subscriber: Arc<dyn Subscriber>) {
+pub(crate) fn register(subscriber: Arc<dyn Subscriber>) {
     __private::EVENT_BUS.register(subscriber);
 }
 
-pub fn unregister(subscriber: Arc<dyn Subscriber>) {
+pub(crate) fn unregister(subscriber: Arc<dyn Subscriber>) {
     __private::EVENT_BUS.unregister(subscriber);
 }
 
@@ -158,7 +209,7 @@ mod tests {
     use core::time;
     use std::{any::Any, sync::Arc, thread};
 
-    use crate::api::events::{NacosEvent, NacosEventSubscriber};
+    use super::{NacosEvent, NacosEventSubscriber};
 
     #[derive(Clone, Debug)]
     pub(crate) struct NamingChangeEvent {
