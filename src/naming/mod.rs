@@ -1,18 +1,12 @@
 use std::sync::Arc;
 
-use futures::Future;
 use tracing::info;
 
-use crate::api::error::Error::NamingBatchRegisterServiceFailed;
-use crate::api::error::Error::NamingQueryServiceFailed;
-use crate::api::error::Error::NamingRegisterServiceFailed;
-use crate::api::error::Error::NamingServiceListFailed;
-use crate::api::error::Error::NamingSubscribeServiceFailed;
-use crate::api::error::Error::NoAvailableServiceInstance;
+use crate::api::error::Error::ErrResult;
 use crate::api::error::Result;
-use crate::api::events::Subscriber;
 use crate::api::naming::InstanceChooser;
-use crate::api::naming::{AsyncFuture, NamingService, ServiceInstance};
+use crate::api::naming::NamingEventListener;
+use crate::api::naming::{NamingService, ServiceInstance};
 use crate::api::plugin::{AuthContext, AuthPlugin};
 use crate::api::props::ClientProps;
 
@@ -31,7 +25,9 @@ use crate::naming::message::response::QueryServiceResponse;
 use crate::naming::message::response::ServiceListResponse;
 
 use self::chooser::RandomWeightChooser;
+use self::dto::ServiceInfo;
 use self::handler::NamingPushRequestHandler;
+use self::handler::ServiceInfoHolder;
 use self::message::request::NotifySubscriberRequest;
 use self::message::request::SubscribeServiceRequest;
 use self::message::response::SubscribeServiceResponse;
@@ -39,11 +35,13 @@ use self::redo::AutomaticRequest;
 use self::redo::NamingRedoTask;
 use self::redo::RedoTask;
 use self::redo::RedoTaskExecutor;
+use self::subscribers::InstancesChangeEventSubscriber;
 use self::subscribers::RedoTaskDisconnectEventSubscriber;
 use self::subscribers::RedoTaskReconnectEventSubscriber;
 
 mod chooser;
-pub mod dto;
+mod dto;
+mod events;
 mod handler;
 mod message;
 mod redo;
@@ -69,6 +67,8 @@ pub(crate) struct NacosNamingService {
     auth_plugin: Arc<dyn AuthPlugin>,
     namespace: String,
     redo_task_executor: Arc<RedoTaskExecutor>,
+    instances_change_event_subscriber: Arc<InstancesChangeEventSubscriber>,
+    service_info_holder: Arc<ServiceInfoHolder>,
 }
 
 impl NacosNamingService {
@@ -77,6 +77,8 @@ impl NacosNamingService {
         if namespace.is_empty() {
             namespace = self::constants::DEFAULT_NAMESPACE.to_owned();
         }
+
+        let service_info_holder = Arc::new(ServiceInfoHolder::new(namespace.clone()));
 
         let nacos_grpc_client = NacosGrpcClientBuilder::new()
             .address(client_props.server_addr.clone())
@@ -97,7 +99,7 @@ impl NacosNamingService {
             )
             .add_labels(client_props.labels)
             .register_bi_call_handler::<NotifySubscriberRequest>(Arc::new(
-                NamingPushRequestHandler::new(namespace.clone()),
+                NamingPushRequestHandler::new(service_info_holder.clone()),
             ))
             .build()?;
 
@@ -131,18 +133,22 @@ impl NacosNamingService {
             redo_task_executor: redo_task_executor.clone(),
         }));
 
+        // instance change event subscriber
+        let instances_change_event_subscriber =
+            Arc::new(InstancesChangeEventSubscriber::new(namespace.clone()));
+        event_bus::register(instances_change_event_subscriber.clone());
+
         Ok(NacosNamingService {
             redo_task_executor,
             nacos_grpc_client,
             auth_plugin,
             namespace,
+            instances_change_event_subscriber,
+            service_info_holder,
         })
     }
 
-    fn request_to_server<R, P>(
-        &self,
-        mut request: R,
-    ) -> Box<dyn Future<Output = Result<P>> + Send + Unpin + 'static>
+    async fn request_to_server<R, P>(&self, mut request: R) -> Result<P>
     where
         R: GrpcRequestMessage + 'static,
         P: GrpcResponseMessage + 'static,
@@ -151,9 +157,351 @@ impl NacosNamingService {
 
         request.add_headers(self.auth_plugin.get_login_identity().contexts);
 
-        let task = async move { nacos_grpc_client.unary_call_async::<R, P>(request).await };
+        nacos_grpc_client.unary_call_async::<R, P>(request).await
+    }
+}
 
-        Box::new(Box::pin(task))
+impl NacosNamingService {
+    async fn register_service_async(
+        &self,
+        service_name: String,
+        group_name: Option<String>,
+        service_instance: ServiceInstance,
+    ) -> Result<()> {
+        let namespace = Some(self.namespace.clone());
+        let group_name = group_name.or_else(|| Some(self::constants::DEFAULT_GROUP.to_owned()));
+        let request =
+            InstanceRequest::register(service_instance, Some(service_name), namespace, group_name);
+
+        // automatic request
+        let auto_request: Arc<dyn AutomaticRequest> = Arc::new(request.clone());
+        let redo_task = Arc::new(NamingRedoTask::new(auto_request));
+
+        // active redo task
+        redo_task.active();
+        // add redo task to executor
+        self.redo_task_executor.add_task(redo_task.clone()).await;
+
+        let body = self
+            .request_to_server::<InstanceRequest, InstanceResponse>(request)
+            .await?;
+        if !body.is_success() {
+            return Err(ErrResult(format!(
+                "naming service register service failed: resultCode: {}, errorCode:{}, message:{}",
+                body.result_code,
+                body.error_code,
+                body.message.unwrap_or_default()
+            )));
+        }
+
+        redo_task.frozen();
+        Ok(())
+    }
+
+    async fn deregister_instance_async(
+        &self,
+        service_name: String,
+        group_name: Option<String>,
+        service_instance: ServiceInstance,
+    ) -> Result<()> {
+        let namespace = Some(self.namespace.clone());
+        let group_name = group_name.or_else(|| Some(self::constants::DEFAULT_GROUP.to_owned()));
+        let request = InstanceRequest::deregister(
+            service_instance,
+            Some(service_name),
+            namespace,
+            group_name,
+        );
+
+        // automatic request
+        let auto_request: Arc<dyn AutomaticRequest> = Arc::new(request.clone());
+        let redo_task = NamingRedoTask::new(auto_request);
+
+        let body = self
+            .request_to_server::<InstanceRequest, InstanceResponse>(request)
+            .await?;
+
+        if !body.is_success() {
+            return Err(ErrResult(format!("naming service deregister service failed: resultCode: {}, errorCode:{}, message:{}", body.result_code,  body.error_code, body.message.unwrap_or_default())));
+        }
+
+        // remove redo task from executor
+        self.redo_task_executor
+            .remove_task(redo_task.task_key().as_str())
+            .await;
+        Ok(())
+    }
+
+    async fn batch_register_instance_async(
+        &self,
+        service_name: String,
+        group_name: Option<String>,
+        service_instances: Vec<ServiceInstance>,
+    ) -> Result<()> {
+        let namespace = Some(self.namespace.clone());
+        let group_name = group_name.or_else(|| Some(self::constants::DEFAULT_GROUP.to_owned()));
+        let request =
+            BatchInstanceRequest::new(service_instances, namespace, Some(service_name), group_name);
+
+        // automatic request
+        let auto_request: Arc<dyn AutomaticRequest> = Arc::new(request.clone());
+        let redo_task = NamingRedoTask::new(auto_request);
+        let redo_task = Arc::new(redo_task);
+
+        // active redo task
+        redo_task.active();
+        // add redo task to executor
+        self.redo_task_executor.add_task(redo_task.clone()).await;
+
+        let body = self
+            .request_to_server::<BatchInstanceRequest, BatchInstanceResponse>(request)
+            .await?;
+        if !body.is_success() {
+            return Err(ErrResult(format!("naming service batch register services failed: resultCode: {}, errorCode:{}, message:{}", body.result_code,  body.error_code, body.message.unwrap_or_default())));
+        }
+        redo_task.frozen();
+        Ok(())
+    }
+
+    async fn get_all_instances_async(
+        &self,
+        service_name: String,
+        group_name: Option<String>,
+        clusters: Vec<String>,
+        subscribe: bool,
+    ) -> Result<Vec<ServiceInstance>> {
+        let cluster_str = clusters.join(",");
+        let group_name = group_name
+            .or_else(|| Some(self::constants::DEFAULT_GROUP.to_owned()))
+            .unwrap();
+
+        let service_info;
+        if subscribe {
+            let cache_service_info = self
+                .service_info_holder
+                .get_service_info(&group_name, &service_name, &cluster_str)
+                .await;
+            if cache_service_info.is_none() {
+                let subscribe_service_info = self
+                    .subscribe_async(service_name, Some(group_name), clusters, None)
+                    .await;
+                if let Ok(subscribe_service_info) = subscribe_service_info {
+                    service_info = Some(subscribe_service_info);
+                } else {
+                    service_info = None;
+                }
+            } else {
+                service_info = Some(cache_service_info.unwrap());
+            }
+        } else {
+            let request = ServiceQueryRequest {
+                cluster: cluster_str,
+                group_name: Some(group_name),
+                healthy_only: false,
+                udp_port: 0,
+                namespace: Some(self.namespace.clone()),
+                service_name: Some(service_name),
+                ..Default::default()
+            };
+
+            let response = self
+                .request_to_server::<ServiceQueryRequest, QueryServiceResponse>(request)
+                .await?;
+            if !response.is_success() {
+                return Err(ErrResult(format!("naming service query services failed: resultCode: {}, errorCode:{}, message:{}", response.result_code,  response.error_code, response.message.unwrap_or_default())));
+            }
+            service_info = Some(response.service_info);
+        }
+        if service_info.is_none() {
+            return Ok(Vec::default());
+        }
+        let service_info = service_info.unwrap();
+        let instances = service_info.hosts;
+        if instances.is_none() {
+            return Ok(Vec::default());
+        }
+        Ok(instances.unwrap())
+    }
+
+    async fn select_instance_async(
+        &self,
+        service_name: String,
+        group_name: Option<String>,
+        clusters: Vec<String>,
+        subscribe: bool,
+        healthy: bool,
+    ) -> Result<Vec<ServiceInstance>> {
+        let group_name = group_name.or_else(|| Some(self::constants::DEFAULT_GROUP.to_owned()));
+
+        let all_instance = self
+            .get_all_instances_async(service_name, group_name, clusters, subscribe)
+            .await?;
+        let ret: Vec<ServiceInstance> = all_instance
+            .into_iter()
+            .filter(|instance| {
+                healthy == instance.healthy && instance.enabled && instance.weight > 0.0
+            })
+            .collect();
+        Ok(ret)
+    }
+
+    async fn select_one_healthy_instance_async(
+        &self,
+        service_name: String,
+        group_name: Option<String>,
+        clusters: Vec<String>,
+        subscribe: bool,
+    ) -> Result<ServiceInstance> {
+        let group_name = group_name.or_else(|| Some(self::constants::DEFAULT_GROUP.to_owned()));
+        let service_name_for_tip = service_name.clone();
+
+        let ret = self
+            .select_instance_async(service_name.clone(), group_name, clusters, subscribe, true)
+            .await?;
+        let chooser = RandomWeightChooser::new(service_name, ret)?;
+        let instance = chooser.choose();
+        if instance.is_none() {
+            return Err(ErrResult(format!(
+                "no available {} service instance can be selected",
+                service_name_for_tip
+            )));
+        }
+        let instance = instance.unwrap();
+        Ok(instance)
+    }
+
+    async fn get_service_list_async(
+        &self,
+        page_no: i32,
+        page_size: i32,
+        group_name: Option<String>,
+    ) -> Result<(Vec<String>, i32)> {
+        let group_name = group_name.or_else(|| Some(self::constants::DEFAULT_GROUP.to_owned()));
+        let namespace = Some(self.namespace.clone());
+
+        let request = ServiceListRequest {
+            page_no,
+            page_size,
+            group_name,
+            namespace,
+            ..Default::default()
+        };
+
+        let response = self
+            .request_to_server::<ServiceListRequest, ServiceListResponse>(request)
+            .await?;
+        if !response.is_success() {
+            return Err(ErrResult(format!(
+                "naming service list services failed: resultCode: {}, errorCode:{}, message:{}",
+                response.result_code,
+                response.error_code,
+                response.message.unwrap_or_default()
+            )));
+        }
+
+        Ok((response.service_names, response.count))
+    }
+
+    async fn subscribe_async(
+        &self,
+        service_name: String,
+        group_name: Option<String>,
+        clusters: Vec<String>,
+        event_listener: Option<Arc<dyn NamingEventListener>>,
+    ) -> Result<ServiceInfo> {
+        let clusters = clusters.join(",");
+        let group_name =
+            Some(group_name.unwrap_or_else(|| self::constants::DEFAULT_GROUP.to_owned())).unwrap();
+
+        // add event listener
+        if let Some(event_listener) = event_listener {
+            self.instances_change_event_subscriber
+                .add_listener(&group_name, &service_name, &clusters, event_listener)
+                .await;
+        }
+
+        let request = SubscribeServiceRequest::new(
+            true,
+            clusters,
+            Some(service_name),
+            Some(self.namespace.clone()),
+            Some(group_name),
+        );
+
+        // automatic request
+        let auto_request: Arc<dyn AutomaticRequest> = Arc::new(request.clone());
+        let redo_task = NamingRedoTask::new(auto_request);
+
+        let redo_task = Arc::new(redo_task);
+        // active redo task
+        redo_task.active();
+        // add redo task to executor
+        self.redo_task_executor.add_task(redo_task.clone()).await;
+
+        let response = self
+            .request_to_server::<SubscribeServiceRequest, SubscribeServiceResponse>(request)
+            .await?;
+        if !response.is_success() {
+            return Err(ErrResult(format!(
+                "naming subscribe services failed: resultCode: {}, errorCode:{}, message:{}",
+                response.result_code,
+                response.error_code,
+                response.message.unwrap_or_default()
+            )));
+        }
+
+        info!("SubscribeServiceResponse: {:?}", response);
+        redo_task.frozen();
+
+        Ok(response.service_info)
+    }
+
+    async fn unsubscribe_async(
+        &self,
+        service_name: String,
+        group_name: Option<String>,
+        clusters: Vec<String>,
+        event_listener: Option<Arc<dyn NamingEventListener>>,
+    ) -> Result<()> {
+        let clusters = clusters.join(",");
+        let group_name =
+            Some(group_name.unwrap_or_else(|| self::constants::DEFAULT_GROUP.to_owned())).unwrap();
+
+        // remove event listener
+        if let Some(event_listener) = event_listener {
+            self.instances_change_event_subscriber
+                .remove_listener(&group_name, &service_name, &clusters, event_listener)
+                .await;
+        }
+
+        let request = SubscribeServiceRequest::new(
+            false,
+            clusters,
+            Some(service_name),
+            Some(self.namespace.clone()),
+            Some(group_name),
+        );
+
+        // automatic request
+        let auto_request: Arc<dyn AutomaticRequest> = Arc::new(request.clone());
+        let redo_task = NamingRedoTask::new(auto_request);
+
+        let response = self
+            .request_to_server::<SubscribeServiceRequest, SubscribeServiceResponse>(request)
+            .await?;
+        if !response.is_success() {
+            return Err(ErrResult(format!(
+                "naming subscribe services failed: resultCode: {}, errorCode:{}, message:{}",
+                response.result_code,
+                response.error_code,
+                response.message.unwrap_or_default()
+            )));
+        }
+        info!("SubscribeServiceResponse: {:?}", response);
+        self.redo_task_executor
+            .remove_task(redo_task.task_key().as_str())
+            .await;
+        Ok(())
     }
 }
 
@@ -168,50 +516,6 @@ impl NamingService for NacosNamingService {
         futures::executor::block_on(future)
     }
 
-    fn register_service_async(
-        &self,
-        service_name: String,
-        group_name: Option<String>,
-        service_instance: ServiceInstance,
-    ) -> AsyncFuture<()> {
-        let namespace = Some(self.namespace.clone());
-        let group_name = group_name.or_else(|| Some(self::constants::DEFAULT_GROUP.to_owned()));
-        let request =
-            InstanceRequest::register(service_instance, Some(service_name), namespace, group_name);
-
-        // automatic request
-        let auto_request: Arc<dyn AutomaticRequest> = Arc::new(request.clone());
-        let redo_task = NamingRedoTask::new(auto_request);
-        let redo_task_executor = self.redo_task_executor.clone();
-
-        let request_to_server_task =
-            self.request_to_server::<InstanceRequest, InstanceResponse>(request);
-
-        Box::new(Box::pin(async move {
-            let redo_task = Arc::new(redo_task);
-            redo_task.active();
-            redo_task_executor.add_task(redo_task.clone()).await;
-
-            let body = request_to_server_task.await?;
-            if !body.is_success() {
-                let InstanceResponse {
-                    result_code,
-                    error_code,
-                    message,
-                    ..
-                } = body;
-                return Err(NamingRegisterServiceFailed(
-                    result_code,
-                    error_code,
-                    message.unwrap_or_default(),
-                ));
-            }
-
-            redo_task.frozen();
-            Ok(())
-        }))
-    }
-
     fn deregister_instance(
         &self,
         service_name: String,
@@ -220,52 +524,6 @@ impl NamingService for NacosNamingService {
     ) -> Result<()> {
         let future = self.deregister_instance_async(service_name, group_name, service_instance);
         futures::executor::block_on(future)
-    }
-
-    fn deregister_instance_async(
-        &self,
-        service_name: String,
-        group_name: Option<String>,
-        service_instance: ServiceInstance,
-    ) -> AsyncFuture<()> {
-        let namespace = Some(self.namespace.clone());
-        let group_name = group_name.or_else(|| Some(self::constants::DEFAULT_GROUP.to_owned()));
-        let request = InstanceRequest::deregister(
-            service_instance,
-            Some(service_name),
-            namespace,
-            group_name,
-        );
-
-        // automatic request
-        let auto_request: Arc<dyn AutomaticRequest> = Arc::new(request.clone());
-        let redo_task = NamingRedoTask::new(auto_request);
-        let redo_task_executor = self.redo_task_executor.clone();
-
-        let request_to_server_task =
-            self.request_to_server::<InstanceRequest, InstanceResponse>(request);
-
-        Box::new(Box::pin(async move {
-            let body = request_to_server_task.await?;
-            if !body.is_success() {
-                let InstanceResponse {
-                    result_code,
-                    error_code,
-                    message,
-                    ..
-                } = body;
-                return Err(NamingRegisterServiceFailed(
-                    result_code,
-                    error_code,
-                    message.unwrap_or_default(),
-                ));
-            }
-
-            redo_task_executor
-                .remove_task(redo_task.task_key().as_str())
-                .await;
-            Ok(())
-        }))
     }
 
     fn batch_register_instance(
@@ -279,49 +537,6 @@ impl NamingService for NacosNamingService {
         futures::executor::block_on(future)
     }
 
-    fn batch_register_instance_async(
-        &self,
-        service_name: String,
-        group_name: Option<String>,
-        service_instances: Vec<ServiceInstance>,
-    ) -> AsyncFuture<()> {
-        let namespace = Some(self.namespace.clone());
-        let group_name = group_name.or_else(|| Some(self::constants::DEFAULT_GROUP.to_owned()));
-        let request =
-            BatchInstanceRequest::new(service_instances, namespace, Some(service_name), group_name);
-
-        // automatic request
-        let auto_request: Arc<dyn AutomaticRequest> = Arc::new(request.clone());
-        let redo_task = NamingRedoTask::new(auto_request);
-        let redo_task_executor = self.redo_task_executor.clone();
-
-        let request_to_server_task =
-            self.request_to_server::<BatchInstanceRequest, BatchInstanceResponse>(request);
-
-        Box::new(Box::pin(async move {
-            let redo_task = Arc::new(redo_task);
-            redo_task.active();
-            redo_task_executor.add_task(redo_task.clone()).await;
-
-            let body = request_to_server_task.await?;
-            if !body.is_success() {
-                let BatchInstanceResponse {
-                    result_code,
-                    error_code,
-                    message,
-                    ..
-                } = body;
-                return Err(NamingBatchRegisterServiceFailed(
-                    result_code,
-                    error_code,
-                    message.unwrap_or_default(),
-                ));
-            }
-            redo_task.frozen();
-            Ok(())
-        }))
-    }
-
     fn get_all_instances(
         &self,
         service_name: String,
@@ -331,56 +546,6 @@ impl NamingService for NacosNamingService {
     ) -> Result<Vec<ServiceInstance>> {
         let future = self.get_all_instances_async(service_name, group_name, clusters, subscribe);
         futures::executor::block_on(future)
-    }
-
-    fn get_all_instances_async(
-        &self,
-        service_name: String,
-        group_name: Option<String>,
-        clusters: Vec<String>,
-        _subscribe: bool,
-    ) -> AsyncFuture<Vec<ServiceInstance>> {
-        //TODO add subscribe logic
-        let cluster = clusters.join(",");
-        let group_name = group_name.or_else(|| Some(self::constants::DEFAULT_GROUP.to_owned()));
-        let namespace = Some(self.namespace.clone());
-        let service_name = Some(service_name);
-
-        let request = ServiceQueryRequest {
-            cluster,
-            group_name,
-            healthy_only: false,
-            udp_port: 0,
-            namespace,
-            service_name,
-            ..Default::default()
-        };
-        let request_task =
-            self.request_to_server::<ServiceQueryRequest, QueryServiceResponse>(request);
-
-        Box::new(Box::pin(async move {
-            let response = request_task.await?;
-            if !response.is_success() {
-                let QueryServiceResponse {
-                    result_code,
-                    error_code,
-                    message,
-                    ..
-                } = response;
-                return Err(NamingQueryServiceFailed(
-                    result_code,
-                    error_code,
-                    message.unwrap_or_default(),
-                ));
-            }
-
-            let service_info = response.service_info;
-            let instances = service_info.hosts;
-            if instances.is_none() {
-                return Ok(Vec::default());
-            }
-            Ok(instances.unwrap())
-        }))
     }
 
     fn select_instance(
@@ -396,30 +561,6 @@ impl NamingService for NacosNamingService {
         futures::executor::block_on(future)
     }
 
-    fn select_instance_async(
-        &self,
-        service_name: String,
-        group_name: Option<String>,
-        clusters: Vec<String>,
-        subscribe: bool,
-        healthy: bool,
-    ) -> AsyncFuture<Vec<ServiceInstance>> {
-        let group_name = group_name.or_else(|| Some(self::constants::DEFAULT_GROUP.to_owned()));
-        let get_all_instances_task =
-            self.get_all_instances_async(service_name, group_name, clusters, subscribe);
-
-        Box::new(Box::pin(async move {
-            let all_instance = get_all_instances_task.await?;
-            let ret: Vec<ServiceInstance> = all_instance
-                .into_iter()
-                .filter(|instance| {
-                    healthy == instance.healthy && instance.enabled && instance.weight > 0.0
-                })
-                .collect();
-            Ok(ret)
-        }))
-    }
-
     fn select_one_healthy_instance(
         &self,
         service_name: String,
@@ -432,30 +573,6 @@ impl NamingService for NacosNamingService {
         futures::executor::block_on(future)
     }
 
-    fn select_one_healthy_instance_async(
-        &self,
-        service_name: String,
-        group_name: Option<String>,
-        clusters: Vec<String>,
-        subscribe: bool,
-    ) -> AsyncFuture<ServiceInstance> {
-        let group_name = group_name.or_else(|| Some(self::constants::DEFAULT_GROUP.to_owned()));
-        let service_name_for_tip = service_name.clone();
-        let select_task =
-            self.select_instance_async(service_name, group_name, clusters, subscribe, true);
-
-        Box::new(Box::pin(async move {
-            let ret = select_task.await?;
-            let chooser = RandomWeightChooser::new(service_name_for_tip.clone(), ret)?;
-            let instance = chooser.choose();
-            if instance.is_none() {
-                return Err(NoAvailableServiceInstance(service_name_for_tip));
-            }
-            let instance = instance.unwrap();
-            Ok(instance)
-        }))
-    }
-
     fn get_service_list(
         &self,
         page_no: i32,
@@ -466,104 +583,16 @@ impl NamingService for NacosNamingService {
         futures::executor::block_on(future)
     }
 
-    fn get_service_list_async(
-        &self,
-        page_no: i32,
-        page_size: i32,
-        group_name: Option<String>,
-    ) -> AsyncFuture<(Vec<String>, i32)> {
-        let group_name = group_name.or_else(|| Some(self::constants::DEFAULT_GROUP.to_owned()));
-        let namespace = Some(self.namespace.clone());
-
-        let request = ServiceListRequest {
-            page_no,
-            page_size,
-            group_name,
-            namespace,
-            ..Default::default()
-        };
-        let request_task =
-            self.request_to_server::<ServiceListRequest, ServiceListResponse>(request);
-
-        Box::new(Box::pin(async move {
-            let response = request_task.await?;
-            if !response.is_success() {
-                let ServiceListResponse {
-                    result_code,
-                    error_code,
-                    message,
-                    ..
-                } = response;
-                return Err(NamingServiceListFailed(
-                    result_code,
-                    error_code,
-                    message.unwrap_or_default(),
-                ));
-            }
-
-            Ok((response.service_names, response.count))
-        }))
-    }
-
     fn subscribe(
         &self,
         service_name: String,
         group_name: Option<String>,
         clusters: Vec<String>,
-        subscriber: Arc<dyn Subscriber>,
+        event_listener: Arc<dyn NamingEventListener>,
     ) -> Result<()> {
-        let future = self.subscribe_async(service_name, group_name, clusters, subscriber);
-        futures::executor::block_on(future)
-    }
-
-    fn subscribe_async(
-        &self,
-        service_name: String,
-        group_name: Option<String>,
-        clusters: Vec<String>,
-        subscriber: Arc<dyn Subscriber>,
-    ) -> AsyncFuture<()> {
-        let clusters = clusters.join(",");
-        let group_name =
-            Some(group_name.unwrap_or_else(|| self::constants::DEFAULT_GROUP.to_owned()));
-        let service_name = Some(service_name);
-        let namespace = Some(self.namespace.clone());
-
-        let request =
-            SubscribeServiceRequest::new(true, clusters, service_name, namespace, group_name);
-
-        // automatic request
-        let auto_request: Arc<dyn AutomaticRequest> = Arc::new(request.clone());
-        let redo_task = NamingRedoTask::new(auto_request);
-        let redo_task_executor = self.redo_task_executor.clone();
-
-        let request_task =
-            self.request_to_server::<SubscribeServiceRequest, SubscribeServiceResponse>(request);
-
-        Box::new(Box::pin(async move {
-            let redo_task = Arc::new(redo_task);
-            redo_task.active();
-            redo_task_executor.add_task(redo_task.clone()).await;
-
-            let response = request_task.await?;
-            if !response.is_success() {
-                let SubscribeServiceResponse {
-                    result_code,
-                    error_code,
-                    message,
-                    ..
-                } = response;
-                return Err(NamingSubscribeServiceFailed(
-                    result_code,
-                    error_code,
-                    message.unwrap_or_default(),
-                ));
-            }
-            event_bus::register(subscriber);
-            info!("SubscribeServiceResponse: {:?}", response);
-            redo_task.frozen();
-            Ok(())
-        }))
+        let future = self.subscribe_async(service_name, group_name, clusters, Some(event_listener));
+        let _ = futures::executor::block_on(future);
+        Ok(())
     }
 
     fn unsubscribe(
@@ -571,58 +600,11 @@ impl NamingService for NacosNamingService {
         service_name: String,
         group_name: Option<String>,
         clusters: Vec<String>,
-        subscriber: Arc<dyn Subscriber>,
+        event_listener: Arc<dyn NamingEventListener>,
     ) -> Result<()> {
-        let future = self.unsubscribe_async(service_name, group_name, clusters, subscriber);
+        let future =
+            self.unsubscribe_async(service_name, group_name, clusters, Some(event_listener));
         futures::executor::block_on(future)
-    }
-
-    fn unsubscribe_async(
-        &self,
-        service_name: String,
-        group_name: Option<String>,
-        clusters: Vec<String>,
-        subscriber: Arc<dyn Subscriber>,
-    ) -> AsyncFuture<()> {
-        let clusters = clusters.join(",");
-        let group_name =
-            Some(group_name.unwrap_or_else(|| self::constants::DEFAULT_GROUP.to_owned()));
-        let service_name = Some(service_name);
-        let namespace = Some(self.namespace.clone());
-
-        let request =
-            SubscribeServiceRequest::new(false, clusters, service_name, namespace, group_name);
-
-        // automatic request
-        let auto_request: Arc<dyn AutomaticRequest> = Arc::new(request.clone());
-        let redo_task = NamingRedoTask::new(auto_request);
-        let redo_task_executor = self.redo_task_executor.clone();
-
-        let request_task =
-            self.request_to_server::<SubscribeServiceRequest, SubscribeServiceResponse>(request);
-
-        Box::new(Box::pin(async move {
-            let response = request_task.await?;
-            if !response.is_success() {
-                let SubscribeServiceResponse {
-                    result_code,
-                    error_code,
-                    message,
-                    ..
-                } = response;
-                return Err(NamingSubscribeServiceFailed(
-                    result_code,
-                    error_code,
-                    message.unwrap_or_default(),
-                ));
-            }
-            event_bus::unregister(subscriber);
-            info!("SubscribeServiceResponse: {:?}", response);
-            redo_task_executor
-                .remove_task(redo_task.task_key().as_str())
-                .await;
-            Ok(())
-        }))
     }
 }
 
@@ -634,8 +616,7 @@ pub(crate) mod tests {
 
     use tracing::{info, metadata::LevelFilter};
 
-    use crate::api::events::{naming::InstancesChangeEvent, NacosEventSubscriber};
-    use crate::api::plugin::NoopAuthPlugin;
+    use crate::api::{naming::NamingEvent, plugin::NoopAuthPlugin};
 
     use super::*;
 
@@ -1030,13 +1011,11 @@ pub(crate) mod tests {
     }
 
     #[derive(Hash, PartialEq)]
-    pub struct InstancesChangeEventSubscriber;
+    pub struct InstancesChangeEventListener;
 
-    impl NacosEventSubscriber for InstancesChangeEventSubscriber {
-        type EventType = InstancesChangeEvent;
-
-        fn on_event(&self, event: &Self::EventType) {
-            println!("subscriber notify: {:?}", event);
+    impl NamingEventListener for InstancesChangeEventListener {
+        fn event(&self, event: Arc<dyn NamingEvent>) {
+            info!("InstancesChangeEventListener: {:?}", event);
         }
     }
 
@@ -1088,12 +1067,12 @@ pub(crate) mod tests {
         );
         info!("response. {:?}", ret);
 
-        let subscriber = Arc::new(InstancesChangeEventSubscriber);
+        let listener = Arc::new(InstancesChangeEventListener);
         let ret = naming_service.subscribe(
             "test-service".to_string(),
             Some(constants::DEFAULT_GROUP.to_string()),
             Vec::default(),
-            subscriber,
+            listener,
         );
 
         info!("response. {:?}", ret);

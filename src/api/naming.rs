@@ -1,11 +1,11 @@
+use std::fmt::Debug;
 use std::{collections::HashMap, sync::Arc};
 
 use crate::api::plugin;
 use crate::{api::error::Result, naming::NacosNamingService};
-use futures::Future;
 use serde::{Deserialize, Serialize};
 
-use super::{events::Subscriber, props::ClientProps};
+use super::props::ClientProps;
 
 const DEFAULT_CLUSTER_NAME: &str = "DEFAULT";
 
@@ -108,11 +108,24 @@ impl Default for ServiceInstance {
     }
 }
 
+pub trait NamingEvent: Debug {
+    fn service_name(&self) -> &str;
+
+    fn group_name(&self) -> &str;
+
+    fn clusters(&self) -> &str;
+
+    fn instances(&self) -> Option<&Vec<ServiceInstance>>;
+}
+
 pub trait InstanceChooser {
     fn choose(self) -> Option<ServiceInstance>;
 }
 
-pub type AsyncFuture<T> = Box<dyn Future<Output = Result<T>> + Send + Unpin + 'static>;
+pub trait NamingEventListener: Send + Sync + 'static {
+    fn event(&self, event: Arc<dyn NamingEvent>);
+}
+
 pub trait NamingService {
     fn register_service(
         &self,
@@ -121,26 +134,12 @@ pub trait NamingService {
         service_instance: ServiceInstance,
     ) -> Result<()>;
 
-    fn register_service_async(
-        &self,
-        service_name: String,
-        group_name: Option<String>,
-        service_instance: ServiceInstance,
-    ) -> AsyncFuture<()>;
-
     fn deregister_instance(
         &self,
         service_name: String,
         group_name: Option<String>,
         service_instance: ServiceInstance,
     ) -> Result<()>;
-
-    fn deregister_instance_async(
-        &self,
-        service_name: String,
-        group_name: Option<String>,
-        service_instance: ServiceInstance,
-    ) -> AsyncFuture<()>;
 
     fn batch_register_instance(
         &self,
@@ -149,13 +148,6 @@ pub trait NamingService {
         service_instances: Vec<ServiceInstance>,
     ) -> Result<()>;
 
-    fn batch_register_instance_async(
-        &self,
-        service_name: String,
-        group_name: Option<String>,
-        service_instances: Vec<ServiceInstance>,
-    ) -> AsyncFuture<()>;
-
     fn get_all_instances(
         &self,
         service_name: String,
@@ -163,14 +155,6 @@ pub trait NamingService {
         clusters: Vec<String>,
         subscribe: bool,
     ) -> Result<Vec<ServiceInstance>>;
-
-    fn get_all_instances_async(
-        &self,
-        service_name: String,
-        group_name: Option<String>,
-        clusters: Vec<String>,
-        subscribe: bool,
-    ) -> AsyncFuture<Vec<ServiceInstance>>;
 
     fn select_instance(
         &self,
@@ -181,15 +165,6 @@ pub trait NamingService {
         healthy: bool,
     ) -> Result<Vec<ServiceInstance>>;
 
-    fn select_instance_async(
-        &self,
-        service_name: String,
-        group_name: Option<String>,
-        clusters: Vec<String>,
-        subscribe: bool,
-        healthy: bool,
-    ) -> AsyncFuture<Vec<ServiceInstance>>;
-
     fn select_one_healthy_instance(
         &self,
         service_name: String,
@@ -198,14 +173,6 @@ pub trait NamingService {
         subscribe: bool,
     ) -> Result<ServiceInstance>;
 
-    fn select_one_healthy_instance_async(
-        &self,
-        service_name: String,
-        group_name: Option<String>,
-        clusters: Vec<String>,
-        subscribe: bool,
-    ) -> AsyncFuture<ServiceInstance>;
-
     fn get_service_list(
         &self,
         page_no: i32,
@@ -213,44 +180,21 @@ pub trait NamingService {
         group_name: Option<String>,
     ) -> Result<(Vec<String>, i32)>;
 
-    fn get_service_list_async(
-        &self,
-        page_no: i32,
-        page_size: i32,
-        group_name: Option<String>,
-    ) -> AsyncFuture<(Vec<String>, i32)>;
-
     fn subscribe(
         &self,
         service_name: String,
         group_name: Option<String>,
         clusters: Vec<String>,
-        subscriber: Arc<dyn Subscriber>,
+        event_listener: Arc<dyn NamingEventListener>,
     ) -> Result<()>;
-
-    fn subscribe_async(
-        &self,
-        service_name: String,
-        group_name: Option<String>,
-        clusters: Vec<String>,
-        subscriber: Arc<dyn Subscriber>,
-    ) -> AsyncFuture<()>;
 
     fn unsubscribe(
         &self,
         service_name: String,
         group_name: Option<String>,
         clusters: Vec<String>,
-        subscriber: Arc<dyn Subscriber>,
+        event_listener: Arc<dyn NamingEventListener>,
     ) -> Result<()>;
-
-    fn unsubscribe_async(
-        &self,
-        service_name: String,
-        group_name: Option<String>,
-        clusters: Vec<String>,
-        subscriber: Arc<dyn Subscriber>,
-    ) -> AsyncFuture<()>;
 }
 
 pub struct NamingServiceBuilder {

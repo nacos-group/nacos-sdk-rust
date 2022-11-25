@@ -1,7 +1,6 @@
 use rand::Rng;
 
-use crate::api::error::Error::NoAvailableServiceInstance;
-use crate::api::error::Error::WeightCalculateFailed;
+use crate::api::error::Error::ErrResult;
 use crate::api::error::Result;
 use crate::api::naming::{InstanceChooser, ServiceInstance};
 
@@ -14,7 +13,10 @@ pub(crate) struct RandomWeightChooser {
 impl RandomWeightChooser {
     pub fn new(service_name: String, items: Vec<ServiceInstance>) -> Result<Self> {
         if items.is_empty() {
-            return Err(NoAvailableServiceInstance(service_name));
+            return Err(ErrResult(format!(
+                "no available {} service instance can be selected",
+                service_name
+            )));
         }
         let mut init_items: Vec<ServiceInstance> = Vec::with_capacity(items.len());
         let mut origin_weight_sum = 0_f64;
@@ -72,7 +74,10 @@ impl RandomWeightChooser {
             });
         }
 
-        Err(WeightCalculateFailed)
+        Err(ErrResult(
+            "Cumulative Weight calculate wrong , the sum of probabilities does not equals 1."
+                .to_string(),
+        ))
     }
 }
 

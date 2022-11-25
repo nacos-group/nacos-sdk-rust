@@ -1,8 +1,9 @@
 use std::sync::Arc;
 
 use crate::{
-    api::events::NacosEventSubscriber,
-    common::{executor, remote::grpc::events::GrpcDisconnectEvent},
+    common::{
+        event_bus::NacosEventSubscriber, executor, remote::grpc::events::GrpcDisconnectEvent,
+    },
     naming::redo::RedoTaskExecutor,
 };
 

@@ -2,9 +2,9 @@ use nacos_sdk::api::config::{
     ConfigChangeListener, ConfigResponse, ConfigService, ConfigServiceBuilder,
 };
 use nacos_sdk::api::constants;
-use nacos_sdk::api::events::naming::InstancesChangeEvent;
-use nacos_sdk::api::events::NacosEventSubscriber;
-use nacos_sdk::api::naming::{NamingService, NamingServiceBuilder, ServiceInstance};
+use nacos_sdk::api::naming::{
+    NamingEvent, NamingEventListener, NamingService, NamingServiceBuilder, ServiceInstance,
+};
 use nacos_sdk::api::props::ClientProps;
 use std::time::Duration;
 use tokio::time::sleep;
@@ -45,12 +45,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // ----------  Naming  -------------
     let mut naming_service = NamingServiceBuilder::new(client_props).build()?;
 
-    let subscriber = std::sync::Arc::new(SimpleInstancesChangeEventSubscriber);
+    let listener = std::sync::Arc::new(SimpleInstancesChangeListener);
     let _subscribe_ret = naming_service.subscribe(
         "test-service".to_string(),
         Some(constants::DEFAULT_GROUP.to_string()),
         Vec::default(),
-        subscriber,
+        listener,
     );
 
     let service_instance1 = ServiceInstance {
@@ -89,12 +89,10 @@ impl ConfigChangeListener for SimpleConfigChangeListener {
     }
 }
 
-pub struct SimpleInstancesChangeEventSubscriber;
+pub struct SimpleInstancesChangeListener;
 
-impl NacosEventSubscriber for SimpleInstancesChangeEventSubscriber {
-    type EventType = InstancesChangeEvent;
-
-    fn on_event(&self, event: &Self::EventType) {
+impl NamingEventListener for SimpleInstancesChangeListener {
+    fn event(&self, event: std::sync::Arc<dyn NamingEvent>) {
         tracing::info!("subscriber notify: {:?}", event);
     }
 }

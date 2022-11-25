@@ -1,6 +1,6 @@
 use std::any::Any;
 
-use crate::api::events::NacosEvent;
+use crate::common::event_bus::NacosEvent;
 
 #[derive(Clone, Debug)]
 pub struct NacosGrpcClientInitComplete {}
