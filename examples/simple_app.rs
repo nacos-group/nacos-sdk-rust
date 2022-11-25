@@ -45,7 +45,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // ----------  Naming  -------------
     let mut naming_service = NamingServiceBuilder::new(client_props).build()?;
 
-    let listener = std::sync::Arc::new(SimpleInstancesChangeListener);
+    let listener = std::sync::Arc::new(SimpleInstanceChangeListener);
     let _subscribe_ret = naming_service.subscribe(
         "test-service".to_string(),
         Some(constants::DEFAULT_GROUP.to_string()),
@@ -89,9 +89,9 @@ impl ConfigChangeListener for SimpleConfigChangeListener {
     }
 }
 
-pub struct SimpleInstancesChangeListener;
+pub struct SimpleInstanceChangeListener;
 
-impl NamingEventListener for SimpleInstancesChangeListener {
+impl NamingEventListener for SimpleInstanceChangeListener {
     fn event(&self, event: std::sync::Arc<NamingChangeEvent>) {
         tracing::info!("subscriber notify: {:?}", event);
     }

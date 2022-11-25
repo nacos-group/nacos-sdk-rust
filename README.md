@@ -64,18 +64,16 @@ nacos-sdk = { version = "0.2", features = ["default"] }
     )
     .build()?;
 
-    pub struct ExampleInstancesChangeEventSubscriber;
+    pub struct ExampleInstanceChangeListener;
 
-    impl NacosEventSubscriber for ExampleInstancesChangeEventSubscriber {
-        type EventType = InstancesChangeEvent;
-    
-        fn on_event(&self, event: &Self::EventType) {
-            tracing::info!("subscriber notify event={:?}", event);
+    impl NamingEventListener for ExampleInstanceChangeListener {
+        fn event(&self, event: std::sync::Arc<NamingChangeEvent>) {
+            tracing::info!("subscriber notify: {:?}", event);
         }
     }
 
     // example naming subscriber
-    let subscriber = Arc::new(ExampleInstancesChangeEventSubscriber);
+    let subscriber = Arc::new(ExampleInstanceChangeListener);
     let _subscribe_ret = naming_service.subscribe(
         "test-service".to_string(),
         Some(constants::DEFAULT_GROUP.to_string()),
@@ -150,7 +148,7 @@ gRPC 交互的 Payload 和 Metadata 由 `Protocol Buffers` 序列化，具体的
 - [x] 批量注册服务 api 与实现
 - [x] 获取服务 api 与实现
 - [x] 订阅服务 api 与实现，List-Watch 机制，具备 list 兜底逻辑
-- [ ] 服务防推空，默认开启，可选关闭。
+- [x] 服务防推空，默认开启，TODO 可选关闭。
 
 #### Common 通用能力
 - [ ] 创建参数，自定义传参 + ENV 环境变量读取，后者优先级高；ENV 统一前缀，例如 `NACOS_CLIENT_CONFIG_*` 于配置管理， `NACOS_CLIENT_NAMING_*` 于服务注册
