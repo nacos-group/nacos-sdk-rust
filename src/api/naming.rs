@@ -259,7 +259,6 @@ pub trait NamingEventListener: Send + Sync + 'static {
     fn event(&self, service_info: Arc<ServiceInfo>);
 }
 
-pub type AsyncFuture<T> = Box<dyn Future<Output = Result<T>> + Send + Unpin + 'static>;
 pub trait NamingService {
     fn register_service(
         &self,
