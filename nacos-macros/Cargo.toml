@@ -1,0 +1,22 @@
+[package]
+name = "nacos-macros"
+version = "0.1.0"
+edition = "2021"
+authors = ["nacos-group", "CheirshCai <785427346@qq.com>", "onewe <2583021406@qq.com>"]
+license = "Apache-2.0"
+documentation = "https://docs.rs/nacos-sdk/latest"
+repository = "https://github.com/nacos-group/nacos-sdk-rust"
+homepage = "https://nacos.io"
+description = """
+Nacos's proc macros.
+"""
+
+[lib]
+proc-macro = true
+name = "nacos_macro"
+
+[dependencies]
+proc-macro2 = "1.0.47"
+quote = "1.0.21"
+syn = { version = "1.0.103", features = ["extra-traits", "parsing"] }
+darling = "0.14.2"

@@ -33,7 +33,7 @@ exclude = [".github", "proto", "tests"]
 
 [workspace]
 members = [
-    "nacos-macro"
+    "nacos-macros"
 ]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -44,7 +44,7 @@ naming = []
 auth-by-http = ["reqwest"]
 
 [dependencies]
-nacos_macro = { path = "nacos-macro" }
+nacos-macros = { version = "0.1.0", path = "nacos-macros" }
 thiserror = "1.0"
 tokio = { version = "1.21", features = ["full"] }
 #tokio-stream = { version = "0.1", features = ["net"] }
