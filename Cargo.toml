@@ -44,7 +44,7 @@ naming = []
 auth-by-http = ["reqwest"]
 
 [dependencies]
-nacos_macro = { path = "nacos-macro" }
+nacos-macro = { version = "0.1.0", path = "nacos-macro" }
 thiserror = "1.0"
 tokio = { version = "1.21", features = ["full"] }
 #tokio-stream = { version = "0.1", features = ["net"] }
