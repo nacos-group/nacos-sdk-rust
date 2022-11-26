@@ -1,5 +1,5 @@
 [package]
-name = "nacos-macros"
+name = "nacos-macro"
 version = "0.1.0"
 edition = "2021"
 authors = ["nacos-group", "CheirshCai <785427346@qq.com>", "onewe <2583021406@qq.com>"]
@@ -13,7 +13,6 @@ Nacos's proc macros.
 
 [lib]
 proc-macro = true
-name = "nacos_macro"
 
 [dependencies]
 proc-macro2 = "1.0.47"
