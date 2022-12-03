@@ -183,7 +183,7 @@ impl ServiceInfoHolder {
             }
 
             let old_host = old_host.unwrap();
-            if !old_host.is_same_instance(*new_host) {
+            if !old_host.is_same_instance(new_host) {
                 modified_hosts.push(*new_host);
             }
         }

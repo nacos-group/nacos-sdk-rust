@@ -169,9 +169,15 @@ impl NacosNamingService {
         service_instance: ServiceInstance,
     ) -> Result<()> {
         let namespace = Some(self.namespace.clone());
-        let group_name = group_name.or_else(|| Some(self::constants::DEFAULT_GROUP.to_owned()));
-        let request =
-            InstanceRequest::register(service_instance, Some(service_name), namespace, group_name);
+        let group_name = group_name
+            .filter(|data| !data.is_empty())
+            .unwrap_or_else(|| self::constants::DEFAULT_GROUP.to_owned());
+        let request = InstanceRequest::register(
+            service_instance,
+            Some(service_name),
+            namespace,
+            Some(group_name),
+        );
 
         // automatic request
         let auto_request: Arc<dyn AutomaticRequest> = Arc::new(request.clone());
@@ -205,12 +211,14 @@ impl NacosNamingService {
         service_instance: ServiceInstance,
     ) -> Result<()> {
         let namespace = Some(self.namespace.clone());
-        let group_name = group_name.or_else(|| Some(self::constants::DEFAULT_GROUP.to_owned()));
+        let group_name = group_name
+            .filter(|data| !data.is_empty())
+            .unwrap_or_else(|| self::constants::DEFAULT_GROUP.to_owned());
         let request = InstanceRequest::deregister(
             service_instance,
             Some(service_name),
             namespace,
-            group_name,
+            Some(group_name),
         );
 
         // automatic request
@@ -239,9 +247,15 @@ impl NacosNamingService {
         service_instances: Vec<ServiceInstance>,
     ) -> Result<()> {
         let namespace = Some(self.namespace.clone());
-        let group_name = group_name.or_else(|| Some(self::constants::DEFAULT_GROUP.to_owned()));
-        let request =
-            BatchInstanceRequest::new(service_instances, namespace, Some(service_name), group_name);
+        let group_name = group_name
+            .filter(|data| !data.is_empty())
+            .unwrap_or_else(|| self::constants::DEFAULT_GROUP.to_owned());
+        let request = BatchInstanceRequest::new(
+            service_instances,
+            namespace,
+            Some(service_name),
+            Some(group_name),
+        );
 
         // automatic request
         let auto_request: Arc<dyn AutomaticRequest> = Arc::new(request.clone());
@@ -272,8 +286,8 @@ impl NacosNamingService {
     ) -> Result<Vec<ServiceInstance>> {
         let cluster_str = clusters.join(",");
         let group_name = group_name
-            .or_else(|| Some(self::constants::DEFAULT_GROUP.to_owned()))
-            .unwrap();
+            .filter(|data| !data.is_empty())
+            .unwrap_or_else(|| self::constants::DEFAULT_GROUP.to_owned());
 
         let service_info;
         if subscribe {
@@ -331,10 +345,12 @@ impl NacosNamingService {
         subscribe: bool,
         healthy: bool,
     ) -> Result<Vec<ServiceInstance>> {
-        let group_name = group_name.or_else(|| Some(self::constants::DEFAULT_GROUP.to_owned()));
+        let group_name = group_name
+            .filter(|data| !data.is_empty())
+            .unwrap_or_else(|| self::constants::DEFAULT_GROUP.to_owned());
 
         let all_instance = self
-            .get_all_instances_async(service_name, group_name, clusters, subscribe)
+            .get_all_instances_async(service_name, Some(group_name), clusters, subscribe)
             .await?;
         let ret: Vec<ServiceInstance> = all_instance
             .into_iter()
@@ -352,11 +368,19 @@ impl NacosNamingService {
         clusters: Vec<String>,
         subscribe: bool,
     ) -> Result<ServiceInstance> {
-        let group_name = group_name.or_else(|| Some(self::constants::DEFAULT_GROUP.to_owned()));
+        let group_name = group_name
+            .filter(|data| !data.is_empty())
+            .unwrap_or_else(|| self::constants::DEFAULT_GROUP.to_owned());
         let service_name_for_tip = service_name.clone();
 
         let ret = self
-            .select_instance_async(service_name.clone(), group_name, clusters, subscribe, true)
+            .select_instance_async(
+                service_name.clone(),
+                Some(group_name),
+                clusters,
+                subscribe,
+                true,
+            )
             .await?;
         let chooser = RandomWeightChooser::new(service_name, ret)?;
         let instance = chooser.choose();
@@ -376,13 +400,15 @@ impl NacosNamingService {
         page_size: i32,
         group_name: Option<String>,
     ) -> Result<(Vec<String>, i32)> {
-        let group_name = group_name.or_else(|| Some(self::constants::DEFAULT_GROUP.to_owned()));
+        let group_name = group_name
+            .filter(|data| !data.is_empty())
+            .unwrap_or_else(|| self::constants::DEFAULT_GROUP.to_owned());
         let namespace = Some(self.namespace.clone());
 
         let request = ServiceListRequest {
             page_no,
             page_size,
-            group_name,
+            group_name: Some(group_name),
             namespace,
             ..Default::default()
         };
@@ -410,8 +436,9 @@ impl NacosNamingService {
         event_listener: Option<Arc<dyn NamingEventListener>>,
     ) -> Result<ServiceInfo> {
         let clusters = clusters.join(",");
-        let group_name =
-            Some(group_name.unwrap_or_else(|| self::constants::DEFAULT_GROUP.to_owned())).unwrap();
+        let group_name = group_name
+            .filter(|data| !data.is_empty())
+            .unwrap_or_else(|| self::constants::DEFAULT_GROUP.to_owned());
 
         // add event listener
         if let Some(event_listener) = event_listener {
@@ -464,8 +491,9 @@ impl NacosNamingService {
         event_listener: Option<Arc<dyn NamingEventListener>>,
     ) -> Result<()> {
         let clusters = clusters.join(",");
-        let group_name =
-            Some(group_name.unwrap_or_else(|| self::constants::DEFAULT_GROUP.to_owned())).unwrap();
+        let group_name = group_name
+            .filter(|data| !data.is_empty())
+            .unwrap_or_else(|| self::constants::DEFAULT_GROUP.to_owned());
 
         // remove event listener
         if let Some(event_listener) = event_listener {
@@ -646,11 +674,8 @@ pub(crate) mod tests {
             ..Default::default()
         };
 
-        let ret = naming_service.register_service(
-            "test-service".to_string(),
-            Some(constants::DEFAULT_GROUP.to_string()),
-            service_instance,
-        );
+        let ret =
+            naming_service.register_service("test-service".to_string(), None, service_instance);
         info!("response. {:?}", ret);
 
         let ten_millis = time::Duration::from_secs(100);
@@ -686,7 +711,7 @@ pub(crate) mod tests {
 
         let ret = naming_service.register_service(
             "test-service".to_string(),
-            Some(constants::DEFAULT_GROUP.to_string()),
+            None,
             service_instance.clone(),
         );
         info!("response. {:?}", ret);

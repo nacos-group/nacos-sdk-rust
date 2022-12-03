@@ -110,7 +110,7 @@ impl NacosEventSubscriber for InstancesChangeEventSubscriber {
             service_name: event.service_name().to_string(),
             group_name: event.group_name().to_string(),
             clusters: event.clusters().to_string(),
-            instances: event.hosts().map(|data| data.clone()),
+            instances: event.hosts().cloned(),
         };
 
         let naming_event = Arc::new(naming_event);
