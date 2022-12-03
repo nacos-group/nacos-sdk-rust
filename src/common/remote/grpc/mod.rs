@@ -145,6 +145,8 @@ impl NacosGrpcClient {
             *self_connection_id = connection_id;
         }
 
+        sleep(Duration::from_millis(500));
+
         debug!("nacos grpc client init complete.");
         event_bus::post(Arc::new(NacosGrpcClientInitComplete {}));
         Ok(())

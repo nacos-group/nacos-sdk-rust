@@ -14,8 +14,6 @@
 // limitations under the License.
 //
 
-use crate::nacos_proto::v2::Payload;
-
 /// Nacos Sdk Rust Result.
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -44,13 +42,4 @@ pub enum Error {
 
     #[error("grpcio conn failed: {0}")]
     GrpcioJoin(#[from] grpcio::Error),
-
-    #[error("tokio task join failed: {0}")]
-    TokioJoin(#[from] tokio::task::JoinError),
-
-    #[error("tokio oneshot receive failed: {0}")]
-    TokioOneshotRecv(#[from] tokio::sync::oneshot::error::RecvError),
-
-    #[error("tokio mpsc send failed: {0}")]
-    TokioMpscSendPayloadFailed(#[from] tokio::sync::mpsc::error::SendError<Payload>),
 }
