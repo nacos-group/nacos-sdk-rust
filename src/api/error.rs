@@ -42,4 +42,7 @@ pub enum Error {
 
     #[error("grpcio conn failed: {0}")]
     GrpcioJoin(#[from] grpcio::Error),
+
+    #[error("Wrong grpc address: {0}")]
+    WrongGrpcAddress(String),
 }
