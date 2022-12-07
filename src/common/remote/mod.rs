@@ -2,6 +2,7 @@ pub mod grpc;
 
 use crate::api::error::Error::WrongServerAddress;
 use crate::api::error::Result;
+use rand::prelude::SliceRandom;
 use std::sync::atomic::{AtomicI64, Ordering};
 
 // odd by client request id.
@@ -20,10 +21,13 @@ pub(crate) fn generate_request_id() -> String {
 /// make address's port plus 1000
 #[allow(clippy::get_first)]
 pub(crate) fn into_grpc_server_addr(address: &str) -> Result<String> {
-    let hosts = address.split(',').collect::<Vec<&str>>();
+    let mut hosts = address.split(',').collect::<Vec<&str>>();
     if hosts.is_empty() {
         return Err(WrongServerAddress(address.into()));
     }
+
+    // shuffle for grpcio LbPolicy::PickFirst, It is a sequential attempt to link, so reorder to balance the load as much as possible.
+    hosts.shuffle(&mut rand::thread_rng());
 
     let mut result = vec![];
     for host in hosts {
