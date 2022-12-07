@@ -16,6 +16,24 @@ pub struct ClientProps {
     pub(crate) auth_context: HashMap<String, String>,
 }
 
+impl ClientProps {
+    pub(crate) fn get_server_list(&self) -> crate::api::error::Result<Vec<String>> {
+        let hosts: Vec<&str> = self.server_addr.split(',').collect::<Vec<&str>>();
+        if hosts.is_empty() {
+            return Err(crate::api::error::Error::WrongServerAddress(
+                self.server_addr.clone(),
+            ));
+        }
+
+        let mut result = vec![];
+        for host in hosts {
+            result.push(host.to_string());
+        }
+
+        Ok(result)
+    }
+}
+
 #[allow(clippy::new_without_default)]
 impl ClientProps {
     /// Creates a new `ClientConfig`.

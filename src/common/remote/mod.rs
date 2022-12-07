@@ -1,9 +1,8 @@
 pub mod grpc;
 
 use crate::api::error::Error::WrongServerAddress;
+use crate::api::error::Result;
 use std::sync::atomic::{AtomicI64, Ordering};
-
-use crate::api::error::{Error, Result};
 
 // odd by client request id.
 const SEQUENCE_INITIAL_VALUE: i64 = 1;
@@ -19,9 +18,10 @@ pub(crate) fn generate_request_id() -> String {
 }
 
 /// make address's port plus 1000
+#[allow(clippy::get_first)]
 pub(crate) fn into_grpc_server_addr(address: &str) -> Result<String> {
     let hosts = address.split(',').collect::<Vec<&str>>();
-    if hosts.len() == 0 {
+    if hosts.is_empty() {
         return Err(WrongServerAddress(address.into()));
     }
 
@@ -49,7 +49,7 @@ pub(crate) fn into_grpc_server_addr(address: &str) -> Result<String> {
 
     match result.len() {
         0 => Err(WrongServerAddress(address.into())),
-        1 => Ok(format!("{}", result.get(0).unwrap())),
+        1 => Ok(result.get(0).unwrap().to_string()),
         _ => Ok(format!("ipv4:{}", result.join(","))),
     }
 }

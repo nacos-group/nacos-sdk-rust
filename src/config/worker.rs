@@ -83,7 +83,7 @@ impl ConfigWorker {
             notify_change_tx_clone,
         ));
 
-        let server_list = Arc::new(vec![client_props.server_addr.clone()]);
+        let server_list = Arc::new(client_props.get_server_list()?);
         let plugin = Arc::clone(&auth_plugin);
         let auth_context =
             Arc::new(AuthContext::default().add_params(client_props.auth_context.clone()));
