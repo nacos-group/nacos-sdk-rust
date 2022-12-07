@@ -1,6 +1,6 @@
 pub mod grpc;
 
-use crate::api::error::Error::WrongGrpcAddress;
+use crate::api::error::Error::WrongServerAddress;
 use std::sync::atomic::{AtomicI64, Ordering};
 
 use crate::api::error::Result;
@@ -23,7 +23,7 @@ pub(crate) fn generate_request_id() -> String {
 /// make address's port plus 1000
 pub(crate) fn into_grpc_server_addr(address: &str) -> Result<String> {
     match address.split_once(':') {
-        None => Err(WrongGrpcAddress(address.into())),
+        None => Err(WrongServerAddress(address.into())),
         Some((schema, addresses)) if schema.starts_with(IPV4) => {
             let host_port_pairs = addresses
                 .split(',')
