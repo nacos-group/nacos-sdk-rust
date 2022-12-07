@@ -1,14 +1,15 @@
 pub mod grpc;
 
-use std::sync::atomic::{AtomicI64, Ordering};
 use crate::api::error::Error::WrongGrpcAddress;
+use std::sync::atomic::{AtomicI64, Ordering};
 
 use crate::api::error::Result;
+
+const IPV4: &str = "ipv4";
 
 // odd by client request id.
 const SEQUENCE_INITIAL_VALUE: i64 = 1;
 const SEQUENCE_DELTA: i64 = 2;
-const IPV4: &str = "ipv4";
 static ATOMIC_SEQUENCE: AtomicI64 = AtomicI64::new(SEQUENCE_INITIAL_VALUE);
 
 pub(crate) fn generate_request_id() -> String {
@@ -24,7 +25,8 @@ pub(crate) fn into_grpc_server_addr(address: &str) -> Result<String> {
     match address.split_once(':') {
         None => Err(WrongGrpcAddress(address.into())),
         Some((schema, addresses)) if schema.starts_with(IPV4) => {
-            let host_port_pairs = addresses.split(',')
+            let host_port_pairs = addresses
+                .split(',')
                 .map(|host_port| {
                     let split = host_port.split(':').collect::<Vec<&str>>();
                     let host = split.get(0).unwrap();
@@ -51,7 +53,7 @@ mod tests {
     fn test_empty_address() {
         match into_grpc_server_addr("") {
             Ok(_) => assert!(false),
-            Err(_) => assert!(true)
+            Err(_) => assert!(true),
         }
     }
 
@@ -59,7 +61,7 @@ mod tests {
     fn test_host_address_without_port() {
         match into_grpc_server_addr("127.0.0.1") {
             Ok(_) => assert!(false),
-            Err(_) => assert!(true)
+            Err(_) => assert!(true),
         }
     }
 
@@ -87,4 +89,3 @@ mod tests {
         assert_eq!(expected, result);
     }
 }
-
