@@ -1,5 +1,12 @@
 # 变更日志 | Change log
 
+### 0.2.1
+- 支持设置多服务端地址，形如：`address:port[,address:port],...]`
+
+---
+
+- Support multi server-addr, following format: `address:port[,address:port],...]`
+
 ### 0.2.0
 
 - Config/Naming 功能均可用
