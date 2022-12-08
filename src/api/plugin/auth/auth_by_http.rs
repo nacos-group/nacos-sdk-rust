@@ -1,3 +1,4 @@
+use rand::Rng;
 use std::ops::{Add, Deref};
 use std::sync::RwLock;
 use std::time::{Duration, Instant};
@@ -49,8 +50,11 @@ impl AuthPlugin for HttpLoginAuthPlugin {
 
         let server_addr = {
             let mutex = self.server_list.read().unwrap();
-            // todo random one
-            mutex.first().unwrap().to_string()
+            // random one
+            mutex
+                .get(rand::thread_rng().gen_range(0..mutex.len()))
+                .unwrap()
+                .to_string()
         };
 
         // todo support https

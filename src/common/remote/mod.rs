@@ -1,9 +1,9 @@
 pub mod grpc;
 
 use crate::api::error::Error::WrongServerAddress;
+use crate::api::error::Result;
+use rand::prelude::SliceRandom;
 use std::sync::atomic::{AtomicI64, Ordering};
-
-use crate::api::error::{Error, Result};
 
 // odd by client request id.
 const SEQUENCE_INITIAL_VALUE: i64 = 1;
@@ -19,10 +19,16 @@ pub(crate) fn generate_request_id() -> String {
 }
 
 /// make address's port plus 1000
-pub(crate) fn into_grpc_server_addr(address: &str) -> Result<String> {
-    let hosts = address.split(',').collect::<Vec<&str>>();
-    if hosts.len() == 0 {
+#[allow(clippy::get_first)]
+pub(crate) fn into_grpc_server_addr(address: &str, shuffle: bool) -> Result<String> {
+    let mut hosts = address.split(',').collect::<Vec<&str>>();
+    if hosts.is_empty() {
         return Err(WrongServerAddress(address.into()));
+    }
+
+    if shuffle {
+        // shuffle for grpcio LbPolicy::PickFirst, It is a sequential attempt to link, so reorder to balance the load as much as possible.
+        hosts.shuffle(&mut rand::thread_rng());
     }
 
     let mut result = vec![];
@@ -49,7 +55,7 @@ pub(crate) fn into_grpc_server_addr(address: &str) -> Result<String> {
 
     match result.len() {
         0 => Err(WrongServerAddress(address.into())),
-        1 => Ok(format!("{}", result.get(0).unwrap())),
+        1 => Ok(result.get(0).unwrap().to_string()),
         _ => Ok(format!("ipv4:{}", result.join(","))),
     }
 }
@@ -60,7 +66,7 @@ mod tests {
 
     #[test]
     fn test_empty_address() {
-        match into_grpc_server_addr("") {
+        match into_grpc_server_addr("", false) {
             Ok(_) => assert!(false),
             Err(_) => assert!(true),
         }
@@ -68,7 +74,7 @@ mod tests {
 
     #[test]
     fn test_host_address_without_port() {
-        match into_grpc_server_addr("127.0.0.1") {
+        match into_grpc_server_addr("127.0.0.1", false) {
             Ok(_) => assert!(false),
             Err(_) => assert!(true),
         }
@@ -76,7 +82,7 @@ mod tests {
 
     #[test]
     fn test_host_addresses_without_one_port() {
-        match into_grpc_server_addr("127.0.0.1:8848,127.0.0.1") {
+        match into_grpc_server_addr("127.0.0.1:8848,127.0.0.1", false) {
             Ok(_) => assert!(false),
             Err(_) => assert!(true),
         }
@@ -86,7 +92,7 @@ mod tests {
     fn test_single_host_address() {
         let addr = "127.0.0.1:8848";
         let expected = "127.0.0.1:9848";
-        let result = into_grpc_server_addr(addr).unwrap();
+        let result = into_grpc_server_addr(addr, false).unwrap();
         assert_eq!(expected, result);
     }
 
@@ -94,7 +100,7 @@ mod tests {
     fn test_multiple_ipv4_address() {
         let addr = "127.0.0.1:8848,127.0.0.1:8849,127.0.0.1:8850";
         let expected = "ipv4:127.0.0.1:9848,127.0.0.1:9849,127.0.0.1:9850";
-        let result = into_grpc_server_addr(addr).unwrap();
+        let result = into_grpc_server_addr(addr, false).unwrap();
         assert_eq!(expected, result);
     }
 }

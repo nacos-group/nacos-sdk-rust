@@ -73,6 +73,8 @@ pub(crate) struct NacosNamingService {
 
 impl NacosNamingService {
     pub(crate) fn new(client_props: ClientProps, auth_plugin: Arc<dyn AuthPlugin>) -> Result<Self> {
+        let server_list = Arc::new(client_props.get_server_list()?);
+
         let mut namespace = client_props.namespace;
         if namespace.is_empty() {
             namespace = self::constants::DEFAULT_NAMESPACE.to_owned();
@@ -103,7 +105,6 @@ impl NacosNamingService {
             ))
             .build()?;
 
-        let server_list = Arc::new(vec![client_props.server_addr.clone()]);
         let plugin = Arc::clone(&auth_plugin);
         let auth_context =
             Arc::new(AuthContext::default().add_params(client_props.auth_context.clone()));
