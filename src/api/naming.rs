@@ -11,6 +11,7 @@ const DEFAULT_CLUSTER_NAME: &str = "DEFAULT";
 
 /// ServiceInstance for api.
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ServiceInstance {
     pub instance_id: Option<String>,
 
