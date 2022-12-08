@@ -1,5 +1,13 @@
 # 变更日志 | Change log
 
+### 0.2.2
+
+- 修复 cluster_name 无效
+
+---
+
+- fix cluster_name invalid when the service register
+
 ### 0.2.1
 - 支持设置多服务端地址，形如：`address:port[,address:port],...]`
 
