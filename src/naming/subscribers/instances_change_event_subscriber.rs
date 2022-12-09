@@ -1,6 +1,7 @@
 use std::{collections::HashMap, sync::Arc};
 
 use tokio::sync::RwLock;
+use tracing::debug;
 
 use crate::api::naming::{NamingChangeEvent, NamingEventListener};
 use crate::common::{event_bus::NacosEventSubscriber, executor};
@@ -30,6 +31,7 @@ impl InstancesChangeEventSubscriber {
     ) {
         let grouped_name = ServiceInfo::get_grouped_service_name(service_name, group_name);
         let key = ServiceInfo::get_key(&grouped_name, cluster_str);
+        debug!("add instance change listener: {:?}", key);
         let mut map = self.listener_map.write().await;
         let listeners = map.get_mut(&key);
         if listeners.is_none() {
@@ -39,6 +41,9 @@ impl InstancesChangeEventSubscriber {
             let listeners = listeners.unwrap();
             let index = Self::index_of_listener(listeners, &listener);
             if let Some(index) = index {
+                debug!(
+                    "listener has already exist, remove old listener and then add new listener."
+                );
                 listeners.remove(index);
             }
             listeners.push(listener);
@@ -54,6 +59,9 @@ impl InstancesChangeEventSubscriber {
     ) {
         let grouped_name = ServiceInfo::get_grouped_service_name(service_name, group_name);
         let key = ServiceInfo::get_key(&grouped_name, cluster_str);
+
+        debug!("remove instance change listener: {:?}", key);
+
         let mut map = self.listener_map.write().await;
 
         let listeners = map.get_mut(&key);
@@ -65,6 +73,7 @@ impl InstancesChangeEventSubscriber {
 
         let index = Self::index_of_listener(listeners, &listener);
         if index.is_none() {
+            debug!("instance change listener {:?} doesn't exist. give up.", key);
             return;
         }
 
@@ -99,6 +108,7 @@ impl NacosEventSubscriber for InstancesChangeEventSubscriber {
     type EventType = InstancesChangeEvent;
 
     fn on_event(&self, event: &Self::EventType) {
+        debug!("receive instance change event.");
         if self.event_scope != event.event_scope() {
             return;
         }
@@ -114,18 +124,22 @@ impl NacosEventSubscriber for InstancesChangeEventSubscriber {
         };
 
         let naming_event = Arc::new(naming_event);
-
+        debug!("naming change event: {:?}", naming_event);
         executor::spawn(async move {
             let grouped_name =
                 ServiceInfo::get_grouped_service_name(&service_info.name, &service_info.group_name);
             let key = ServiceInfo::get_key(&grouped_name, &service_info.clusters);
+            debug!("naming change subscriber key: {:?}", key);
             let map = listener_map.read().await;
             let listeners = map.get(&key);
             if listeners.is_none() {
+                debug!("the key of subscriber unregister. {:?}", key);
                 return;
             }
             let listeners = listeners.unwrap();
-
+            if !listeners.is_empty() {
+                debug!("notify nacos service instance subscriber.");
+            }
             for listener in listeners {
                 let naming_event = naming_event.clone();
                 let listener = listener.clone();

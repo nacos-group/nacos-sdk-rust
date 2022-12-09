@@ -1,4 +1,6 @@
 use std::sync::Arc;
+use tracing::debug;
+use tracing::error;
 
 use crate::common::executor;
 use crate::common::remote::generate_request_id;
@@ -11,12 +13,16 @@ impl AutomaticRequest for InstanceRequest {
     fn run(&self, invoker: Arc<AutomaticRequestInvoker>, call_back: CallBack) {
         let mut request = self.clone();
         request.request_id = Some(generate_request_id());
-
+        debug!("automatically execute instance request. {:?}", request);
         executor::spawn(async move {
             let ret = invoker
                 .invoke::<InstanceRequest, InstanceResponse>(request)
                 .await;
             if let Err(e) = ret {
+                error!(
+                    "automatically execute instance request occur an error. {:?}",
+                    e
+                );
                 call_back(Err(e));
             } else {
                 call_back(Ok(()));
