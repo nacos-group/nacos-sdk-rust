@@ -9,7 +9,7 @@ use crate::naming::dto::ServiceInfo;
 use crate::naming::events::InstancesChangeEvent;
 
 use tokio::sync::Mutex;
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 
 use crate::common::event_bus;
 use crate::{
@@ -59,6 +59,11 @@ impl GrpcPayloadHandler for NamingPushRequestHandler {
         let request = request.unwrap();
 
         let body = request.into_body();
+
+        debug!(
+            "receive NotifySubscriberRequest from nacos server: {:?}",
+            body
+        );
 
         let service_info = body.service_info;
 

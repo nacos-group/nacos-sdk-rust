@@ -55,7 +55,11 @@ impl RedoTaskExecutor {
                     .filter(|(_, v)| v.is_active())
                     .map(|(_, v)| v.clone())
                     .collect();
+                if !active_tasks.is_empty() {
+                    debug!("automatic request task triggered!");
+                }
                 for task in active_tasks {
+                    debug!("automatic request task: {:?}", task.task_key());
                     task.run(invoker.clone());
                 }
             }
