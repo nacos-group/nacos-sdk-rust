@@ -260,14 +260,6 @@ impl NamingServiceBuilder {
         };
         NacosNamingService::new(self.client_props, auth_plugin)
     }
-
-    pub async fn build_async(self) -> Result<impl NamingService> {
-        let auth_plugin = match self.auth_plugin {
-            None => Arc::new(plugin::NoopAuthPlugin::default()),
-            Some(plugin) => plugin,
-        };
-        NacosNamingService::new(self.client_props, auth_plugin)
-    }
 }
 
 impl Default for NamingServiceBuilder {
