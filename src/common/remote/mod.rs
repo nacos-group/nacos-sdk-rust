@@ -26,7 +26,7 @@ pub(crate) fn into_grpc_server_addr(address: &str, shuffle: bool) -> Result<Stri
         return Err(WrongServerAddress(address.into()));
     }
 
-    if shuffle {
+    if shuffle && hosts.len() > 1 {
         // shuffle for grpcio LbPolicy::PickFirst, It is a sequential attempt to link, so reorder to balance the load as much as possible.
         hosts.shuffle(&mut rand::thread_rng());
     }

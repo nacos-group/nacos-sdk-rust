@@ -6,12 +6,10 @@ use tokio::{
     time::{interval, sleep, Duration},
 };
 
-use std::thread::available_parallelism;
-
 lazy_static! {
     static ref RT: Runtime = Builder::new_multi_thread()
         .enable_all()
-        .worker_threads(available_parallelism().unwrap().get() * 2 + 1)
+        // .worker_threads(available_parallelism().unwrap().get() * 2 + 1) // default is num_cpus
         .thread_name("nacos-client-thread-pool")
         .build()
         .unwrap();
