@@ -31,6 +31,14 @@ where
         &self.body
     }
 
+    pub(crate) fn client_ip(&self) -> &str {
+        &self.client_ip
+    }
+
+    pub(crate) fn headers(&self) -> &HashMap<String, String> {
+        &self.headers
+    }
+
     pub(crate) fn into_body(self) -> T {
         self.body
     }
@@ -183,11 +191,91 @@ where
         self
     }
 
+    pub(crate) fn client_ip(mut self, ip: String) -> Self {
+        self.client_ip = ip;
+        self
+    }
+
     pub(crate) fn build(self) -> GrpcMessage<T> {
         GrpcMessage {
             headers: self.headers,
             body: self.body,
             client_ip: self.client_ip,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+
+    use nacos_macro::request;
+
+    use super::*;
+
+    #[request(identity = "TestGrpcRequestMessage", module = "internal")]
+    struct TestGrpcRequestMessage {}
+
+    #[test]
+    pub fn test_grpc_message() {
+        let mut grpc_message_builder =
+            GrpcMessageBuilder::<TestGrpcRequestMessage>::new(TestGrpcRequestMessage {
+                request_id: Some("grpc_message_id123".to_string()),
+                ..Default::default()
+            });
+
+        let mut test_headers = HashMap::<String, String>::new();
+
+        test_headers.insert(
+            "grpc_headers_key".to_string(),
+            "grpc_headers_value".to_string(),
+        );
+
+        grpc_message_builder = grpc_message_builder
+            .client_ip(String::from("119.110.120.112"))
+            .header("grpc_key".to_string(), "grpc_value".to_string())
+            .headers(test_headers);
+
+        let grpc_message = grpc_message_builder.build();
+
+        assert_eq!(grpc_message.client_ip(), "119.110.120.112");
+
+        let grpc_key_value_opt = grpc_message.headers().get("grpc_key");
+        assert!(grpc_key_value_opt.is_some());
+        let grpc_key_value = grpc_key_value_opt.unwrap();
+        assert_eq!(grpc_key_value, "grpc_value");
+
+        let grpc_headers_key_opt = grpc_message.headers().get("grpc_headers_key");
+        assert!(grpc_headers_key_opt.is_some());
+        let grpc_headers_key_value = grpc_headers_key_opt.unwrap();
+        assert_eq!(grpc_headers_key_value, "grpc_headers_value");
+
+        let payload = grpc_message.into_payload().unwrap();
+        let metadata = payload.metadata.unwrap();
+        let any_body = payload.body.unwrap();
+
+        let metadata_client_ip = metadata.client_ip;
+        assert_eq!(metadata_client_ip, "119.110.120.112");
+
+        let headers = metadata.headers;
+        assert_eq!(
+            headers.get("grpc_headers_key").unwrap(),
+            "grpc_headers_value"
+        );
+        assert_eq!(headers.get("grpc_key").unwrap(), "grpc_value");
+
+        let metadata_type = metadata.r#type;
+        assert_eq!(metadata_type, "TestGrpcRequestMessage");
+
+        let type_url = any_body.type_url;
+        assert_eq!(type_url, "TestGrpcRequestMessage");
+
+        let any_body_data = any_body.value;
+
+        let serde_json_data: serde_json::Result<TestGrpcRequestMessage> =
+            serde_json::from_slice(&any_body_data);
+        let grpc_message = serde_json_data.unwrap();
+
+        let request_id = grpc_message.request_id.unwrap();
+        assert_eq!(request_id, "grpc_message_id123".to_string());
     }
 }
