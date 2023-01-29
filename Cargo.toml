@@ -30,6 +30,7 @@ description = "Nacos client in Rust."
 categories = ["network-programming", "development-tools"]
 keywords = ["microservices", "config", "naming", "service-discovery", "config-management"]
 exclude = [".github", "proto", "tests"]
+build = "build.rs"
 
 [workspace]
 members = [
@@ -68,9 +69,13 @@ url="2.3.1"
 # now only for feature="auth-by-http"
 reqwest = { version = "0.11", features = [], optional = true }
 
-[dev-dependencies]
+[build-dependencies]
 grpcio-compiler = { version = "0.12", default-features = false, features = ["prost-codec"] }
 prost-build = "0.11"
+
+
+[dev-dependencies]
+mockall = "0.11"
 
 tracing-subscriber = { version = "0.3", features = ["default"] }
 

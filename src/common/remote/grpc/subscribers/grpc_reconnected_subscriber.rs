@@ -2,13 +2,10 @@ use std::sync::Arc;
 
 use tracing::{error, info};
 
-use crate::common::{
-    event_bus::NacosEventSubscriber,
-    executor,
-    remote::grpc::{NacosGrpcClient, NacosServerSetUP},
-};
+use crate::common::{event_bus::NacosEventSubscriber, executor, remote::grpc::NacosServerSetUP};
 
 use crate::common::remote::grpc::events::GrpcReconnectedEvent;
+use crate::common::remote::grpc::NacosGrpcClient;
 
 pub(crate) struct GrpcReconnectedEventSubscriber {
     pub(crate) nacos_grpc_client: Arc<NacosGrpcClient>,
