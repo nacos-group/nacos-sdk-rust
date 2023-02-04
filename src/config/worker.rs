@@ -75,11 +75,11 @@ impl ConfigWorker {
         let auth_context =
             Arc::new(AuthContext::default().add_params(client_props.auth_context.clone()));
         plugin.set_server_list(server_list.to_vec());
-        plugin.login(AuthContext::default().add_params(auth_context.params.clone()));
+        plugin.login((*auth_context).clone());
         crate::common::executor::schedule_at_fixed_delay(
             move || {
                 plugin.set_server_list(server_list.to_vec());
-                plugin.login(AuthContext::default().add_params(auth_context.params.clone()));
+                plugin.login((*auth_context).clone());
                 Some(async {
                     tracing::debug!("auth_plugin schedule at fixed delay");
                 })
@@ -116,9 +116,7 @@ impl ConfigWorker {
             group,
             namespace,
             config_resp.content.unwrap(),
-            config_resp
-                .encrypted_data_key
-                .unwrap_or_else(|| "".to_string()),
+            config_resp.encrypted_data_key.unwrap_or_default(),
         );
         for config_filter in self.config_filters.iter() {
             config_filter.filter(None, Some(&mut conf_resp));
@@ -435,9 +433,7 @@ impl ConfigWorker {
         cache_data.content = config_resp.content.unwrap();
         cache_data.md5 = config_resp.md5.unwrap();
         // Compatibility None < 2.1.0
-        cache_data.encrypted_data_key = config_resp
-            .encrypted_data_key
-            .unwrap_or_else(|| "".to_string());
+        cache_data.encrypted_data_key = config_resp.encrypted_data_key.unwrap_or_default();
         cache_data.last_modified = config_resp.last_modified;
         tracing::info!("fill_data_and_notify, cache_data={}", cache_data);
         if cache_data.initializing {

@@ -93,11 +93,11 @@ impl NacosNamingService {
         let plugin = Arc::clone(&auth_plugin);
         let auth_context = Arc::new(AuthContext::default().add_params(client_props.auth_context));
         plugin.set_server_list(server_list.to_vec());
-        plugin.login(AuthContext::default().add_params(auth_context.params.clone()));
+        plugin.login((*auth_context).clone());
         crate::common::executor::schedule_at_fixed_delay(
             move || {
                 plugin.set_server_list(server_list.to_vec());
-                plugin.login(AuthContext::default().add_params(auth_context.params.clone()));
+                plugin.login((*auth_context).clone());
                 Some(async {
                     tracing::debug!("auth_plugin schedule at fixed delay");
                 })
