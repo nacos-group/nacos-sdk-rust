@@ -11,19 +11,6 @@ use crate::config::util;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-pub(self) mod constants {
-
-    pub const LABEL_SOURCE: &str = "source";
-
-    pub const LABEL_SOURCE_SDK: &str = "sdk";
-
-    pub const LABEL_MODULE: &str = "module";
-
-    pub const LABEL_MODULE_CONFIG: &str = "config";
-
-    pub mod request {}
-}
-
 #[derive(Clone)]
 pub(crate) struct ConfigWorker {
     client_props: ClientProps,
@@ -56,12 +43,12 @@ impl ConfigWorker {
             .support_naming_delta_push(false)
             .support_naming_remote_metric(false)
             .add_label(
-                constants::LABEL_SOURCE.to_owned(),
-                constants::LABEL_SOURCE_SDK.to_owned(),
+                crate::api::constants::common_remote::LABEL_SOURCE.to_owned(),
+                crate::api::constants::common_remote::LABEL_SOURCE_SDK.to_owned(),
             )
             .add_label(
-                constants::LABEL_MODULE.to_owned(),
-                constants::LABEL_MODULE_CONFIG.to_owned(),
+                crate::api::constants::common_remote::LABEL_MODULE.to_owned(),
+                crate::api::constants::common_remote::LABEL_MODULE_CONFIG.to_owned(),
             )
             .add_labels(client_props.labels.clone())
             .register_bi_call_handler::<ConfigChangeNotifyRequest>(Arc::new(
@@ -70,13 +57,13 @@ impl ConfigWorker {
             .build()?;
 
         // todo Event/Subscriber instead of mpsc Sender/Receiver
-        tokio::spawn(Self::notify_change_to_cache_data(
+        crate::common::executor::spawn(Self::notify_change_to_cache_data(
             Arc::clone(&remote_client),
             Arc::clone(&auth_plugin),
             Arc::clone(&cache_data_map),
             notify_change_rx,
         ));
-        tokio::spawn(Self::list_ensure_cache_data_newest(
+        crate::common::executor::spawn(Self::list_ensure_cache_data_newest(
             Arc::clone(&remote_client),
             Arc::clone(&auth_plugin),
             Arc::clone(&cache_data_map),

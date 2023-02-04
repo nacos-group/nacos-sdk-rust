@@ -142,4 +142,22 @@ mod tests {
         std::thread::sleep(core::time::Duration::from_secs(5));
         println!("task has been canceled!")
     }
+
+    #[test]
+    fn test_spawn_hundred_task() {
+        for i in 1..100 {
+            let _ = spawn(async move {
+                println!("test_spawn_thousand_task spawn {}", i);
+            });
+        }
+        for j in 1..100 {
+            let _ = schedule(
+                async move {
+                    println!("test_spawn_thousand_task schedule {}", j);
+                },
+                Duration::from_millis(j),
+            );
+        }
+        std::thread::sleep(Duration::from_millis(1010));
+    }
 }

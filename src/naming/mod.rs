@@ -47,21 +47,6 @@ mod message;
 mod redo;
 mod subscribers;
 
-pub(self) mod constants {
-
-    pub const LABEL_SOURCE: &str = "source";
-
-    pub const LABEL_SOURCE_SDK: &str = "sdk";
-
-    pub const LABEL_MODULE: &str = "module";
-
-    pub const LABEL_MODULE_NAMING: &str = "naming";
-
-    pub const DEFAULT_GROUP: &str = "DEFAULT_GROUP";
-
-    pub const DEFAULT_NAMESPACE: &str = "public";
-}
-
 pub(crate) struct NacosNamingService {
     nacos_grpc_client: Arc<NacosGrpcClient>,
     auth_plugin: Arc<dyn AuthPlugin>,
@@ -77,7 +62,7 @@ impl NacosNamingService {
 
         let mut namespace = client_props.namespace;
         if namespace.is_empty() {
-            namespace = self::constants::DEFAULT_NAMESPACE.to_owned();
+            namespace = crate::api::constants::DEFAULT_NAMESPACE.to_owned();
         }
 
         let service_info_holder = Arc::new(ServiceInfoHolder::new(namespace.clone()));
@@ -92,12 +77,12 @@ impl NacosNamingService {
             .support_naming_delta_push(false)
             .support_naming_remote_metric(false)
             .add_label(
-                self::constants::LABEL_SOURCE.to_owned(),
-                self::constants::LABEL_SOURCE_SDK.to_owned(),
+                crate::api::constants::common_remote::LABEL_SOURCE.to_owned(),
+                crate::api::constants::common_remote::LABEL_SOURCE_SDK.to_owned(),
             )
             .add_label(
-                self::constants::LABEL_MODULE.to_owned(),
-                self::constants::LABEL_MODULE_NAMING.to_owned(),
+                crate::api::constants::common_remote::LABEL_MODULE.to_owned(),
+                crate::api::constants::common_remote::LABEL_MODULE_NAMING.to_owned(),
             )
             .add_labels(client_props.labels)
             .register_bi_call_handler::<NotifySubscriberRequest>(Arc::new(
@@ -106,8 +91,7 @@ impl NacosNamingService {
             .build()?;
 
         let plugin = Arc::clone(&auth_plugin);
-        let auth_context =
-            Arc::new(AuthContext::default().add_params(client_props.auth_context.clone()));
+        let auth_context = Arc::new(AuthContext::default().add_params(client_props.auth_context));
         plugin.set_server_list(server_list.to_vec());
         plugin.login(AuthContext::default().add_params(auth_context.params.clone()));
         crate::common::executor::schedule_at_fixed_delay(
@@ -172,7 +156,7 @@ impl NacosNamingService {
         let namespace = Some(self.namespace.clone());
         let group_name = group_name
             .filter(|data| !data.is_empty())
-            .unwrap_or_else(|| self::constants::DEFAULT_GROUP.to_owned());
+            .unwrap_or_else(|| crate::api::constants::DEFAULT_GROUP.to_owned());
         let request = InstanceRequest::register(
             service_instance,
             Some(service_name),
@@ -214,7 +198,7 @@ impl NacosNamingService {
         let namespace = Some(self.namespace.clone());
         let group_name = group_name
             .filter(|data| !data.is_empty())
-            .unwrap_or_else(|| self::constants::DEFAULT_GROUP.to_owned());
+            .unwrap_or_else(|| crate::api::constants::DEFAULT_GROUP.to_owned());
         let request = InstanceRequest::deregister(
             service_instance,
             Some(service_name),
@@ -250,7 +234,7 @@ impl NacosNamingService {
         let namespace = Some(self.namespace.clone());
         let group_name = group_name
             .filter(|data| !data.is_empty())
-            .unwrap_or_else(|| self::constants::DEFAULT_GROUP.to_owned());
+            .unwrap_or_else(|| crate::api::constants::DEFAULT_GROUP.to_owned());
         let request = BatchInstanceRequest::new(
             service_instances,
             namespace,
@@ -288,7 +272,7 @@ impl NacosNamingService {
         let cluster_str = clusters.join(",");
         let group_name = group_name
             .filter(|data| !data.is_empty())
-            .unwrap_or_else(|| self::constants::DEFAULT_GROUP.to_owned());
+            .unwrap_or_else(|| crate::api::constants::DEFAULT_GROUP.to_owned());
 
         let service_info;
         if subscribe {
@@ -348,7 +332,7 @@ impl NacosNamingService {
     ) -> Result<Vec<ServiceInstance>> {
         let group_name = group_name
             .filter(|data| !data.is_empty())
-            .unwrap_or_else(|| self::constants::DEFAULT_GROUP.to_owned());
+            .unwrap_or_else(|| crate::api::constants::DEFAULT_GROUP.to_owned());
 
         let all_instance = self
             .get_all_instances_async(service_name, Some(group_name), clusters, subscribe)
@@ -371,7 +355,7 @@ impl NacosNamingService {
     ) -> Result<ServiceInstance> {
         let group_name = group_name
             .filter(|data| !data.is_empty())
-            .unwrap_or_else(|| self::constants::DEFAULT_GROUP.to_owned());
+            .unwrap_or_else(|| crate::api::constants::DEFAULT_GROUP.to_owned());
         let service_name_for_tip = service_name.clone();
 
         let ret = self
@@ -403,7 +387,7 @@ impl NacosNamingService {
     ) -> Result<(Vec<String>, i32)> {
         let group_name = group_name
             .filter(|data| !data.is_empty())
-            .unwrap_or_else(|| self::constants::DEFAULT_GROUP.to_owned());
+            .unwrap_or_else(|| crate::api::constants::DEFAULT_GROUP.to_owned());
         let namespace = Some(self.namespace.clone());
 
         let request = ServiceListRequest {
@@ -439,7 +423,7 @@ impl NacosNamingService {
         let clusters = clusters.join(",");
         let group_name = group_name
             .filter(|data| !data.is_empty())
-            .unwrap_or_else(|| self::constants::DEFAULT_GROUP.to_owned());
+            .unwrap_or_else(|| crate::api::constants::DEFAULT_GROUP.to_owned());
 
         // add event listener
         if let Some(event_listener) = event_listener {
@@ -494,7 +478,7 @@ impl NacosNamingService {
         let clusters = clusters.join(",");
         let group_name = group_name
             .filter(|data| !data.is_empty())
-            .unwrap_or_else(|| self::constants::DEFAULT_GROUP.to_owned());
+            .unwrap_or_else(|| crate::api::constants::DEFAULT_GROUP.to_owned());
 
         // remove event listener
         if let Some(event_listener) = event_listener {
@@ -722,7 +706,7 @@ pub(crate) mod tests {
 
         let ret = naming_service.deregister_instance(
             "test-service".to_string(),
-            Some(constants::DEFAULT_GROUP.to_string()),
+            Some(crate::api::constants::DEFAULT_GROUP.to_string()),
             service_instance,
         );
         info!("response. {:?}", ret);
@@ -776,7 +760,7 @@ pub(crate) mod tests {
 
         let ret = naming_service.batch_register_instance(
             "test-service".to_string(),
-            Some(constants::DEFAULT_GROUP.to_string()),
+            Some(crate::api::constants::DEFAULT_GROUP.to_string()),
             instance_vec,
         );
         info!("response. {:?}", ret);
@@ -829,7 +813,7 @@ pub(crate) mod tests {
 
         let ret = naming_service.batch_register_instance(
             "test-service".to_string(),
-            Some(constants::DEFAULT_GROUP.to_string()),
+            Some(crate::api::constants::DEFAULT_GROUP.to_string()),
             instance_vec,
         );
         info!("response. {:?}", ret);
@@ -839,7 +823,7 @@ pub(crate) mod tests {
 
         let all_instances = naming_service.get_all_instances(
             "test-service".to_string(),
-            Some(constants::DEFAULT_GROUP.to_string()),
+            Some(crate::api::constants::DEFAULT_GROUP.to_string()),
             Vec::default(),
             false,
         );
@@ -892,7 +876,7 @@ pub(crate) mod tests {
 
         let ret = naming_service.batch_register_instance(
             "test-service".to_string(),
-            Some(constants::DEFAULT_GROUP.to_string()),
+            Some(crate::api::constants::DEFAULT_GROUP.to_string()),
             instance_vec,
         );
         info!("response. {:?}", ret);
@@ -902,7 +886,7 @@ pub(crate) mod tests {
 
         let all_instances = naming_service.select_instance(
             "test-service".to_string(),
-            Some(constants::DEFAULT_GROUP.to_string()),
+            Some(crate::api::constants::DEFAULT_GROUP.to_string()),
             Vec::default(),
             false,
             true,
@@ -956,7 +940,7 @@ pub(crate) mod tests {
 
         let ret = naming_service.batch_register_instance(
             "test-service".to_string(),
-            Some(constants::DEFAULT_GROUP.to_string()),
+            Some(crate::api::constants::DEFAULT_GROUP.to_string()),
             instance_vec,
         );
         info!("response. {:?}", ret);
@@ -967,7 +951,7 @@ pub(crate) mod tests {
         for _ in 0..3 {
             let all_instances = naming_service.select_one_healthy_instance(
                 "test-service".to_string(),
-                Some(constants::DEFAULT_GROUP.to_string()),
+                Some(crate::api::constants::DEFAULT_GROUP.to_string()),
                 Vec::default(),
                 false,
             );
@@ -1021,7 +1005,7 @@ pub(crate) mod tests {
 
         let ret = naming_service.batch_register_instance(
             "test-service".to_string(),
-            Some(constants::DEFAULT_GROUP.to_string()),
+            Some(crate::api::constants::DEFAULT_GROUP.to_string()),
             instance_vec,
         );
         info!("response. {:?}", ret);
@@ -1088,7 +1072,7 @@ pub(crate) mod tests {
 
         let ret = naming_service.batch_register_instance(
             "test-service".to_string(),
-            Some(constants::DEFAULT_GROUP.to_string()),
+            Some(crate::api::constants::DEFAULT_GROUP.to_string()),
             instance_vec,
         );
         info!("response. {:?}", ret);
@@ -1096,7 +1080,7 @@ pub(crate) mod tests {
         let listener = Arc::new(InstancesChangeEventListener);
         let ret = naming_service.subscribe(
             "test-service".to_string(),
-            Some(constants::DEFAULT_GROUP.to_string()),
+            Some(crate::api::constants::DEFAULT_GROUP.to_string()),
             Vec::default(),
             listener,
         );
