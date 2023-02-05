@@ -27,10 +27,12 @@ pub enum Error {
     ErrResult(String),
 
     /// Config not found.
+    #[cfg(feature = "config")]
     #[error("config not found: {0}")]
     ConfigNotFound(String),
 
     /// Config query conflict, it is being modified, please try later.
+    #[cfg(feature = "config")]
     #[error("config query conflict: {0}")]
     ConfigQueryConflict(String),
 

@@ -11,19 +11,6 @@ use crate::config::util;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-pub(self) mod constants {
-
-    pub const LABEL_SOURCE: &str = "source";
-
-    pub const LABEL_SOURCE_SDK: &str = "sdk";
-
-    pub const LABEL_MODULE: &str = "module";
-
-    pub const LABEL_MODULE_CONFIG: &str = "config";
-
-    pub mod request {}
-}
-
 #[derive(Clone)]
 pub(crate) struct ConfigWorker {
     client_props: ClientProps,
@@ -56,12 +43,12 @@ impl ConfigWorker {
             .support_naming_delta_push(false)
             .support_naming_remote_metric(false)
             .add_label(
-                constants::LABEL_SOURCE.to_owned(),
-                constants::LABEL_SOURCE_SDK.to_owned(),
+                crate::api::constants::common_remote::LABEL_SOURCE.to_owned(),
+                crate::api::constants::common_remote::LABEL_SOURCE_SDK.to_owned(),
             )
             .add_label(
-                constants::LABEL_MODULE.to_owned(),
-                constants::LABEL_MODULE_CONFIG.to_owned(),
+                crate::api::constants::common_remote::LABEL_MODULE.to_owned(),
+                crate::api::constants::common_remote::LABEL_MODULE_CONFIG.to_owned(),
             )
             .add_labels(client_props.labels.clone())
             .register_bi_call_handler::<ConfigChangeNotifyRequest>(Arc::new(
@@ -70,13 +57,13 @@ impl ConfigWorker {
             .build()?;
 
         // todo Event/Subscriber instead of mpsc Sender/Receiver
-        tokio::spawn(Self::notify_change_to_cache_data(
+        crate::common::executor::spawn(Self::notify_change_to_cache_data(
             Arc::clone(&remote_client),
             Arc::clone(&auth_plugin),
             Arc::clone(&cache_data_map),
             notify_change_rx,
         ));
-        tokio::spawn(Self::list_ensure_cache_data_newest(
+        crate::common::executor::spawn(Self::list_ensure_cache_data_newest(
             Arc::clone(&remote_client),
             Arc::clone(&auth_plugin),
             Arc::clone(&cache_data_map),
@@ -88,11 +75,11 @@ impl ConfigWorker {
         let auth_context =
             Arc::new(AuthContext::default().add_params(client_props.auth_context.clone()));
         plugin.set_server_list(server_list.to_vec());
-        plugin.login(AuthContext::default().add_params(auth_context.params.clone()));
+        plugin.login((*auth_context).clone());
         crate::common::executor::schedule_at_fixed_delay(
             move || {
                 plugin.set_server_list(server_list.to_vec());
-                plugin.login(AuthContext::default().add_params(auth_context.params.clone()));
+                plugin.login((*auth_context).clone());
                 Some(async {
                     tracing::debug!("auth_plugin schedule at fixed delay");
                 })
@@ -129,9 +116,7 @@ impl ConfigWorker {
             group,
             namespace,
             config_resp.content.unwrap(),
-            config_resp
-                .encrypted_data_key
-                .unwrap_or_else(|| "".to_string()),
+            config_resp.encrypted_data_key.unwrap_or_default(),
         );
         for config_filter in self.config_filters.iter() {
             config_filter.filter(None, Some(&mut conf_resp));
@@ -448,9 +433,7 @@ impl ConfigWorker {
         cache_data.content = config_resp.content.unwrap();
         cache_data.md5 = config_resp.md5.unwrap();
         // Compatibility None < 2.1.0
-        cache_data.encrypted_data_key = config_resp
-            .encrypted_data_key
-            .unwrap_or_else(|| "".to_string());
+        cache_data.encrypted_data_key = config_resp.encrypted_data_key.unwrap_or_default();
         cache_data.last_modified = config_resp.last_modified;
         tracing::info!("fill_data_and_notify, cache_data={}", cache_data);
         if cache_data.initializing {

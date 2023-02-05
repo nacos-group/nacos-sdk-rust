@@ -30,8 +30,8 @@ impl GrpcPayloadHandler for ConfigChangeNotifyHandler {
         let notify_change_tx_clone = self.notify_change_tx.clone();
 
         executor::spawn(async move {
-            let server_req_id = server_req.request_id.unwrap_or_else(|| "".to_string());
-            let req_namespace = server_req.namespace.unwrap_or_else(|| "".to_string());
+            let server_req_id = server_req.request_id.unwrap_or_default();
+            let req_namespace = server_req.namespace.unwrap_or_default();
             let req_data_id = server_req.data_id.unwrap();
             let req_group = server_req.group.unwrap();
             tracing::info!(
