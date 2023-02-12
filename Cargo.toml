@@ -50,6 +50,7 @@ tokio = { version = "1.21", features = ["full"] }
 #tokio-stream = { version = "0.1", features = ["net"] }
 futures = "0.3"
 grpcio = { version = "0.12", default-features = false, features = ["prost-codec"] }
+grpcio-sys = { version = "0.12", default-features = false, features = ["_gen-bindings"] }
 prost = "0.11"
 prost-types = "0.11"
 serde = { version = "1", features = ["derive"] }
