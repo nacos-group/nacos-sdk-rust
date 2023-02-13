@@ -26,4 +26,6 @@ jobs:
           toolchain: stable
           override: true
       - uses: actions-rs/tarpaulin@v0.1
+        with:
+          version: 0.22.0
       - uses: codecov/codecov-action@v2.1.0
