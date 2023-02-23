@@ -8,6 +8,7 @@ use crate::common::remote::grpc::message::{GrpcMessage, GrpcMessageBuilder};
 use crate::naming::dto::ServiceInfo;
 use crate::naming::events::InstancesChangeEvent;
 
+use serde::Serialize;
 use tokio::sync::Mutex;
 use tracing::{debug, error, info, warn};
 
@@ -201,36 +202,54 @@ impl ServiceInfoHolder {
         }
 
         if !new_add_hosts.is_empty() {
+            let new_add_hosts_json = Self::vec_2_string::<&ServiceInstance>(new_add_hosts.as_ref());
+
             info!(
                 "new ips({}) service: {} -> {}",
                 new_add_hosts.len(),
                 key,
-                hosts_json
+                new_add_hosts_json
             );
             changed = true;
         }
 
         if !removed_hosts.is_empty() {
+            let removed_hosts_json = Self::vec_2_string::<&ServiceInstance>(removed_hosts.as_ref());
             info!(
                 "removed ips({}) service: {} -> {}",
                 removed_hosts.len(),
                 key,
-                hosts_json
+                removed_hosts_json
             );
             changed = true;
         }
 
         if !modified_hosts.is_empty() {
+            let modified_hosts_json =
+                Self::vec_2_string::<&ServiceInstance>(modified_hosts.as_ref());
             info!(
                 "modified ips({}) service: {} -> {}",
                 modified_hosts.len(),
                 key,
-                hosts_json
+                modified_hosts_json
             );
             changed = true;
         }
 
         changed
+    }
+
+    fn vec_2_string<T: Serialize>(vec: &Vec<T>) -> String {
+        match serde_json::to_string::<Vec<T>>(vec) {
+            Ok(json) => json,
+            Err(e) => {
+                warn!(
+                    "vec to json string error, it will return default value '[]', {:?}",
+                    e
+                );
+                "[]".to_string()
+            }
+        }
     }
 
     fn is_empty_or_error_push(&self, service_info: &ServiceInfo) -> bool {
