@@ -202,7 +202,6 @@ impl ServiceInfoHolder {
         }
 
         if !new_add_hosts.is_empty() {
-
             let new_add_hosts_json = Self::vec_2_string::<&ServiceInstance>(new_add_hosts.as_ref());
 
             info!(
@@ -226,7 +225,8 @@ impl ServiceInfoHolder {
         }
 
         if !modified_hosts.is_empty() {
-            let modified_hosts_json = Self::vec_2_string::<&ServiceInstance>(modified_hosts.as_ref());
+            let modified_hosts_json =
+                Self::vec_2_string::<&ServiceInstance>(modified_hosts.as_ref());
             info!(
                 "modified ips({}) service: {} -> {}",
                 modified_hosts.len(),
@@ -243,7 +243,10 @@ impl ServiceInfoHolder {
         match serde_json::to_string::<Vec<T>>(vec) {
             Ok(json) => json,
             Err(e) => {
-                warn!("vec to json string error, it will return default value '[]', {:?}", e);
+                warn!(
+                    "vec to json string error, it will return default value '[]', {:?}",
+                    e
+                );
                 "[]".to_string()
             }
         }
