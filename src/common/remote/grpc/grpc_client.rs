@@ -30,7 +30,7 @@ impl GrpcClient {
         let address = crate::common::remote::into_grpc_server_addr(address, true)?;
         let address = address.as_str();
         info!("init grpc client: {}", address);
-        let env = Arc::new(Environment::new(2));
+        let env = Arc::new(Environment::new(1));
         let grpc_channel = ChannelBuilder::new(env)
             .load_balancing_policy(LbPolicy::PickFirst)
             .use_local_subchannel_pool(true) // same target-addr build multi sub-channel, independent link, not reused.
