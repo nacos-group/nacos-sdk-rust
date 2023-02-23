@@ -147,7 +147,7 @@ impl NacosNamingService {
 }
 
 impl NacosNamingService {
-    async fn register_service_async(
+    async fn register_instance_async(
         &self,
         service_name: String,
         group_name: Option<String>,
@@ -322,7 +322,7 @@ impl NacosNamingService {
         Ok(instances.unwrap())
     }
 
-    async fn select_instance_async(
+    async fn select_instances_async(
         &self,
         service_name: String,
         group_name: Option<String>,
@@ -359,7 +359,7 @@ impl NacosNamingService {
         let service_name_for_tip = service_name.clone();
 
         let ret = self
-            .select_instance_async(
+            .select_instances_async(
                 service_name.clone(),
                 Some(group_name),
                 clusters,
@@ -525,7 +525,7 @@ impl NamingService for NacosNamingService {
         group_name: Option<String>,
         service_instance: ServiceInstance,
     ) -> Result<()> {
-        let future = self.register_service_async(service_name, group_name, service_instance);
+        let future = self.register_instance_async(service_name, group_name, service_instance);
         futures::executor::block_on(future)
     }
 
@@ -570,7 +570,7 @@ impl NamingService for NacosNamingService {
         healthy: bool,
     ) -> Result<Vec<ServiceInstance>> {
         let future =
-            self.select_instance_async(service_name, group_name, clusters, subscribe, healthy);
+            self.select_instances_async(service_name, group_name, clusters, subscribe, healthy);
         futures::executor::block_on(future)
     }
 
@@ -619,6 +619,29 @@ impl NamingService for NacosNamingService {
             self.unsubscribe_async(service_name, group_name, clusters, Some(event_listener));
         futures::executor::block_on(future)
     }
+
+    fn register_instance(
+        &self,
+        service_name: String,
+        group_name: Option<String>,
+        service_instance: ServiceInstance,
+    ) -> Result<()> {
+        let future = self.register_instance_async(service_name, group_name, service_instance);
+        futures::executor::block_on(future)
+    }
+
+    fn select_instances(
+        &self,
+        service_name: String,
+        group_name: Option<String>,
+        clusters: Vec<String>,
+        subscribe: bool,
+        healthy: bool,
+    ) -> Result<Vec<ServiceInstance>> {
+        let future =
+            self.select_instances_async(service_name, group_name, clusters, subscribe, healthy);
+        futures::executor::block_on(future)
+    }
 }
 
 #[cfg(test)]
@@ -660,7 +683,7 @@ pub(crate) mod tests {
         };
 
         let ret =
-            naming_service.register_service("test-service".to_string(), None, service_instance);
+            naming_service.register_instance("test-service".to_string(), None, service_instance);
         info!("response. {:?}", ret);
 
         let ten_millis = time::Duration::from_secs(100);
@@ -694,7 +717,7 @@ pub(crate) mod tests {
             ..Default::default()
         };
 
-        let ret = naming_service.register_service(
+        let ret = naming_service.register_instance(
             "test-service".to_string(),
             None,
             service_instance.clone(),
@@ -884,7 +907,7 @@ pub(crate) mod tests {
         let ten_millis = time::Duration::from_secs(10);
         thread::sleep(ten_millis);
 
-        let all_instances = naming_service.select_instance(
+        let all_instances = naming_service.select_instances(
             "test-service".to_string(),
             Some(crate::api::constants::DEFAULT_GROUP.to_string()),
             Vec::default(),
