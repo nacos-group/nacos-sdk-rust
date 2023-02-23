@@ -144,7 +144,15 @@ pub trait NamingEventListener: Send + Sync + 'static {
 /// ```
 #[doc(alias("naming", "sdk", "api"))]
 pub trait NamingService {
+    #[deprecated(since = "0.2.2", note = "Users should instead use register_instance")]
     fn register_service(
+        &self,
+        service_name: String,
+        group_name: Option<String>,
+        service_instance: ServiceInstance,
+    ) -> Result<()>;
+
+    fn register_instance(
         &self,
         service_name: String,
         group_name: Option<String>,
@@ -173,7 +181,17 @@ pub trait NamingService {
         subscribe: bool,
     ) -> Result<Vec<ServiceInstance>>;
 
+    #[deprecated(since = "0.2.2", note = "Users should instead use select_instances")]
     fn select_instance(
+        &self,
+        service_name: String,
+        group_name: Option<String>,
+        clusters: Vec<String>,
+        subscribe: bool,
+        healthy: bool,
+    ) -> Result<Vec<ServiceInstance>>;
+
+    fn select_instances(
         &self,
         service_name: String,
         group_name: Option<String>,
