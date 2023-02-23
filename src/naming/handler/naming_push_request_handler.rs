@@ -8,6 +8,7 @@ use crate::common::remote::grpc::message::{GrpcMessage, GrpcMessageBuilder};
 use crate::naming::dto::ServiceInfo;
 use crate::naming::events::InstancesChangeEvent;
 
+use serde::Serialize;
 use tokio::sync::Mutex;
 use tracing::{debug, error, info, warn};
 
@@ -201,14 +202,8 @@ impl ServiceInfoHolder {
         }
 
         if !new_add_hosts.is_empty() {
-            let new_add_hosts_json = if let Ok(json) =
-                serde_json::to_string::<Vec<&ServiceInstance>>(new_add_hosts.as_ref())
-            {
-                json
-            } else {
-                warn!("new_add_hosts to json string error");
-                "[]".to_string()
-            };
+
+            let new_add_hosts_json = Self::vec_2_string::<&ServiceInstance>(new_add_hosts.as_ref());
 
             info!(
                 "new ips({}) service: {} -> {}",
@@ -220,15 +215,7 @@ impl ServiceInfoHolder {
         }
 
         if !removed_hosts.is_empty() {
-            let removed_hosts_json = if let Ok(json) =
-                serde_json::to_string::<Vec<&ServiceInstance>>(removed_hosts.as_ref())
-            {
-                json
-            } else {
-                warn!("removed_hosts to json string error");
-                "[]".to_string()
-            };
-
+            let removed_hosts_json = Self::vec_2_string::<&ServiceInstance>(removed_hosts.as_ref());
             info!(
                 "removed ips({}) service: {} -> {}",
                 removed_hosts.len(),
@@ -239,14 +226,7 @@ impl ServiceInfoHolder {
         }
 
         if !modified_hosts.is_empty() {
-            let modified_hosts_json = if let Ok(json) =
-                serde_json::to_string::<Vec<&ServiceInstance>>(modified_hosts.as_ref())
-            {
-                json
-            } else {
-                warn!("modified_hosts to json string error");
-                "[]".to_string()
-            };
+            let modified_hosts_json = Self::vec_2_string::<&ServiceInstance>(modified_hosts.as_ref());
             info!(
                 "modified ips({}) service: {} -> {}",
                 modified_hosts.len(),
@@ -257,6 +237,16 @@ impl ServiceInfoHolder {
         }
 
         changed
+    }
+
+    fn vec_2_string<T: Serialize>(vec: &Vec<T>) -> String {
+        match serde_json::to_string::<Vec<T>>(vec) {
+            Ok(json) => json,
+            Err(e) => {
+                warn!("vec to json string error, it will return default value '[]', {:?}", e);
+                "[]".to_string()
+            }
+        }
     }
 
     fn is_empty_or_error_push(&self, service_info: &ServiceInfo) -> bool {
