@@ -201,31 +201,57 @@ impl ServiceInfoHolder {
         }
 
         if !new_add_hosts.is_empty() {
+            let new_add_hosts_json = if let Ok(json) =
+                serde_json::to_string::<Vec<&ServiceInstance>>(new_add_hosts.as_ref())
+            {
+                json
+            } else {
+                warn!("new_add_hosts to json string error");
+                "[]".to_string()
+            };
+
             info!(
                 "new ips({}) service: {} -> {}",
                 new_add_hosts.len(),
                 key,
-                hosts_json
+                new_add_hosts_json
             );
             changed = true;
         }
 
         if !removed_hosts.is_empty() {
+            let removed_hosts_json = if let Ok(json) =
+                serde_json::to_string::<Vec<&ServiceInstance>>(removed_hosts.as_ref())
+            {
+                json
+            } else {
+                warn!("removed_hosts to json string error");
+                "[]".to_string()
+            };
+
             info!(
                 "removed ips({}) service: {} -> {}",
                 removed_hosts.len(),
                 key,
-                hosts_json
+                removed_hosts_json
             );
             changed = true;
         }
 
         if !modified_hosts.is_empty() {
+            let modified_hosts_json = if let Ok(json) =
+                serde_json::to_string::<Vec<&ServiceInstance>>(modified_hosts.as_ref())
+            {
+                json
+            } else {
+                warn!("modified_hosts to json string error");
+                "[]".to_string()
+            };
             info!(
                 "modified ips({}) service: {} -> {}",
                 modified_hosts.len(),
                 key,
-                hosts_json
+                modified_hosts_json
             );
             changed = true;
         }
