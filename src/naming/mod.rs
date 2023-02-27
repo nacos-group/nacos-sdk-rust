@@ -39,6 +39,9 @@ use self::subscribers::InstancesChangeEventSubscriber;
 use self::subscribers::RedoTaskDisconnectEventSubscriber;
 use self::subscribers::RedoTaskReconnectEventSubscriber;
 
+#[cfg(feature = "async")]
+use async_trait::async_trait;
+
 mod chooser;
 mod dto;
 mod events;
@@ -518,6 +521,7 @@ impl NacosNamingService {
     }
 }
 
+#[cfg(not(feature = "async"))]
 impl NamingService for NacosNamingService {
     fn register_service(
         &self,
@@ -641,6 +645,108 @@ impl NamingService for NacosNamingService {
         let future =
             self.select_instances_async(service_name, group_name, clusters, subscribe, healthy);
         futures::executor::block_on(future)
+    }
+}
+
+#[cfg(feature = "async")]
+#[async_trait]
+impl NamingService for NacosNamingService {
+    async fn deregister_instance(
+        &self,
+        service_name: String,
+        group_name: Option<String>,
+        service_instance: ServiceInstance,
+    ) -> Result<()> {
+        self.deregister_instance_async(service_name, group_name, service_instance)
+            .await
+    }
+
+    async fn batch_register_instance(
+        &self,
+        service_name: String,
+        group_name: Option<String>,
+        service_instances: Vec<ServiceInstance>,
+    ) -> Result<()> {
+        self.batch_register_instance_async(service_name, group_name, service_instances)
+            .await
+    }
+
+    async fn get_all_instances(
+        &self,
+        service_name: String,
+        group_name: Option<String>,
+        clusters: Vec<String>,
+        subscribe: bool,
+    ) -> Result<Vec<ServiceInstance>> {
+        self.get_all_instances_async(service_name, group_name, clusters, subscribe)
+            .await
+    }
+
+    async fn select_one_healthy_instance(
+        &self,
+        service_name: String,
+        group_name: Option<String>,
+        clusters: Vec<String>,
+        subscribe: bool,
+    ) -> Result<ServiceInstance> {
+        self.select_one_healthy_instance_async(service_name, group_name, clusters, subscribe)
+            .await
+    }
+
+    async fn get_service_list(
+        &self,
+        page_no: i32,
+        page_size: i32,
+        group_name: Option<String>,
+    ) -> Result<(Vec<String>, i32)> {
+        self.get_service_list_async(page_no, page_size, group_name)
+            .await
+    }
+
+    async fn subscribe(
+        &self,
+        service_name: String,
+        group_name: Option<String>,
+        clusters: Vec<String>,
+        event_listener: Arc<dyn NamingEventListener>,
+    ) -> Result<()> {
+        let _ = self
+            .subscribe_async(service_name, group_name, clusters, Some(event_listener))
+            .await;
+        Ok(())
+    }
+
+    async fn unsubscribe(
+        &self,
+        service_name: String,
+        group_name: Option<String>,
+        clusters: Vec<String>,
+        event_listener: Arc<dyn NamingEventListener>,
+    ) -> Result<()> {
+        self.unsubscribe_async(service_name, group_name, clusters, Some(event_listener))
+            .await
+    }
+
+    async fn register_instance(
+        &self,
+        service_name: String,
+        group_name: Option<String>,
+        service_instance: ServiceInstance,
+    ) -> Result<()> {
+        self.register_instance_async(service_name, group_name, service_instance)
+            .await
+    }
+
+    async fn select_instances(
+        &self,
+        service_name: String,
+        group_name: Option<String>,
+        clusters: Vec<String>,
+        subscribe: bool,
+        healthy: bool,
+    ) -> Result<Vec<ServiceInstance>> {
+        self.select_instances_async(service_name, group_name, clusters, subscribe, healthy)
+            .await
     }
 }
 

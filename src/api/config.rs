@@ -1,6 +1,9 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+#[cfg(feature = "async")]
+use async_trait::async_trait;
+
 use crate::api::{error, plugin, props};
 
 /// Api [`ConfigService`].
@@ -18,15 +21,16 @@ use crate::api::{error, plugin, props};
 ///   .build()?;
 /// ```
 #[doc(alias("config", "sdk", "api"))]
+#[cfg(not(feature = "async"))]
 pub trait ConfigService {
     /// Get config, return the content.
     ///
     /// Attention to [`error::Error::ConfigNotFound`], [`error::Error::ConfigQueryConflict`]
-    fn get_config(&mut self, data_id: String, group: String) -> error::Result<ConfigResponse>;
+    fn get_config(&self, data_id: String, group: String) -> error::Result<ConfigResponse>;
 
     /// Publish config, return true/false.
     fn publish_config(
-        &mut self,
+        &self,
         data_id: String,
         group: String,
         content: String,
@@ -35,7 +39,7 @@ pub trait ConfigService {
 
     /// Cas publish config with cas_md5 (prev content's md5), return true/false.
     fn publish_config_cas(
-        &mut self,
+        &self,
         data_id: String,
         group: String,
         content: String,
@@ -45,7 +49,7 @@ pub trait ConfigService {
 
     /// Beta publish config, return true/false.
     fn publish_config_beta(
-        &mut self,
+        &self,
         data_id: String,
         group: String,
         content: String,
@@ -55,7 +59,7 @@ pub trait ConfigService {
 
     /// Publish config with params (see keys [`constants::*`]), return true/false.
     fn publish_config_param(
-        &mut self,
+        &self,
         data_id: String,
         group: String,
         content: String,
@@ -65,11 +69,11 @@ pub trait ConfigService {
     ) -> error::Result<bool>;
 
     /// Remove config, return true/false.
-    fn remove_config(&mut self, data_id: String, group: String) -> error::Result<bool>;
+    fn remove_config(&self, data_id: String, group: String) -> error::Result<bool>;
 
     /// Listen the config change.
     fn add_listener(
-        &mut self,
+        &self,
         data_id: String,
         group: String,
         listener: Arc<dyn ConfigChangeListener>,
@@ -77,13 +81,80 @@ pub trait ConfigService {
 
     /// Remove a Listener.
     fn remove_listener(
-        &mut self,
+        &self,
         data_id: String,
         group: String,
         listener: Arc<dyn ConfigChangeListener>,
     ) -> error::Result<()>;
 }
 
+#[cfg(feature = "async")]
+#[async_trait]
+pub trait ConfigService {
+    /// Get config, return the content.
+    ///
+    /// Attention to [`error::Error::ConfigNotFound`], [`error::Error::ConfigQueryConflict`]
+    async fn get_config(&self, data_id: String, group: String) -> error::Result<ConfigResponse>;
+
+    /// Publish config, return true/false.
+    async fn publish_config(
+        &self,
+        data_id: String,
+        group: String,
+        content: String,
+        content_type: Option<String>,
+    ) -> error::Result<bool>;
+
+    /// Cas publish config with cas_md5 (prev content's md5), return true/false.
+    async fn publish_config_cas(
+        &self,
+        data_id: String,
+        group: String,
+        content: String,
+        content_type: Option<String>,
+        cas_md5: String,
+    ) -> error::Result<bool>;
+
+    /// Beta publish config, return true/false.
+    async fn publish_config_beta(
+        &self,
+        data_id: String,
+        group: String,
+        content: String,
+        content_type: Option<String>,
+        beta_ips: String,
+    ) -> error::Result<bool>;
+
+    /// Publish config with params (see keys [`constants::*`]), return true/false.
+    async fn publish_config_param(
+        &self,
+        data_id: String,
+        group: String,
+        content: String,
+        content_type: Option<String>,
+        cas_md5: Option<String>,
+        params: HashMap<String, String>,
+    ) -> error::Result<bool>;
+
+    /// Remove config, return true/false.
+    async fn remove_config(&self, data_id: String, group: String) -> error::Result<bool>;
+
+    /// Listen the config change.
+    async fn add_listener(
+        &self,
+        data_id: String,
+        group: String,
+        listener: Arc<dyn ConfigChangeListener>,
+    ) -> error::Result<()>;
+
+    /// Remove a Listener.
+    async fn remove_listener(
+        &self,
+        data_id: String,
+        group: String,
+        listener: Arc<dyn ConfigChangeListener>,
+    ) -> error::Result<()>;
+}
 /// The ConfigChangeListener receive a notify of [`ConfigResponse`].
 pub trait ConfigChangeListener: Send + Sync {
     fn notify(&self, config_resp: ConfigResponse);
