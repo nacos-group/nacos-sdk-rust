@@ -651,16 +651,6 @@ impl NamingService for NacosNamingService {
 #[cfg(feature = "async")]
 #[async_trait]
 impl NamingService for NacosNamingService {
-    async fn register_service(
-        &self,
-        service_name: String,
-        group_name: Option<String>,
-        service_instance: ServiceInstance,
-    ) -> Result<()> {
-        self.register_instance_async(service_name, group_name, service_instance)
-            .await
-    }
-
     async fn deregister_instance(
         &self,
         service_name: String,
@@ -689,18 +679,6 @@ impl NamingService for NacosNamingService {
         subscribe: bool,
     ) -> Result<Vec<ServiceInstance>> {
         self.get_all_instances_async(service_name, group_name, clusters, subscribe)
-            .await
-    }
-
-    async fn select_instance(
-        &self,
-        service_name: String,
-        group_name: Option<String>,
-        clusters: Vec<String>,
-        subscribe: bool,
-        healthy: bool,
-    ) -> Result<Vec<ServiceInstance>> {
-        self.select_instances_async(service_name, group_name, clusters, subscribe, healthy)
             .await
     }
 

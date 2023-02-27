@@ -239,14 +239,6 @@ pub trait NamingService {
 #[cfg(feature = "async")]
 #[async_trait]
 pub trait NamingService {
-    #[deprecated(since = "0.2.2", note = "Users should instead use register_instance")]
-    async fn register_service(
-        &self,
-        service_name: String,
-        group_name: Option<String>,
-        service_instance: ServiceInstance,
-    ) -> Result<()>;
-
     async fn register_instance(
         &self,
         service_name: String,
@@ -274,16 +266,6 @@ pub trait NamingService {
         group_name: Option<String>,
         clusters: Vec<String>,
         subscribe: bool,
-    ) -> Result<Vec<ServiceInstance>>;
-
-    #[deprecated(since = "0.2.2", note = "Users should instead use select_instances")]
-    async fn select_instance(
-        &self,
-        service_name: String,
-        group_name: Option<String>,
-        clusters: Vec<String>,
-        subscribe: bool,
-        healthy: bool,
     ) -> Result<Vec<ServiceInstance>>;
 
     async fn select_instances(
