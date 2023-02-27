@@ -9,6 +9,9 @@ use crate::api::plugin::{AuthPlugin, ConfigFilter};
 use crate::api::props::ClientProps;
 use crate::config::worker::ConfigWorker;
 
+#[cfg(feature = "async")]
+use async_trait::async_trait;
+
 pub(crate) struct NacosConfigService {
     /// config client worker
     client_worker: ConfigWorker,
@@ -25,6 +28,7 @@ impl NacosConfigService {
     }
 }
 
+#[cfg(not(feature = "async"))]
 impl ConfigService for NacosConfigService {
     fn get_config(
         &mut self,
@@ -109,6 +113,102 @@ impl ConfigService for NacosConfigService {
         listener: std::sync::Arc<dyn crate::api::config::ConfigChangeListener>,
     ) -> crate::api::error::Result<()> {
         self.client_worker.remove_listener(data_id, group, listener);
+        Ok(())
+    }
+}
+
+#[cfg(feature = "async")]
+#[async_trait]
+impl ConfigService for NacosConfigService {
+    async fn get_config(
+        &self,
+        data_id: String,
+        group: String,
+    ) -> crate::api::error::Result<crate::api::config::ConfigResponse> {
+        self.client_worker.get_config_async(data_id, group).await
+    }
+
+    async fn publish_config(
+        &self,
+        data_id: String,
+        group: String,
+        content: String,
+        content_type: Option<String>,
+    ) -> crate::api::error::Result<bool> {
+        self.client_worker
+            .publish_config_async(data_id, group, content, content_type)
+            .await
+    }
+
+    async fn publish_config_cas(
+        &self,
+        data_id: String,
+        group: String,
+        content: String,
+        content_type: Option<String>,
+        cas_md5: String,
+    ) -> crate::api::error::Result<bool> {
+        self.client_worker
+            .publish_config_cas_async(data_id, group, content, content_type, cas_md5)
+            .await
+    }
+
+    async fn publish_config_beta(
+        &self,
+        data_id: String,
+        group: String,
+        content: String,
+        content_type: Option<String>,
+        beta_ips: String,
+    ) -> crate::api::error::Result<bool> {
+        self.client_worker
+            .publish_config_beta_async(data_id, group, content, content_type, beta_ips)
+            .await
+    }
+
+    async fn publish_config_param(
+        &self,
+        data_id: String,
+        group: String,
+        content: String,
+        content_type: Option<String>,
+        cas_md5: Option<String>,
+        params: std::collections::HashMap<String, String>,
+    ) -> crate::api::error::Result<bool> {
+        self.client_worker
+            .publish_config_param_async(data_id, group, content, content_type, cas_md5, params)
+            .await
+    }
+
+    async fn remove_config(
+        &self,
+        data_id: String,
+        group: String,
+    ) -> crate::api::error::Result<bool> {
+        self.client_worker.remove_config_async(data_id, group).await
+    }
+
+    async fn add_listener(
+        &self,
+        data_id: String,
+        group: String,
+        listener: std::sync::Arc<dyn crate::api::config::ConfigChangeListener>,
+    ) -> crate::api::error::Result<()> {
+        self.client_worker
+            .add_listener_async(data_id, group, listener)
+            .await;
+        Ok(())
+    }
+
+    async fn remove_listener(
+        &self,
+        data_id: String,
+        group: String,
+        listener: std::sync::Arc<dyn crate::api::config::ConfigChangeListener>,
+    ) -> crate::api::error::Result<()> {
+        self.client_worker
+            .remove_listener_async(data_id, group, listener)
+            .await;
         Ok(())
     }
 }
