@@ -11,10 +11,6 @@ use crate::config::util;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-#[cfg(not(feature = "async"))]
-use std::sync::Mutex;
-
-#[cfg(feature = "async")]
 use tokio::sync::Mutex;
 
 #[derive(Clone)]
@@ -103,21 +99,21 @@ impl ConfigWorker {
     }
 }
 
-#[cfg(not(feature = "async"))]
 impl ConfigWorker {
-    pub(crate) fn get_config(
-        &mut self,
+    pub(crate) async fn get_config(
+        &self,
         data_id: String,
         group: String,
     ) -> crate::api::error::Result<ConfigResponse> {
         let namespace = self.client_props.namespace.clone();
-        let config_resp = Self::get_config_inner(
+        let config_resp = Self::get_config_inner_async(
             self.remote_client.clone(),
             self.auth_plugin.clone(),
             data_id.clone(),
             group.clone(),
             namespace.clone(),
-        )?;
+        )
+        .await?;
 
         // invoke config_filter
         let mut conf_resp = ConfigResp::new(
@@ -141,8 +137,8 @@ impl ConfigWorker {
         ))
     }
 
-    pub(crate) fn publish_config(
-        &mut self,
+    pub(crate) async fn publish_config(
+        &self,
         data_id: String,
         group: String,
         content: String,
@@ -155,7 +151,7 @@ impl ConfigWorker {
             config_filter.filter(Some(&mut conf_req), None);
         }
 
-        Self::publish_config_inner(
+        Self::publish_config_inner_async(
             self.remote_client.clone(),
             self.auth_plugin.clone(),
             conf_req.data_id,
@@ -168,10 +164,11 @@ impl ConfigWorker {
             None,
             None,
         )
+        .await
     }
 
-    pub(crate) fn publish_config_cas(
-        &mut self,
+    pub(crate) async fn publish_config_cas(
+        &self,
         data_id: String,
         group: String,
         content: String,
@@ -185,7 +182,7 @@ impl ConfigWorker {
             config_filter.filter(Some(&mut conf_req), None);
         }
 
-        Self::publish_config_inner(
+        Self::publish_config_inner_async(
             self.remote_client.clone(),
             self.auth_plugin.clone(),
             conf_req.data_id,
@@ -198,10 +195,11 @@ impl ConfigWorker {
             None,
             None,
         )
+        .await
     }
 
-    pub(crate) fn publish_config_beta(
-        &mut self,
+    pub(crate) async fn publish_config_beta(
+        &self,
         data_id: String,
         group: String,
         content: String,
@@ -215,7 +213,7 @@ impl ConfigWorker {
             config_filter.filter(Some(&mut conf_req), None);
         }
 
-        Self::publish_config_inner(
+        Self::publish_config_inner_async(
             self.remote_client.clone(),
             self.auth_plugin.clone(),
             conf_req.data_id,
@@ -228,10 +226,11 @@ impl ConfigWorker {
             Some(beta_ips),
             None,
         )
+        .await
     }
 
-    pub(crate) fn publish_config_param(
-        &mut self,
+    pub(crate) async fn publish_config_param(
+        &self,
         data_id: String,
         group: String,
         content: String,
@@ -246,7 +245,7 @@ impl ConfigWorker {
             config_filter.filter(Some(&mut conf_req), None);
         }
 
-        Self::publish_config_inner(
+        Self::publish_config_inner_async(
             self.remote_client.clone(),
             self.auth_plugin.clone(),
             conf_req.data_id,
@@ -259,86 +258,93 @@ impl ConfigWorker {
             None,
             Some(params),
         )
+        .await
     }
 
-    pub(crate) fn remove_config(
-        &mut self,
+    pub(crate) async fn remove_config(
+        &self,
         data_id: String,
         group: String,
     ) -> crate::api::error::Result<bool> {
         let namespace = self.client_props.namespace.clone();
-        Self::remove_config_inner(
+        Self::remove_config_inner_async(
             self.remote_client.clone(),
             self.auth_plugin.clone(),
             data_id,
             group,
             namespace,
         )
+        .await
     }
 
     /// Add listener.
-    pub(crate) fn add_listener(
-        &mut self,
+    pub(crate) async fn add_listener(
+        &self,
         data_id: String,
         group: String,
         listener: Arc<dyn crate::api::config::ConfigChangeListener>,
     ) {
         let namespace = self.client_props.namespace.clone();
         let group_key = util::group_key(&data_id, &group, &namespace);
-        if let Ok(mut mutex) = self.cache_data_map.lock() {
-            if !mutex.contains_key(group_key.as_str()) {
-                let mut cache_data =
-                    CacheData::new(self.config_filters.clone(), data_id, group, namespace);
 
-                // listen immediately upon initialization
-                let config_resp = Self::get_config_inner(
-                    self.remote_client.clone(),
-                    self.auth_plugin.clone(),
+        let mut mutex = self.cache_data_map.lock().await;
+        if !mutex.contains_key(group_key.as_str()) {
+            let mut cache_data =
+                CacheData::new(self.config_filters.clone(), data_id, group, namespace);
+
+            // listen immediately upon initialization
+            let config_resp = Self::get_config_inner_async(
+                self.remote_client.clone(),
+                self.auth_plugin.clone(),
+                cache_data.data_id.clone(),
+                cache_data.group.clone(),
+                cache_data.namespace.clone(),
+            )
+            .await;
+            if let Ok(config_resp) = config_resp {
+                Self::fill_data_and_notify(&mut cache_data, config_resp);
+            }
+            let req = ConfigBatchListenRequest::new(true).add_config_listen_context(
+                ConfigListenContext::new(
                     cache_data.data_id.clone(),
                     cache_data.group.clone(),
                     cache_data.namespace.clone(),
-                );
-                if let Ok(config_resp) = config_resp {
-                    Self::fill_data_and_notify(&mut cache_data, config_resp);
-                }
-                let req = ConfigBatchListenRequest::new(true).add_config_listen_context(
-                    ConfigListenContext::new(
-                        cache_data.data_id.clone(),
-                        cache_data.group.clone(),
-                        cache_data.namespace.clone(),
-                        cache_data.md5.clone(),
-                    ),
-                );
-                let remote_client_clone = self.remote_client.clone();
-                crate::common::executor::spawn(async move {
-                    let _ = remote_client_clone.unary_call_async::<ConfigBatchListenRequest, ConfigChangeBatchListenResponse>(req).await;
-                });
+                    cache_data.md5.clone(),
+                ),
+            );
+            let remote_client_clone = self.remote_client.clone();
+            crate::common::executor::spawn(async move {
+                let _ = remote_client_clone
+                    .unary_call_async::<ConfigBatchListenRequest, ConfigChangeBatchListenResponse>(
+                        req,
+                    )
+                    .await;
+            });
 
-                mutex.insert(group_key.clone(), cache_data);
-            }
-            let _ = mutex
-                .get_mut(group_key.as_str())
-                .map(|c| c.add_listener(listener));
+            mutex.insert(group_key.clone(), cache_data);
         }
+        let _ = mutex
+            .get_mut(group_key.as_str())
+            .map(|c| c.add_listener(listener));
     }
 
     /// Remove listener.
-    pub(crate) fn remove_listener(
-        &mut self,
+    pub(crate) async fn remove_listener(
+        &self,
         data_id: String,
         group: String,
         listener: Arc<dyn crate::api::config::ConfigChangeListener>,
     ) {
         let namespace = self.client_props.namespace.clone();
         let group_key = util::group_key(&data_id, &group, &namespace);
-        if let Ok(mut mutex) = self.cache_data_map.lock() {
-            if !mutex.contains_key(group_key.as_str()) {
-                return;
-            }
-            let _ = mutex
-                .get_mut(group_key.as_str())
-                .map(|c| c.remove_listener(listener));
+
+        let mut mutex = self.cache_data_map.lock().await;
+        if !mutex.contains_key(group_key.as_str()) {
+            return;
         }
+        let _ = mutex
+            .get_mut(group_key.as_str())
+            .map(|c| c.remove_listener(listener));
     }
 }
 
@@ -377,6 +383,7 @@ impl ConfigWorker {
                         req,
                     )
                     .await;
+
                 if let Ok(resp) = resp {
                     if resp.is_success() {
                         if let Some(change_context_vec) = resp.changed_configs {
@@ -414,56 +421,6 @@ impl ConfigWorker {
     }
 }
 
-#[cfg(not(feature = "async"))]
-impl ConfigWorker {
-    /// Notify change to cache_data.
-    async fn notify_change_to_cache_data(
-        remote_client: Arc<NacosGrpcClient>,
-        auth_plugin: Arc<dyn AuthPlugin>,
-        cache_data_map: Arc<Mutex<HashMap<String, CacheData>>>,
-        mut notify_change_rx: tokio::sync::mpsc::Receiver<String>,
-    ) {
-        loop {
-            match notify_change_rx.recv().await {
-                None => {
-                    tracing::warn!(
-                        "notify_change_to_cache_data break, notify_change_rx be dropped(shutdown).",
-                    );
-                    break;
-                }
-                Some(group_key) => {
-                    let mutex = cache_data_map.lock();
-                    if let Err(e) = mutex {
-                        tracing::error!("occur an error, can not get the lock: {:?}", e);
-                        continue;
-                    }
-
-                    let mut mutex = mutex.unwrap();
-
-                    if !mutex.contains_key(group_key.as_str()) {
-                        continue;
-                    }
-                    let _ = mutex.get_mut(group_key.as_str()).map(|c| {
-                        // get the newest config to notify
-                        let config_resp = Self::get_config_inner(
-                            remote_client.clone(),
-                            auth_plugin.clone(),
-                            // auth_plugin.clone(),
-                            c.data_id.clone(),
-                            c.group.clone(),
-                            c.namespace.clone(),
-                        );
-                        if let Ok(config_resp) = config_resp {
-                            Self::fill_data_and_notify(c, config_resp);
-                        }
-                    });
-                }
-            }
-        }
-    }
-}
-
-#[cfg(feature = "async")]
 impl ConfigWorker {
     /// Notify change to cache_data.
     async fn notify_change_to_cache_data(
@@ -507,393 +464,6 @@ impl ConfigWorker {
     }
 }
 
-impl ConfigWorker {
-    fn get_config_inner(
-        remote_client: Arc<NacosGrpcClient>,
-        auth_plugin: Arc<dyn AuthPlugin>,
-        data_id: String,
-        group: String,
-        namespace: String,
-    ) -> crate::api::error::Result<ConfigQueryResponse> {
-        let mut req = ConfigQueryRequest::new(data_id, group, namespace);
-        req.add_headers(auth_plugin.get_login_identity().contexts);
-
-        let future = async move {
-            let resp = remote_client
-                .unary_call_async::<ConfigQueryRequest, ConfigQueryResponse>(req)
-                .await?;
-
-            if resp.is_success() {
-                Ok(resp)
-            } else if resp.is_not_found() {
-                Err(crate::api::error::Error::ConfigNotFound(format!(
-                    "error_code={},message={}",
-                    resp.error_code,
-                    resp.message.unwrap()
-                )))
-            } else if resp.is_query_conflict() {
-                Err(crate::api::error::Error::ConfigQueryConflict(format!(
-                    "error_code={},message={}",
-                    resp.error_code,
-                    resp.message.unwrap()
-                )))
-            } else {
-                let ConfigQueryResponse {
-                    error_code,
-                    message,
-                    ..
-                } = resp;
-                Err(crate::api::error::Error::ErrResult(format!(
-                    "error_code={},message={}",
-                    error_code,
-                    message.unwrap_or_default(),
-                )))
-            }
-        };
-
-        futures::executor::block_on(future)
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    fn publish_config_inner(
-        remote_client: Arc<NacosGrpcClient>,
-        auth_plugin: Arc<dyn AuthPlugin>,
-        data_id: String,
-        group: String,
-        namespace: String,
-        content: String,
-        content_type: Option<String>,
-        encrypted_data_key: String,
-        cas_md5: Option<String>,
-        beta_ips: Option<String>,
-        params: Option<HashMap<String, String>>,
-    ) -> crate::api::error::Result<bool> {
-        let mut req =
-            ConfigPublishRequest::new(data_id, group, namespace, content).cas_md5(cas_md5);
-        req.add_headers(auth_plugin.get_login_identity().contexts);
-
-        // Customize parameters have low priority
-        if let Some(params) = params {
-            req.add_addition_params(params);
-        }
-        if let Some(content_type) = content_type {
-            req.add_addition_param(
-                crate::api::config::constants::KEY_PARAM_CONTENT_TYPE,
-                content_type,
-            );
-        }
-        if let Some(beta_ips) = beta_ips {
-            req.add_addition_param(crate::api::config::constants::KEY_PARAM_BETA_IPS, beta_ips);
-        }
-        req.add_addition_param(
-            crate::api::config::constants::KEY_PARAM_ENCRYPTED_DATA_KEY,
-            encrypted_data_key,
-        );
-
-        let future = async move {
-            let resp = remote_client
-                .unary_call_async::<ConfigPublishRequest, ConfigPublishResponse>(req)
-                .await?;
-
-            if resp.is_success() {
-                Ok(resp.is_result_success())
-            } else {
-                let ConfigPublishResponse {
-                    error_code,
-                    message,
-                    ..
-                } = resp;
-                Err(crate::api::error::Error::ErrResult(format!(
-                    "error_code={},message={}",
-                    error_code,
-                    message.unwrap_or_default(),
-                )))
-            }
-        };
-
-        futures::executor::block_on(future)
-    }
-
-    fn remove_config_inner(
-        remote_client: Arc<NacosGrpcClient>,
-        auth_plugin: Arc<dyn AuthPlugin>,
-        data_id: String,
-        group: String,
-        namespace: String,
-    ) -> crate::api::error::Result<bool> {
-        let mut req = ConfigRemoveRequest::new(data_id, group, namespace);
-        req.add_headers(auth_plugin.get_login_identity().contexts);
-
-        let future = async move {
-            let resp = remote_client
-                .unary_call_async::<ConfigRemoveRequest, ConfigRemoveResponse>(req)
-                .await?;
-
-            if resp.is_success() {
-                Ok(resp.is_result_success())
-            } else {
-                let ConfigRemoveResponse {
-                    error_code,
-                    message,
-                    ..
-                } = resp;
-                Err(crate::api::error::Error::ErrResult(format!(
-                    "error_code={},message={}",
-                    error_code,
-                    message.unwrap_or_default(),
-                )))
-            }
-        };
-
-        futures::executor::block_on(future)
-    }
-}
-
-#[cfg(feature = "async")]
-impl ConfigWorker {
-    pub(crate) async fn get_config_async(
-        &self,
-        data_id: String,
-        group: String,
-    ) -> crate::api::error::Result<ConfigResponse> {
-        let namespace = self.client_props.namespace.clone();
-        let config_resp = Self::get_config_inner_async(
-            self.remote_client.clone(),
-            self.auth_plugin.clone(),
-            data_id.clone(),
-            group.clone(),
-            namespace.clone(),
-        )
-        .await?;
-
-        // invoke config_filter
-        let mut conf_resp = ConfigResp::new(
-            data_id,
-            group,
-            namespace,
-            config_resp.content.unwrap(),
-            config_resp.encrypted_data_key.unwrap_or_default(),
-        );
-        for config_filter in self.config_filters.iter() {
-            config_filter.filter(None, Some(&mut conf_resp));
-        }
-
-        Ok(ConfigResponse::new(
-            conf_resp.data_id,
-            conf_resp.group,
-            conf_resp.namespace,
-            conf_resp.content,
-            config_resp.content_type.unwrap(),
-            config_resp.md5.unwrap(),
-        ))
-    }
-
-    pub(crate) async fn publish_config_async(
-        &self,
-        data_id: String,
-        group: String,
-        content: String,
-        content_type: Option<String>,
-    ) -> crate::api::error::Result<bool> {
-        let namespace = self.client_props.namespace.clone();
-
-        let mut conf_req = ConfigReq::new(data_id, group, namespace, content, "".to_string());
-        for config_filter in self.config_filters.iter() {
-            config_filter.filter(Some(&mut conf_req), None);
-        }
-
-        Self::publish_config_inner_async(
-            self.remote_client.clone(),
-            self.auth_plugin.clone(),
-            conf_req.data_id,
-            conf_req.group,
-            conf_req.namespace,
-            conf_req.content,
-            content_type,
-            conf_req.encrypted_data_key,
-            None,
-            None,
-            None,
-        )
-        .await
-    }
-
-    pub(crate) async fn publish_config_cas_async(
-        &self,
-        data_id: String,
-        group: String,
-        content: String,
-        content_type: Option<String>,
-        cas_md5: String,
-    ) -> crate::api::error::Result<bool> {
-        let namespace = self.client_props.namespace.clone();
-
-        let mut conf_req = ConfigReq::new(data_id, group, namespace, content, "".to_string());
-        for config_filter in self.config_filters.iter() {
-            config_filter.filter(Some(&mut conf_req), None);
-        }
-
-        Self::publish_config_inner_async(
-            self.remote_client.clone(),
-            self.auth_plugin.clone(),
-            conf_req.data_id,
-            conf_req.group,
-            conf_req.namespace,
-            conf_req.content,
-            content_type,
-            conf_req.encrypted_data_key,
-            Some(cas_md5),
-            None,
-            None,
-        )
-        .await
-    }
-
-    pub(crate) async fn publish_config_beta_async(
-        &self,
-        data_id: String,
-        group: String,
-        content: String,
-        content_type: Option<String>,
-        beta_ips: String,
-    ) -> crate::api::error::Result<bool> {
-        let namespace = self.client_props.namespace.clone();
-
-        let mut conf_req = ConfigReq::new(data_id, group, namespace, content, "".to_string());
-        for config_filter in self.config_filters.iter() {
-            config_filter.filter(Some(&mut conf_req), None);
-        }
-
-        Self::publish_config_inner_async(
-            self.remote_client.clone(),
-            self.auth_plugin.clone(),
-            conf_req.data_id,
-            conf_req.group,
-            conf_req.namespace,
-            conf_req.content,
-            content_type,
-            conf_req.encrypted_data_key,
-            None,
-            Some(beta_ips),
-            None,
-        )
-        .await
-    }
-
-    pub(crate) async fn publish_config_param_async(
-        &self,
-        data_id: String,
-        group: String,
-        content: String,
-        content_type: Option<String>,
-        cas_md5: Option<String>,
-        params: HashMap<String, String>,
-    ) -> crate::api::error::Result<bool> {
-        let namespace = self.client_props.namespace.clone();
-
-        let mut conf_req = ConfigReq::new(data_id, group, namespace, content, "".to_string());
-        for config_filter in self.config_filters.iter() {
-            config_filter.filter(Some(&mut conf_req), None);
-        }
-
-        Self::publish_config_inner_async(
-            self.remote_client.clone(),
-            self.auth_plugin.clone(),
-            conf_req.data_id,
-            conf_req.group,
-            conf_req.namespace,
-            conf_req.content,
-            content_type,
-            conf_req.encrypted_data_key,
-            cas_md5,
-            None,
-            Some(params),
-        )
-        .await
-    }
-
-    pub(crate) async fn remove_config_async(
-        &self,
-        data_id: String,
-        group: String,
-    ) -> crate::api::error::Result<bool> {
-        let namespace = self.client_props.namespace.clone();
-        Self::remove_config_inner_async(
-            self.remote_client.clone(),
-            self.auth_plugin.clone(),
-            data_id,
-            group,
-            namespace,
-        )
-        .await
-    }
-
-    pub(crate) async fn add_listener_async(
-        &self,
-        data_id: String,
-        group: String,
-        listener: Arc<dyn crate::api::config::ConfigChangeListener>,
-    ) {
-        let namespace = self.client_props.namespace.clone();
-        let group_key = util::group_key(&data_id, &group, &namespace);
-
-        let mut mutex = self.cache_data_map.lock().await;
-        if !mutex.contains_key(group_key.as_str()) {
-            let mut cache_data =
-                CacheData::new(self.config_filters.clone(), data_id, group, namespace);
-
-            // listen immediately upon initialization
-            let config_resp = Self::get_config_inner_async(
-                self.remote_client.clone(),
-                self.auth_plugin.clone(),
-                cache_data.data_id.clone(),
-                cache_data.group.clone(),
-                cache_data.namespace.clone(),
-            )
-            .await;
-
-            if let Ok(config_resp) = config_resp {
-                Self::fill_data_and_notify(&mut cache_data, config_resp);
-            }
-            let req = ConfigBatchListenRequest::new(true).add_config_listen_context(
-                ConfigListenContext::new(
-                    cache_data.data_id.clone(),
-                    cache_data.group.clone(),
-                    cache_data.namespace.clone(),
-                    cache_data.md5.clone(),
-                ),
-            );
-            let remote_client_clone = self.remote_client.clone();
-            let _ = remote_client_clone
-                .unary_call_async::<ConfigBatchListenRequest, ConfigChangeBatchListenResponse>(req)
-                .await;
-            mutex.insert(group_key.clone(), cache_data);
-        }
-        let _ = mutex
-            .get_mut(group_key.as_str())
-            .map(|c| c.add_listener(listener));
-    }
-
-    pub(crate) async fn remove_listener_async(
-        &self,
-        data_id: String,
-        group: String,
-        listener: Arc<dyn crate::api::config::ConfigChangeListener>,
-    ) {
-        let namespace = self.client_props.namespace.clone();
-        let group_key = util::group_key(&data_id, &group, &namespace);
-
-        let mut mutex = self.cache_data_map.lock().await;
-        if !mutex.contains_key(group_key.as_str()) {
-            return;
-        }
-        let _ = mutex
-            .get_mut(group_key.as_str())
-            .map(|c| c.remove_listener(listener));
-    }
-}
-
-#[cfg(feature = "async")]
 impl ConfigWorker {
     async fn get_config_inner_async(
         remote_client: Arc<NacosGrpcClient>,
@@ -1034,7 +604,7 @@ mod tests {
     async fn test_client_worker_add_listener() {
         let (d, g, n) = ("D".to_string(), "G".to_string(), "N".to_string());
 
-        let mut client_worker = ConfigWorker::new(
+        let client_worker = ConfigWorker::new(
             ClientProps::new().namespace(n.clone()),
             Arc::new(NoopAuthPlugin::default()),
             Vec::new(),
@@ -1053,7 +623,7 @@ mod tests {
 
         let group_key = util::group_key(&d, &g, &n);
         {
-            let cache_data_map_mutex = client_worker.cache_data_map.lock().unwrap();
+            let cache_data_map_mutex = client_worker.cache_data_map.lock().await;
             let cache_data = cache_data_map_mutex.get(group_key.as_str()).unwrap();
             let listen_mutex = cache_data.listeners.lock().unwrap();
             assert_eq!(2, listen_mutex.len());
@@ -1065,7 +635,7 @@ mod tests {
     async fn test_client_worker_add_listener_then_remove() {
         let (d, g, n) = ("D".to_string(), "G".to_string(), "N".to_string());
 
-        let mut client_worker = ConfigWorker::new(
+        let client_worker = ConfigWorker::new(
             ClientProps::new().namespace(n.clone()),
             Arc::new(NoopAuthPlugin::default()),
             Vec::new(),
@@ -1079,15 +649,17 @@ mod tests {
 
         let group_key = util::group_key(&d, &g, &n);
         {
-            let cache_data_map_mutex = client_worker.cache_data_map.lock().unwrap();
+            let cache_data_map_mutex = client_worker.cache_data_map.lock().await;
             let cache_data = cache_data_map_mutex.get(group_key.as_str()).unwrap();
             let listen_mutex = cache_data.listeners.lock().unwrap();
             assert_eq!(1, listen_mutex.len());
         }
 
-        client_worker.remove_listener(d.clone(), g.clone(), lis1_arc2);
+        client_worker
+            .remove_listener(d.clone(), g.clone(), lis1_arc2)
+            .await;
         {
-            let cache_data_map_mutex = client_worker.cache_data_map.lock().unwrap();
+            let cache_data_map_mutex = client_worker.cache_data_map.lock().await;
             let cache_data = cache_data_map_mutex.get(group_key.as_str()).unwrap();
             let listen_mutex = cache_data.listeners.lock().unwrap();
             assert_eq!(0, listen_mutex.len());

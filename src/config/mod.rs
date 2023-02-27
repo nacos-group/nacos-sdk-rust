@@ -31,50 +31,57 @@ impl NacosConfigService {
 #[cfg(not(feature = "async"))]
 impl ConfigService for NacosConfigService {
     fn get_config(
-        &mut self,
+        &self,
         data_id: String,
         group: String,
     ) -> crate::api::error::Result<crate::api::config::ConfigResponse> {
-        self.client_worker.get_config(data_id, group)
+        let future = self.client_worker.get_config(data_id, group);
+        futures::executor::block_on(future)
     }
 
     fn publish_config(
-        &mut self,
+        &self,
         data_id: String,
         group: String,
         content: String,
         content_type: Option<String>,
     ) -> crate::api::error::Result<bool> {
-        self.client_worker
-            .publish_config(data_id, group, content, content_type)
+        let future = self
+            .client_worker
+            .publish_config(data_id, group, content, content_type);
+        futures::executor::block_on(future)
     }
 
     fn publish_config_cas(
-        &mut self,
+        &self,
         data_id: String,
         group: String,
         content: String,
         content_type: Option<String>,
         cas_md5: String,
     ) -> crate::api::error::Result<bool> {
-        self.client_worker
-            .publish_config_cas(data_id, group, content, content_type, cas_md5)
+        let future =
+            self.client_worker
+                .publish_config_cas(data_id, group, content, content_type, cas_md5);
+        futures::executor::block_on(future)
     }
 
     fn publish_config_beta(
-        &mut self,
+        &self,
         data_id: String,
         group: String,
         content: String,
         content_type: Option<String>,
         beta_ips: String,
     ) -> crate::api::error::Result<bool> {
-        self.client_worker
-            .publish_config_beta(data_id, group, content, content_type, beta_ips)
+        let future =
+            self.client_worker
+                .publish_config_beta(data_id, group, content, content_type, beta_ips);
+        futures::executor::block_on(future)
     }
 
     fn publish_config_param(
-        &mut self,
+        &self,
         data_id: String,
         group: String,
         content: String,
@@ -82,37 +89,41 @@ impl ConfigService for NacosConfigService {
         cas_md5: Option<String>,
         params: std::collections::HashMap<String, String>,
     ) -> crate::api::error::Result<bool> {
-        self.client_worker.publish_config_param(
+        let future = self.client_worker.publish_config_param(
             data_id,
             group,
             content,
             content_type,
             cas_md5,
             params,
-        )
+        );
+        futures::executor::block_on(future)
     }
 
-    fn remove_config(&mut self, data_id: String, group: String) -> crate::api::error::Result<bool> {
-        self.client_worker.remove_config(data_id, group)
+    fn remove_config(&self, data_id: String, group: String) -> crate::api::error::Result<bool> {
+        let future = self.client_worker.remove_config(data_id, group);
+        futures::executor::block_on(future)
     }
 
     fn add_listener(
-        &mut self,
+        &self,
         data_id: String,
         group: String,
         listener: std::sync::Arc<dyn crate::api::config::ConfigChangeListener>,
     ) -> crate::api::error::Result<()> {
-        self.client_worker.add_listener(data_id, group, listener);
+        let future = self.client_worker.add_listener(data_id, group, listener);
+        futures::executor::block_on(future);
         Ok(())
     }
 
     fn remove_listener(
-        &mut self,
+        &self,
         data_id: String,
         group: String,
         listener: std::sync::Arc<dyn crate::api::config::ConfigChangeListener>,
     ) -> crate::api::error::Result<()> {
-        self.client_worker.remove_listener(data_id, group, listener);
+        let future = self.client_worker.remove_listener(data_id, group, listener);
+        futures::executor::block_on(future);
         Ok(())
     }
 }
@@ -125,7 +136,7 @@ impl ConfigService for NacosConfigService {
         data_id: String,
         group: String,
     ) -> crate::api::error::Result<crate::api::config::ConfigResponse> {
-        self.client_worker.get_config_async(data_id, group).await
+        self.client_worker.get_config(data_id, group).await
     }
 
     async fn publish_config(
@@ -136,7 +147,7 @@ impl ConfigService for NacosConfigService {
         content_type: Option<String>,
     ) -> crate::api::error::Result<bool> {
         self.client_worker
-            .publish_config_async(data_id, group, content, content_type)
+            .publish_config(data_id, group, content, content_type)
             .await
     }
 
@@ -149,7 +160,7 @@ impl ConfigService for NacosConfigService {
         cas_md5: String,
     ) -> crate::api::error::Result<bool> {
         self.client_worker
-            .publish_config_cas_async(data_id, group, content, content_type, cas_md5)
+            .publish_config_cas(data_id, group, content, content_type, cas_md5)
             .await
     }
 
@@ -162,7 +173,7 @@ impl ConfigService for NacosConfigService {
         beta_ips: String,
     ) -> crate::api::error::Result<bool> {
         self.client_worker
-            .publish_config_beta_async(data_id, group, content, content_type, beta_ips)
+            .publish_config_beta(data_id, group, content, content_type, beta_ips)
             .await
     }
 
@@ -176,7 +187,7 @@ impl ConfigService for NacosConfigService {
         params: std::collections::HashMap<String, String>,
     ) -> crate::api::error::Result<bool> {
         self.client_worker
-            .publish_config_param_async(data_id, group, content, content_type, cas_md5, params)
+            .publish_config_param(data_id, group, content, content_type, cas_md5, params)
             .await
     }
 
@@ -185,7 +196,7 @@ impl ConfigService for NacosConfigService {
         data_id: String,
         group: String,
     ) -> crate::api::error::Result<bool> {
-        self.client_worker.remove_config_async(data_id, group).await
+        self.client_worker.remove_config(data_id, group).await
     }
 
     async fn add_listener(
@@ -195,7 +206,7 @@ impl ConfigService for NacosConfigService {
         listener: std::sync::Arc<dyn crate::api::config::ConfigChangeListener>,
     ) -> crate::api::error::Result<()> {
         self.client_worker
-            .add_listener_async(data_id, group, listener)
+            .add_listener(data_id, group, listener)
             .await;
         Ok(())
     }
@@ -207,7 +218,7 @@ impl ConfigService for NacosConfigService {
         listener: std::sync::Arc<dyn crate::api::config::ConfigChangeListener>,
     ) -> crate::api::error::Result<()> {
         self.client_worker
-            .remove_listener_async(data_id, group, listener)
+            .remove_listener(data_id, group, listener)
             .await;
         Ok(())
     }

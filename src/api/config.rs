@@ -26,11 +26,11 @@ pub trait ConfigService {
     /// Get config, return the content.
     ///
     /// Attention to [`error::Error::ConfigNotFound`], [`error::Error::ConfigQueryConflict`]
-    fn get_config(&mut self, data_id: String, group: String) -> error::Result<ConfigResponse>;
+    fn get_config(&self, data_id: String, group: String) -> error::Result<ConfigResponse>;
 
     /// Publish config, return true/false.
     fn publish_config(
-        &mut self,
+        &self,
         data_id: String,
         group: String,
         content: String,
@@ -39,7 +39,7 @@ pub trait ConfigService {
 
     /// Cas publish config with cas_md5 (prev content's md5), return true/false.
     fn publish_config_cas(
-        &mut self,
+        &self,
         data_id: String,
         group: String,
         content: String,
@@ -49,7 +49,7 @@ pub trait ConfigService {
 
     /// Beta publish config, return true/false.
     fn publish_config_beta(
-        &mut self,
+        &self,
         data_id: String,
         group: String,
         content: String,
@@ -59,7 +59,7 @@ pub trait ConfigService {
 
     /// Publish config with params (see keys [`constants::*`]), return true/false.
     fn publish_config_param(
-        &mut self,
+        &self,
         data_id: String,
         group: String,
         content: String,
@@ -69,11 +69,11 @@ pub trait ConfigService {
     ) -> error::Result<bool>;
 
     /// Remove config, return true/false.
-    fn remove_config(&mut self, data_id: String, group: String) -> error::Result<bool>;
+    fn remove_config(&self, data_id: String, group: String) -> error::Result<bool>;
 
     /// Listen the config change.
     fn add_listener(
-        &mut self,
+        &self,
         data_id: String,
         group: String,
         listener: Arc<dyn ConfigChangeListener>,
@@ -81,7 +81,7 @@ pub trait ConfigService {
 
     /// Remove a Listener.
     fn remove_listener(
-        &mut self,
+        &self,
         data_id: String,
         group: String,
         listener: Arc<dyn ConfigChangeListener>,
