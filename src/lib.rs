@@ -24,7 +24,7 @@
 //! ## Add Dependency
 //!
 //! Add the dependency in `Cargo.toml`:
-//!
+//! - If you need async API, which can be enabled via `features = ['async"]`
 //! ```toml
 //! [dependencies]
 //! nacos-sdk = { version = "0.2", features = ["default"] }

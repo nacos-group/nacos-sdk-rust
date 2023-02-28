@@ -39,9 +39,6 @@ use self::subscribers::InstancesChangeEventSubscriber;
 use self::subscribers::RedoTaskDisconnectEventSubscriber;
 use self::subscribers::RedoTaskReconnectEventSubscriber;
 
-#[cfg(feature = "async")]
-use async_trait::async_trait;
-
 mod chooser;
 mod dto;
 mod events;
@@ -649,7 +646,7 @@ impl NamingService for NacosNamingService {
 }
 
 #[cfg(feature = "async")]
-#[async_trait]
+#[async_trait::async_trait]
 impl NamingService for NacosNamingService {
     async fn deregister_instance(
         &self,
