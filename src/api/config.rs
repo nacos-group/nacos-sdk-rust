@@ -1,9 +1,6 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-#[cfg(feature = "async")]
-use async_trait::async_trait;
-
 use crate::api::{error, plugin, props};
 
 /// Api [`ConfigService`].
@@ -89,7 +86,7 @@ pub trait ConfigService {
 }
 
 #[cfg(feature = "async")]
-#[async_trait]
+#[async_trait::async_trait]
 pub trait ConfigService {
     /// Get config, return the content.
     ///

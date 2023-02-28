@@ -5,9 +5,6 @@ use crate::api::plugin;
 use crate::{api::error::Result, naming::NacosNamingService};
 use serde::{Deserialize, Serialize};
 
-#[cfg(feature = "async")]
-use async_trait::async_trait;
-
 use super::props::ClientProps;
 
 const DEFAULT_CLUSTER_NAME: &str = "DEFAULT";
@@ -237,7 +234,7 @@ pub trait NamingService {
 }
 
 #[cfg(feature = "async")]
-#[async_trait]
+#[async_trait::async_trait]
 pub trait NamingService {
     async fn register_instance(
         &self,

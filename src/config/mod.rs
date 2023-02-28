@@ -9,9 +9,6 @@ use crate::api::plugin::{AuthPlugin, ConfigFilter};
 use crate::api::props::ClientProps;
 use crate::config::worker::ConfigWorker;
 
-#[cfg(feature = "async")]
-use async_trait::async_trait;
-
 pub(crate) struct NacosConfigService {
     /// config client worker
     client_worker: ConfigWorker,
@@ -129,7 +126,7 @@ impl ConfigService for NacosConfigService {
 }
 
 #[cfg(feature = "async")]
-#[async_trait]
+#[async_trait::async_trait]
 impl ConfigService for NacosConfigService {
     async fn get_config(
         &self,
