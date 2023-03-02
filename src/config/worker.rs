@@ -506,6 +506,7 @@ impl ConfigWorker {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn publish_config_inner_async(
         remote_client: Arc<NacosGrpcClient>,
         auth_plugin: Arc<dyn AuthPlugin>,
@@ -545,7 +546,7 @@ impl ConfigWorker {
             .await?;
 
         if resp.is_success() {
-            Ok(resp.is_result_success())
+            Ok(true)
         } else {
             let ConfigPublishResponse {
                 error_code,
@@ -574,7 +575,7 @@ impl ConfigWorker {
             .await?;
 
         if resp.is_success() {
-            Ok(resp.is_result_success())
+            Ok(true)
         } else {
             let ConfigRemoveResponse {
                 error_code,

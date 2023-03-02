@@ -199,6 +199,7 @@ pub(crate) fn register(subscriber: Arc<dyn Subscriber>) {
     __private::EVENT_BUS.register(subscriber);
 }
 
+#[allow(dead_code)]
 pub(crate) fn unregister(subscriber: Arc<dyn Subscriber>) {
     __private::EVENT_BUS.unregister(subscriber);
 }
