@@ -7,7 +7,7 @@ pub(crate) fn group_key(data_id: &str, group: &str, namespace: &str) -> String {
 }
 
 /// parse group_key to (data_id, group, namespace)
-#[allow(clippy::get_first)]
+#[allow(dead_code, clippy::get_first)]
 pub(crate) fn parse_key(group_key: &str) -> (String, String, String) {
     let v: Vec<&str> = group_key.split(GROUP_KEY_SPLIT).collect();
     (
