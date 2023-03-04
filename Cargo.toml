@@ -41,7 +41,7 @@ members = [
 default = ["config", "naming", "auth-by-http"]
 config = []
 naming = []
-auth-by-http = ["reqwest", "form_urlencoded"]
+auth-by-http = ["reqwest"]
 async = ["async-trait"]
 
 [dependencies]
@@ -68,9 +68,6 @@ url="2.3.1"
 
 # now only for feature="auth-by-http"
 reqwest = { version = "0.11", default-features = false, features = [], optional = true }
-form_urlencoded = { version = "1.1.0",  optional = true }
-
-# for feature="async"
 async-trait = {version = "0.1", optional = true}
 
 [dev-dependencies]
