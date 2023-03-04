@@ -58,10 +58,7 @@ impl AuthPlugin for HttpLoginAuthPlugin {
         };
 
         // todo support https
-        let login_url = format!(
-            "http://{}/nacos/v1/auth/login?username={}&password={}",
-            server_addr, username, password
-        );
+        let login_url = format!("http://{}/nacos/v1/auth/login", server_addr);
 
         tracing::debug!(
             "Http login with username={},password={}",
@@ -70,7 +67,11 @@ impl AuthPlugin for HttpLoginAuthPlugin {
         );
 
         let future = async {
-            let resp = reqwest::Client::new().post(login_url).send().await;
+            let resp = reqwest::Client::new()
+                .post(login_url)
+                .query(&[(USERNAME, username), (PASSWORD, password)])
+                .send()
+                .await;
             tracing::debug!("Http login resp={:?}", resp);
 
             if resp.is_err() {
