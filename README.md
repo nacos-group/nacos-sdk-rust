@@ -29,7 +29,10 @@ nacos-sdk = { version = "0.2", features = ["default"] }
             // Attention! "public" is "", it is recommended to customize the namespace with clear meaning.
             .namespace("")
             .app_name("simple_app"),
+            // .auth_username("TODO")
+            // .auth_password("TODO")
     )
+    // .enable_auth_plugin_http()
     .build()?;
 
     // example get a config
@@ -67,7 +70,10 @@ nacos-sdk = { version = "0.2", features = ["default"] }
             // Attention! "public" is "", it is recommended to customize the namespace with clear meaning.
             .namespace("")
             .app_name("simple_app"),
+            // .auth_username("TODO")
+            // .auth_password("TODO")
     )
+    // .enable_auth_plugin_http()
     .build()?;
 
     pub struct ExampleInstanceChangeListener;
@@ -102,7 +108,7 @@ nacos-sdk = { version = "0.2", features = ["default"] }
 
 ## 开发说明
 - Build with `cargo build`
-> Note: The proto buf client generation is built into cargo build process so updating the proto files under proto/ is enough to update the proto buf client.
+- Test with `cargo test`
 
 - 请 `cargo clippy --all` 根据提示优化代码
 > Run `cargo clippy --all` - this will catch common mistakes and improve your Rust code.

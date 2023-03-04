@@ -59,8 +59,9 @@ impl AuthPlugin for HttpLoginAuthPlugin {
 
         // todo support https
         let login_url = format!(
-            "http://{}/nacos/v1/auth/login?username={}&password={}",
-            server_addr, username, password
+            "http://{}/nacos/v1/auth/login?{}",
+            server_addr,
+            urlencoded_username_password(username, password)
         );
 
         tracing::debug!(
@@ -111,6 +112,13 @@ impl AuthPlugin for HttpLoginAuthPlugin {
     }
 }
 
+fn urlencoded_username_password(username: &str, password: &str) -> String {
+    form_urlencoded::Serializer::new(String::new())
+        .append_pair(USERNAME, username)
+        .append_pair(PASSWORD, password)
+        .finish()
+}
+
 #[derive(Default, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct HttpLoginResponse {
@@ -120,6 +128,7 @@ struct HttpLoginResponse {
 
 #[cfg(test)]
 mod tests {
+    use crate::api::plugin::auth::auth_by_http::urlencoded_username_password;
     use crate::api::plugin::{AuthContext, AuthPlugin, HttpLoginAuthPlugin};
 
     #[tokio::test]
@@ -145,5 +154,14 @@ mod tests {
         http_auth_plugin.login(auth_context);
         let login_identity_2 = http_auth_plugin.get_login_identity();
         assert_eq!(login_identity_1.contexts, login_identity_2.contexts)
+    }
+
+    #[test]
+    fn test_urlencoded_username_password() {
+        let encoded: String = urlencoded_username_password("user_%%&&", "Été+hiver");
+        assert_eq!(
+            encoded,
+            "username=user_%25%25%26%26&password=%C3%89t%C3%A9%2Bhiver"
+        );
     }
 }
