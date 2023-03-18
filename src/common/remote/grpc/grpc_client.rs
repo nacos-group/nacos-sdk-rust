@@ -3,7 +3,7 @@ use std::{sync::Arc, time::Duration};
 
 use grpcio::{CallOption, Channel, ChannelBuilder, ConnectivityState, Environment, LbPolicy};
 
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 use crate::api::error::Result;
 use crate::common::remote::grpc::events::GrpcConnectHealthCheckEvent;
@@ -194,7 +194,7 @@ impl GrpcClient {
                             .await;
                     }
                     ConnectivityState::GRPC_CHANNEL_TRANSIENT_FAILURE => {
-                        debug!("the current grpc connection state is in transient_failure");
+                        error!("the current grpc connection state is in transient_failure");
 
                         let ret = client_state.compare_exchange(
                             current_state.state_code(),
@@ -219,7 +219,7 @@ impl GrpcClient {
                             .await;
                     }
                     ConnectivityState::GRPC_CHANNEL_SHUTDOWN => {
-                        debug!("the grpc server has already shutdown!");
+                        warn!("the grpc server has already shutdown!");
                         client_state.store(
                             GrpcClientState::Shutdown.into(),
                             std::sync::atomic::Ordering::Release,
@@ -229,7 +229,7 @@ impl GrpcClient {
                 }
             }
 
-            debug!("health_check_task quit!");
+            warn!("health_check_task quit!");
         };
         executor::spawn(check_task);
     }

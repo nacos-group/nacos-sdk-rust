@@ -28,7 +28,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ;
 
     // ----------  Config  -------------
-    let mut config_service = ConfigServiceBuilder::new(client_props.clone())
+    let config_service = ConfigServiceBuilder::new(client_props.clone())
         // .enable_auth_plugin_http()
         .build()?;
     let config_resp = config_service.get_config("todo-data-id".to_string(), "LOVE".to_string());
@@ -48,7 +48,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // ----------  Naming  -------------
-    let mut naming_service = NamingServiceBuilder::new(client_props)
+    let naming_service = NamingServiceBuilder::new(client_props)
         // .enable_auth_plugin_http()
         .build()?;
 
