@@ -24,7 +24,7 @@
 //! ## Add Dependency
 //!
 //! Add the dependency in `Cargo.toml`:
-//! - If you need async API, which can be enabled via `features = ['async"]`
+//! - If you need async API, which can be enabled via `features = ["async"]`
 //! ```toml
 //! [dependencies]
 //! nacos-sdk = { version = "0.2", features = ["default"] }
@@ -37,7 +37,7 @@
 //! ### Example of Config
 //!
 //! ```ignore
-//!  let mut config_service = nacos_sdk::api::config::ConfigServiceBuilder::new(
+//!  let config_service = nacos_sdk::api::config::ConfigServiceBuilder::new(
 //!        nacos_sdk::api::props::ClientProps::new()
 //!           .server_addr("0.0.0.0:8848")
 //!           // Attention! "public" is "", it is recommended to customize the namespace with clear meaning.
@@ -50,7 +50,7 @@
 //! ### Example of Naming
 //!
 //! ```ignore
-//!  let mut naming_service = nacos_sdk::api::naming::NamingServiceBuilder::new(
+//!  let naming_service = nacos_sdk::api::naming::NamingServiceBuilder::new(
 //!        nacos_sdk::api::props::ClientProps::new()
 //!           .server_addr("0.0.0.0:8848")
 //!           // Attention! "public" is "", it is recommended to customize the namespace with clear meaning.

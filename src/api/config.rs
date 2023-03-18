@@ -358,10 +358,10 @@ mod tests {
 
         let (data_id, group) = ("test_api_config_service".to_string(), "TEST".to_string());
 
-        let mut config_service = ConfigServiceBuilder::default().build().unwrap();
+        let config_service = ConfigServiceBuilder::default().build().unwrap();
 
         // publish a config
-        let publish_resp = config_service
+        let _publish_resp = config_service
             .publish_config(
                 data_id.clone(),
                 group.clone(),
@@ -389,7 +389,7 @@ mod tests {
         }
 
         // publish a config for listener
-        let publish_resp = config_service
+        let _publish_resp = config_service
             .publish_config(
                 data_id.clone(),
                 group.clone(),
@@ -428,7 +428,7 @@ mod tests {
             .with_max_level(tracing::Level::DEBUG)
             .init();
 
-        let mut config_service = ConfigServiceBuilder::default().build().unwrap();
+        let config_service = ConfigServiceBuilder::default().build().unwrap();
 
         // remove a config not exit
         let remove_resp =
@@ -446,7 +446,7 @@ mod tests {
             .with_max_level(tracing::Level::DEBUG)
             .init();
 
-        let mut config_service = ConfigServiceBuilder::default().build().unwrap();
+        let config_service = ConfigServiceBuilder::default().build().unwrap();
 
         // publish a config
         let publish_resp = config_service
@@ -468,7 +468,7 @@ mod tests {
             .with_max_level(tracing::Level::DEBUG)
             .init();
 
-        let mut config_service = ConfigServiceBuilder::default().build().unwrap();
+        let config_service = ConfigServiceBuilder::default().build().unwrap();
 
         let mut params = HashMap::new();
         params.insert(
@@ -497,7 +497,7 @@ mod tests {
             .with_max_level(tracing::Level::DEBUG)
             .init();
 
-        let mut config_service = ConfigServiceBuilder::default().build().unwrap();
+        let config_service = ConfigServiceBuilder::default().build().unwrap();
 
         // publish a config with beta
         let publish_resp = config_service
@@ -520,7 +520,7 @@ mod tests {
             .with_max_level(tracing::Level::DEBUG)
             .init();
 
-        let mut config_service = ConfigServiceBuilder::default().build().unwrap();
+        let config_service = ConfigServiceBuilder::default().build().unwrap();
 
         let data_id = "test_api_config_service_publish_config_cas".to_string();
         let group = "TEST".to_string();
