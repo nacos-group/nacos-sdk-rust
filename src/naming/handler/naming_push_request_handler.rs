@@ -33,8 +33,29 @@ impl NamingPushRequestHandler {
 
 impl GrpcPayloadHandler for NamingPushRequestHandler {
     fn hand(&self, response_writer: ResponseWriter, payload: Payload) {
+        let request = GrpcMessage::<NotifySubscriberRequest>::from_payload(payload);
+        if let Err(e) = request {
+            error!("convert payload to NotifySubscriberRequest error. {:?}", e);
+            return;
+        }
+
+        let request = request.unwrap();
+
+        let body = request.into_body();
+
+        debug!(
+            "receive NotifySubscriberRequest from nacos server: {:?}",
+            body
+        );
+
+        let request_id = body.request_id;
+        let service_info = body.service_info;
+        let service_info_holder = self.service_info_holder.clone();
+
         executor::spawn(async move {
-            let response = NotifySubscriberResponse::ok();
+            let mut response = NotifySubscriberResponse::ok();
+            response.request_id = request_id;
+
             let grpc_message = GrpcMessageBuilder::new(response).build();
             let payload = grpc_message.into_payload();
             if let Err(e) = payload {
@@ -51,24 +72,6 @@ impl GrpcPayloadHandler for NamingPushRequestHandler {
                 error!("bi_sender send grpc message to server error. {:?}", e);
             }
         });
-        let request = GrpcMessage::<NotifySubscriberRequest>::from_payload(payload);
-        if let Err(e) = request {
-            error!("convert payload to NotifySubscriberRequest error. {:?}", e);
-            return;
-        }
-
-        let request = request.unwrap();
-
-        let body = request.into_body();
-
-        debug!(
-            "receive NotifySubscriberRequest from nacos server: {:?}",
-            body
-        );
-
-        let service_info = body.service_info;
-
-        let service_info_holder = self.service_info_holder.clone();
 
         executor::spawn(async move {
             service_info_holder.process_service_info(service_info).await;
