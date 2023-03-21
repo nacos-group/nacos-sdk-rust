@@ -1,14 +1,14 @@
 use crate::common::event_bus::NacosEvent;
 
 #[derive(Clone, Debug)]
-pub struct GrpcReconnectedEvent {}
+pub(crate) struct DisconnectEvent;
 
-impl NacosEvent for GrpcReconnectedEvent {
+impl NacosEvent for DisconnectEvent {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
 
     fn event_identity(&self) -> String {
-        "GrpcReconnectedEvent".to_string()
+        "DisconnectEvent".to_string()
     }
 }

@@ -10,17 +10,17 @@ use crate::common::{
     },
 };
 
-use crate::common::remote::grpc::events::GrpcConnectHealthCheckEvent;
+use crate::common::remote::grpc::events::ConnectionHealthCheckEvent;
 
-pub(crate) struct GrpcConnectHealthCheckEventSubscriber {
+pub(crate) struct ConnectionHealthCheckEventSubscriber {
     pub nacos_grpc_client: Arc<NacosGrpcClient>,
 }
 
-impl NacosEventSubscriber for GrpcConnectHealthCheckEventSubscriber {
-    type EventType = GrpcConnectHealthCheckEvent;
+impl NacosEventSubscriber for ConnectionHealthCheckEventSubscriber {
+    type EventType = ConnectionHealthCheckEvent;
 
     fn on_event(&self, _: &Self::EventType) {
-        debug!("received grpc connection health check event.");
+        debug!("received connection health check event.");
 
         let nacos_grpc_client = self.nacos_grpc_client.clone();
         executor::spawn(async move {
@@ -32,7 +32,7 @@ impl NacosEventSubscriber for GrpcConnectHealthCheckEventSubscriber {
                 .unary_call_async::<HealthCheckRequest, HealthCheckResponse>(health_check_request)
                 .await;
             if let Err(e) = ret {
-                error!("grpc connection health check failed: {:?}", e);
+                error!("connection health check failed: {:?}", e);
             }
         });
     }

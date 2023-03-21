@@ -69,10 +69,6 @@ impl RedoTaskExecutor {
     pub(crate) async fn add_task(&self, task: Arc<dyn RedoTask>) {
         let mut map = self.map.write().await;
         let task_key = task.task_key();
-        let is_contain = map.contains_key(&task_key);
-        if is_contain {
-            return;
-        }
         map.insert(task_key, task);
     }
 

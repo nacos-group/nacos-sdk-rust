@@ -6,8 +6,10 @@ use grpcio::{CallOption, Channel, ChannelBuilder, ConnectivityState, Environment
 use tracing::{debug, error, info, warn};
 
 use crate::api::error::Result;
-use crate::common::remote::grpc::events::GrpcConnectHealthCheckEvent;
-use crate::common::remote::grpc::events::GrpcReconnectedEvent;
+use crate::common::remote::grpc::events::ReconnectedEvent;
+use crate::common::remote::grpc::events::{
+    ConnectionHealthCheckEvent, DisconnectEvent, ShutdownEvent,
+};
 use crate::{api::error::Error::ClientUnhealthy, api::error::Error::ErrResult, common::event_bus};
 use crate::{api::error::Error::GrpcioJoin, nacos_proto::v2::Payload};
 use crate::{
@@ -32,6 +34,8 @@ impl GrpcClient {
         info!("init grpc client: {}", address);
         let env = Arc::new(Environment::new(1));
         let grpc_channel = ChannelBuilder::new(env)
+            .keepalive_time(Duration::from_secs(30))
+            .keepalive_timeout(Duration::from_secs(10))
             .load_balancing_policy(LbPolicy::PickFirst)
             .use_local_subchannel_pool(true) // same target-addr build multi sub-channel, independent link, not reused.
             .connect(address);
@@ -185,8 +189,7 @@ impl GrpcClient {
                             }
 
                             // send event
-                            let event = GrpcReconnectedEvent {};
-                            event_bus::post(Arc::new(event));
+                            event_bus::post(Arc::new(ReconnectedEvent));
                         }
 
                         grpc_channel
@@ -195,6 +198,8 @@ impl GrpcClient {
                     }
                     ConnectivityState::GRPC_CHANNEL_TRANSIENT_FAILURE => {
                         error!("the current grpc connection state is in transient_failure");
+                        // send event
+                        event_bus::post(Arc::new(DisconnectEvent));
 
                         let ret = client_state.compare_exchange(
                             current_state.state_code(),
@@ -212,7 +217,7 @@ impl GrpcClient {
                     ConnectivityState::GRPC_CHANNEL_IDLE => {
                         debug!("the current grpc connection state is in idle");
                         // health check
-                        event_bus::post(Arc::new(GrpcConnectHealthCheckEvent));
+                        event_bus::post(Arc::new(ConnectionHealthCheckEvent));
 
                         grpc_channel
                             .wait_for_state_change(ConnectivityState::GRPC_CHANNEL_IDLE, deadline)
@@ -228,7 +233,7 @@ impl GrpcClient {
                     }
                 }
             }
-
+            event_bus::post(Arc::new(ShutdownEvent));
             warn!("health_check_task quit!");
         };
         executor::spawn(check_task);
