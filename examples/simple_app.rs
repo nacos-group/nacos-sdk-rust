@@ -9,6 +9,8 @@ use nacos_sdk::api::props::ClientProps;
 use std::time::Duration;
 use tokio::time::sleep;
 
+/// enable https auth run with command:
+/// cargo run --example simple_app --features default,tls
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt()
@@ -20,7 +22,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let client_props = ClientProps::new()
         .server_addr("0.0.0.0:8848")
-        // .scheme("https") // cargo run --example simple_app --features default,tls
         // .remote_grpc_port(9838)
         // Attention! "public" is "", it is recommended to customize the namespace with clear meaning.
         .namespace("")
