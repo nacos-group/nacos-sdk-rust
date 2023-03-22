@@ -5,6 +5,8 @@ use std::collections::HashMap;
 pub struct ClientProps {
     /// server_addr like 127.0.0.1:8848
     pub(crate) server_addr: String,
+    /// grppc port
+    pub(crate) grpc_port: Option<u32>,
     pub(crate) namespace: String,
     /// app_name
     pub(crate) app_name: String,
@@ -49,12 +51,19 @@ impl ClientProps {
             labels: HashMap::default(),
             client_version,
             auth_context: HashMap::default(),
+            grpc_port: None,
         }
     }
 
     /// Sets the server addr.
     pub fn server_addr(mut self, server_addr: impl Into<String>) -> Self {
         self.server_addr = server_addr.into();
+        self
+    }
+
+    /// Sets the grpc port
+    pub fn remote_grpc_port(mut self, grpc_port: u32) -> Self {
+        self.grpc_port = Some(grpc_port);
         self
     }
 

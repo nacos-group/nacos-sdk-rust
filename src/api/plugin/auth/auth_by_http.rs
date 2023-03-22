@@ -57,8 +57,12 @@ impl AuthPlugin for HttpLoginAuthPlugin {
                 .to_string()
         };
 
-        // todo support https
-        let login_url = format!("http://{}/nacos/v1/auth/login", server_addr);
+        let scheme = if cfg!(feature = "tls") {
+            "https"
+        } else {
+            "http"
+        };
+        let login_url = format!("{scheme}://{server_addr}/nacos/v1/auth/login");
 
         tracing::debug!(
             "Http login with username={},password={}",

@@ -69,6 +69,7 @@ impl NacosNamingService {
 
         let nacos_grpc_client = NacosGrpcClientBuilder::new()
             .address(client_props.server_addr.clone())
+            .grpc_port(client_props.grpc_port.clone())
             .namespace(namespace.clone())
             .app_name(client_props.app_name)
             .client_version(client_props.client_version)
