@@ -68,7 +68,7 @@ rand = "0.8.5"
 url="2.3.1"
 
 # now only for feature="auth-by-http"
-reqwest = { version = "0.11", default-features = false, optional = true }
+reqwest = { version = "0.11", default-features = false, features = [], optional = true }
 async-trait = {version = "0.1", optional = true}
 
 
