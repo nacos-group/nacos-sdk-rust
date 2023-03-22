@@ -69,7 +69,7 @@ impl NacosNamingService {
 
         let nacos_grpc_client = NacosGrpcClientBuilder::new()
             .address(client_props.server_addr.clone())
-            .grpc_port(client_props.grpc_port.clone())
+            .grpc_port(client_props.grpc_port)
             .namespace(namespace.clone())
             .app_name(client_props.app_name)
             .client_version(client_props.client_version)
@@ -371,7 +371,9 @@ impl NacosNamingService {
         let chooser = RandomWeightChooser::new(service_name, ret)?;
         let instance = chooser.choose();
         if instance.is_none() {
-            return Err(ErrResult(format!("no available {service_name_for_tip} service instance can be selected")));
+            return Err(ErrResult(format!(
+                "no available {service_name_for_tip} service instance can be selected"
+            )));
         }
         let instance = instance.unwrap();
         Ok(instance)

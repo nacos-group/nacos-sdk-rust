@@ -101,7 +101,9 @@ impl GrpcClient {
         let request_payload = message.into_payload();
         if request_payload.is_err() {
             let error = request_payload.unwrap_err();
-            error!("unary_call_async request grpc message convert to payload occur an error:{error:?}");
+            error!(
+                "unary_call_async request grpc message convert to payload occur an error:{error:?}"
+            );
             return Err(error);
         }
         let request_payload = request_payload.unwrap();
