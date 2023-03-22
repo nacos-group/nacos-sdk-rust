@@ -52,8 +52,6 @@ impl ClientProps {
             client_version,
             auth_context: HashMap::default(),
             grpc_port: None,
-            #[cfg(feature = "tls")]
-            scheme: None,
         }
     }
 
