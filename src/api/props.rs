@@ -7,9 +7,6 @@ pub struct ClientProps {
     pub(crate) server_addr: String,
     /// grppc port
     pub(crate) grpc_port: Option<u32>,
-    // http or https
-    #[cfg(feature = "tls")]
-    pub(crate) scheme: Option<String>,
     pub(crate) namespace: String,
     /// app_name
     pub(crate) app_name: String,
@@ -69,13 +66,6 @@ impl ClientProps {
     /// Sets the grpc port
     pub fn remote_grpc_port(mut self, grpc_port: u32) -> Self {
         self.grpc_port = Some(grpc_port);
-        self
-    }
-
-    /// Sets the scheme
-    #[cfg(feature = "tls")]
-    pub fn scheme(mut self, scheme: &str) -> Self {
-        self.scheme = Some(scheme.to_string());
         self
     }
 
