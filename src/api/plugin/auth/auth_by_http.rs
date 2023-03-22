@@ -58,9 +58,9 @@ impl AuthPlugin for HttpLoginAuthPlugin {
         };
 
         let scheme = if cfg!(feature = "tls") {
-            "http"
-        } else {
             "https"
+        } else {
+            "http"
         };
         let login_url = format!("{scheme}://{server_addr}/nacos/v1/auth/login");
 
