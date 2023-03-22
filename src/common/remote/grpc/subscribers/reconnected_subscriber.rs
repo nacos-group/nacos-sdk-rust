@@ -19,7 +19,7 @@ impl NacosEventSubscriber for ReconnectedEventSubscriber {
     type EventType = ReconnectedEvent;
 
     fn on_event(&self, _: &Self::EventType) {
-        info!("received reconnect event.");
+        info!("received ReconnectedEvent.");
 
         let nacos_grpc_client = self.nacos_grpc_client.clone();
         let set_up_info = self.set_up_info.clone();
@@ -27,7 +27,7 @@ impl NacosEventSubscriber for ReconnectedEventSubscriber {
         executor::spawn(async move {
             let init_ret = nacos_grpc_client.init(set_up_info).await;
             if let Err(e) = init_ret {
-                error!("client reconnect failed, {:?}", e);
+                error!("client reconnect failed, {e:?}");
             }
         });
     }

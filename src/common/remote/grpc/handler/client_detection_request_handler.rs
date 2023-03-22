@@ -19,14 +19,11 @@ pub(crate) struct ClientDetectionRequestHandler;
 
 impl GrpcPayloadHandler for ClientDetectionRequestHandler {
     fn hand(&self, response_writer: ResponseWriter, payload: Payload) {
-        debug!(
-            "ClientDetectionRequestHandler receive a bi payload: {:?}",
-            payload
-        );
+        debug!("ClientDetectionRequestHandler receive a bi payload.");
 
         let request_message = GrpcMessage::<ClientDetectionRequest>::from_payload(payload);
         if let Err(e) = request_message {
-            error!("convert payload to ClientDetectionRequest error. {:?}", e);
+            error!("convert payload to ClientDetectionRequest error. {e:?}");
             return;
         }
 
@@ -40,10 +37,7 @@ impl GrpcPayloadHandler for ClientDetectionRequestHandler {
         let grpc_message = GrpcMessageBuilder::new(response_message).build();
         let payload = grpc_message.into_payload();
         if let Err(e) = payload {
-            error!(
-                "occur an error when handing ClientDetectionRequest. {:?}",
-                e
-            );
+            error!("occur an error when handing ClientDetectionRequest. {e:?}");
             return;
         }
         let payload = payload.unwrap();
@@ -51,10 +45,7 @@ impl GrpcPayloadHandler for ClientDetectionRequestHandler {
         executor::spawn(async move {
             let ret = response_writer.write(payload).await;
             if let Err(e) = ret {
-                error!(
-                    "ClientDetectionRequestHandler write grpc message to server error. {:?}",
-                    e
-                );
+                error!("ClientDetectionRequestHandler write grpc message to server error. {e:?}");
             }
         });
     }

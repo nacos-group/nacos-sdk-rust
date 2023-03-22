@@ -13,10 +13,7 @@ pub(crate) struct RandomWeightChooser {
 impl RandomWeightChooser {
     pub fn new(service_name: String, items: Vec<ServiceInstance>) -> Result<Self> {
         if items.is_empty() {
-            return Err(ErrResult(format!(
-                "no available {} service instance can be selected",
-                service_name
-            )));
+            return Err(ErrResult(format!("no available {service_name} service instance can be selected")));
         }
         let mut init_items: Vec<ServiceInstance> = Vec::with_capacity(items.len());
         let mut origin_weight_sum = 0_f64;
@@ -74,10 +71,7 @@ impl RandomWeightChooser {
             });
         }
 
-        Err(ErrResult(
-            "Cumulative Weight calculate wrong , the sum of probabilities does not equals 1."
-                .to_string(),
-        ))
+        Err(ErrResult("Cumulative Weight calculate wrong , the sum of probabilities does not equals 1.".to_string()))
     }
 }
 

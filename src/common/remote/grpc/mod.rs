@@ -98,7 +98,7 @@ impl NacosGrpcClient {
 
         let bi_channel = self.open_bi_channel().await;
         if let Err(e) = bi_channel {
-            error!("set up error: {:?}", e);
+            error!("set up error: {e:?}");
             return Err(e);
         }
 
@@ -111,14 +111,14 @@ impl NacosGrpcClient {
             debug!("set up grpc connection.");
             let set_up_ret = self.setup(&bi_channel, set_up.clone()).await;
             if let Err(e) = set_up_ret {
-                error!("set up error. {:?}", e);
+                error!("set up error. {e:?}");
                 continue;
             }
 
             // check server
             let check_server_response = self.check_server().await;
             if let Err(e) = check_server_response {
-                error!("check server error. {:?}", e);
+                error!("check server error. {e:?}");
                 continue;
             }
             let check_server_response = check_server_response.unwrap();
@@ -143,7 +143,7 @@ impl NacosGrpcClient {
 
         let connection_id = connection_id.unwrap();
 
-        info!("new connection id: {:?}", connection_id);
+        info!("new connection id: {connection_id}");
 
         {
             let mut self_connection_id = self.connection_id.write().await;

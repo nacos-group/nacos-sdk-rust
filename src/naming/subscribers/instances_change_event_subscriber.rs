@@ -31,7 +31,7 @@ impl InstancesChangeEventSubscriber {
     ) {
         let grouped_name = ServiceInfo::get_grouped_service_name(service_name, group_name);
         let key = ServiceInfo::get_key(&grouped_name, cluster_str);
-        debug!("add instance change listener: {:?}", key);
+        debug!("add instance change listener: {key:?}");
         let mut map = self.listener_map.write().await;
         let listeners = map.get_mut(&key);
         if listeners.is_none() {
@@ -60,7 +60,7 @@ impl InstancesChangeEventSubscriber {
         let grouped_name = ServiceInfo::get_grouped_service_name(service_name, group_name);
         let key = ServiceInfo::get_key(&grouped_name, cluster_str);
 
-        debug!("remove instance change listener: {:?}", key);
+        debug!("remove instance change listener: {key:?}");
 
         let mut map = self.listener_map.write().await;
 
@@ -73,7 +73,7 @@ impl InstancesChangeEventSubscriber {
 
         let index = Self::index_of_listener(listeners, &listener);
         if index.is_none() {
-            debug!("instance change listener {:?} doesn't exist. give up.", key);
+            debug!("instance change listener {key:?} doesn't exist. give up.");
             return;
         }
 
@@ -108,7 +108,7 @@ impl NacosEventSubscriber for InstancesChangeEventSubscriber {
     type EventType = InstancesChangeEvent;
 
     fn on_event(&self, event: &Self::EventType) {
-        debug!("receive instance change event.");
+        debug!("receive InstancesChangeEvent, notify instance change.");
         if self.event_scope != event.event_scope() {
             return;
         }
@@ -124,16 +124,16 @@ impl NacosEventSubscriber for InstancesChangeEventSubscriber {
         };
 
         let naming_event = Arc::new(naming_event);
-        debug!("naming change event: {:?}", naming_event);
+        debug!("naming change event: {naming_event:?}");
         executor::spawn(async move {
             let grouped_name =
                 ServiceInfo::get_grouped_service_name(&service_info.name, &service_info.group_name);
             let key = ServiceInfo::get_key(&grouped_name, &service_info.clusters);
-            debug!("naming change subscriber key: {:?}", key);
+            debug!("naming change subscriber key: {key:?}");
             let map = listener_map.read().await;
             let listeners = map.get(&key);
             if listeners.is_none() {
-                debug!("the key of subscriber unregister. {:?}", key);
+                debug!("the key of subscriber unregister. {key:?}");
                 return;
             }
             let listeners = listeners.unwrap();

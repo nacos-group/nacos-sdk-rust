@@ -64,11 +64,7 @@ impl AuthPlugin for HttpLoginAuthPlugin {
         };
         let login_url = format!("{scheme}://{server_addr}/nacos/v1/auth/login");
 
-        tracing::debug!(
-            "Http login with username={},password={}",
-            username,
-            password
-        );
+        tracing::debug!("Http login with username={username},password={password}");
 
         let future = async {
             let resp = reqwest::Client::new()
@@ -76,7 +72,7 @@ impl AuthPlugin for HttpLoginAuthPlugin {
                 .query(&[(USERNAME, username), (PASSWORD, password)])
                 .send()
                 .await;
-            tracing::debug!("Http login resp={:?}", resp);
+            tracing::debug!("Http login resp={resp:?}");
 
             if resp.is_err() {
                 return None;

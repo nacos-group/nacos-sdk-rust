@@ -19,10 +19,7 @@ impl GrpcPayloadHandler for ConfigChangeNotifyHandler {
 
         let request = GrpcMessage::<ConfigChangeNotifyRequest>::from_payload(payload);
         if let Err(e) = request {
-            tracing::error!(
-                "convert payload to ConfigChangeNotifyRequest error. {:?}",
-                e
-            );
+            tracing::error!("convert payload to ConfigChangeNotifyRequest error. {e:?}");
             return;
         }
         let server_req = request.unwrap().into_body();
@@ -34,12 +31,7 @@ impl GrpcPayloadHandler for ConfigChangeNotifyHandler {
             let req_namespace = server_req.namespace.unwrap_or_default();
             let req_data_id = server_req.data_id.unwrap();
             let req_group = server_req.group.unwrap();
-            tracing::info!(
-                "receive config-change, dataId={},group={},namespace={}",
-                req_data_id,
-                req_group,
-                req_namespace
-            );
+            tracing::info!("receive config-change, dataId={req_data_id},group={req_group},namespace={req_namespace}");
             // notify config change
             let group_key = util::group_key(&req_data_id, &req_group, &req_namespace);
             let _ = notify_change_tx_clone.send(group_key).await;
@@ -51,7 +43,7 @@ impl GrpcPayloadHandler for ConfigChangeNotifyHandler {
 
             let ret = response_writer.write(resp_payload).await;
             if let Err(e) = ret {
-                tracing::error!("bi_sender send grpc message to server error. {}", e);
+                tracing::error!("bi_sender send grpc message to server error. {e:?}");
             }
         });
     }

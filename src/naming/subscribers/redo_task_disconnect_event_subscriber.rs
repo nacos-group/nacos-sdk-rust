@@ -15,7 +15,7 @@ impl NacosEventSubscriber for RedoTaskDisconnectEventSubscriber {
     type EventType = DisconnectEvent;
 
     fn on_event(&self, _: &Self::EventType) {
-        debug!("receive GrpcDisconnectEvent, notify redo task executor.");
+        debug!("receive DisconnectEvent, notify redo task executor.");
         let redo_task_executor = self.redo_task_executor.clone();
         executor::spawn(async move {
             redo_task_executor.on_grpc_client_disconnect().await;
