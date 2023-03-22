@@ -3,9 +3,7 @@ use std::sync::Arc;
 use tracing::debug;
 
 use crate::{
-    common::{
-        event_bus::NacosEventSubscriber, executor, remote::grpc::events::GrpcDisconnectEvent,
-    },
+    common::{event_bus::NacosEventSubscriber, executor, remote::grpc::events::DisconnectEvent},
     naming::redo::RedoTaskExecutor,
 };
 
@@ -14,7 +12,7 @@ pub(crate) struct RedoTaskDisconnectEventSubscriber {
 }
 
 impl NacosEventSubscriber for RedoTaskDisconnectEventSubscriber {
-    type EventType = GrpcDisconnectEvent;
+    type EventType = DisconnectEvent;
 
     fn on_event(&self, _: &Self::EventType) {
         debug!("receive GrpcDisconnectEvent, notify redo task executor.");

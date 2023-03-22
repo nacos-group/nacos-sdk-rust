@@ -1,14 +1,14 @@
 use crate::common::event_bus::NacosEvent;
 
 #[derive(Clone, Debug)]
-pub struct GrpcConnectHealthCheckEvent;
+pub(crate) struct ShutdownEvent;
 
-impl NacosEvent for GrpcConnectHealthCheckEvent {
+impl NacosEvent for ShutdownEvent {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
 
     fn event_identity(&self) -> String {
-        "GrpcConnectHealthCheckEvent".to_string()
+        "ShutdownEvent".to_string()
     }
 }

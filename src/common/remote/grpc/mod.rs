@@ -7,7 +7,7 @@ use tracing::{debug, error, info, warn};
 use crate::common::{
     event_bus, executor,
     remote::grpc::{
-        events::NacosGrpcClientInitComplete,
+        events::ClientInitCompleteEvent,
         handler::default_handler::DefaultHandler,
         message::{
             request::{ConnectionSetupRequest, ServerCheckRequest},
@@ -26,7 +26,7 @@ use self::{
         request::ClientDetectionRequest, response::ServerCheckResponse, GrpcMessageData,
         GrpcRequestMessage, GrpcResponseMessage,
     },
-    subscribers::{GrpcConnectHealthCheckEventSubscriber, GrpcReconnectedEventSubscriber},
+    subscribers::{ConnectionHealthCheckEventSubscriber, ReconnectedEventSubscriber},
 };
 use crate::api::error::Error::ClientUnhealthy;
 use crate::api::error::Result;
@@ -148,7 +148,7 @@ impl NacosGrpcClient {
         sleep(Duration::from_millis(500));
 
         debug!("nacos grpc client init complete.");
-        event_bus::post(Arc::new(NacosGrpcClientInitComplete {}));
+        event_bus::post(Arc::new(ClientInitCompleteEvent));
         Ok(())
     }
 
@@ -503,11 +503,11 @@ impl NacosGrpcClientBuilder {
             let nacos_grpc_client = Arc::new(nacos_grpc_client);
 
             // register event subscriber
-            let reconnect_subscriber = GrpcReconnectedEventSubscriber {
+            let reconnect_subscriber = ReconnectedEventSubscriber {
                 nacos_grpc_client: nacos_grpc_client.clone(),
                 set_up_info: server_set_up.clone(),
             };
-            let health_check_subscriber = GrpcConnectHealthCheckEventSubscriber {
+            let health_check_subscriber = ConnectionHealthCheckEventSubscriber {
                 nacos_grpc_client: nacos_grpc_client.clone(),
             };
 
