@@ -74,8 +74,6 @@ impl AuthPlugin for HttpLoginAuthPlugin {
             format!("{scheme}://{server_addr}/nacos/v1/auth/login",)
         };
 
-        tracing::info!("======>> {login_url}");
-
         tracing::debug!(
             "Http login with username={},password={}",
             username,
