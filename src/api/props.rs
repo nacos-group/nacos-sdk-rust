@@ -67,7 +67,7 @@ impl ClientProps {
     }
 
     /// Sets the grpc port
-    pub fn grpc_port(mut self, grpc_port: u32) -> Self {
+    pub fn remote_grpc_port(mut self, grpc_port: u32) -> Self {
         self.grpc_port = Some(grpc_port);
         self
     }
