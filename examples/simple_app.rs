@@ -20,6 +20,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let client_props = ClientProps::new()
         .server_addr("0.0.0.0:8848")
+        // .scheme("https") // cargo run --example simple_app --features default,tls
+        // .grpc_port(9838)
         // Attention! "public" is "", it is recommended to customize the namespace with clear meaning.
         .namespace("")
         .app_name("simple_app")

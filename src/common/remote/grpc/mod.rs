@@ -49,8 +49,12 @@ pub(crate) struct NacosGrpcClient {
 }
 
 impl NacosGrpcClient {
-    pub(crate) async fn new(address: String, app_name: String) -> Result<Self> {
-        let grpc_client = GrpcClient::new(address.as_str()).await?;
+    pub(crate) async fn new(
+        address: String,
+        app_name: String,
+        grpc_port: Option<u32>,
+    ) -> Result<Self> {
+        let grpc_client = GrpcClient::new(address.as_str(), grpc_port).await?;
         let grpc_client = RwLock::new(grpc_client);
 
         let bi_handler_map = HashMap::new();
@@ -66,6 +70,7 @@ impl NacosGrpcClient {
     pub(crate) async fn switch_server(
         &self,
         server_address: String,
+        grpc_port: Option<u32>,
         set_up: NacosServerSetUP,
     ) -> Result<()> {
         // switch server
@@ -75,7 +80,7 @@ impl NacosGrpcClient {
             old_grpc_client.shutdown().await;
 
             info!("create a new grpc client.");
-            let new_client = GrpcClient::new(server_address.as_str()).await?;
+            let new_client = GrpcClient::new(server_address.as_str(), grpc_port).await?;
             *old_grpc_client = new_client;
         }
         warn!("init new grpc client.");
@@ -375,6 +380,8 @@ impl NacosClientNamingAbility {
 pub(crate) struct NacosGrpcClientBuilder {
     address: String,
 
+    grpc_port: Option<u32>,
+
     labels: HashMap<String, String>,
 
     client_version: String,
@@ -395,6 +402,7 @@ impl NacosGrpcClientBuilder {
 
         NacosGrpcClientBuilder {
             address: crate::api::constants::DEFAULT_SERVER_ADDR.to_string(),
+            grpc_port: None,
             labels,
             abilities,
             client_version: "".to_string(),
@@ -406,6 +414,11 @@ impl NacosGrpcClientBuilder {
 
     pub(crate) fn address(mut self, address: String) -> Self {
         self.address = address;
+        self
+    }
+
+    pub(crate) fn grpc_port(mut self, grpc_port: Option<u32>) -> Self {
+        self.grpc_port = grpc_port;
         self
     }
 
@@ -475,7 +488,8 @@ impl NacosGrpcClientBuilder {
 
     pub(crate) fn build(self) -> Result<Arc<NacosGrpcClient>> {
         futures::executor::block_on(async move {
-            let mut nacos_grpc_client = NacosGrpcClient::new(self.address, self.app_name).await?;
+            let mut nacos_grpc_client =
+                NacosGrpcClient::new(self.address, self.app_name, self.grpc_port).await?;
             let server_set_up = NacosServerSetUP {
                 labels: self.labels,
                 client_version: self.client_version,

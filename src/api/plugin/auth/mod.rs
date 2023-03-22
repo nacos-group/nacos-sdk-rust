@@ -11,6 +11,8 @@ pub trait AuthPlugin: Send + Sync {
     /// Please hold the server_list. If the server changes, this method will be called again.
     fn set_server_list(&self, server_list: Vec<String>);
 
+    fn set_scheme(&self, scheme: &str);
+
     /// Login with [`AuthContext`], Note that this method will be scheduled continuously.
     fn login(&self, auth_context: AuthContext);
 
@@ -65,6 +67,11 @@ pub(crate) struct NoopAuthPlugin {
 impl AuthPlugin for NoopAuthPlugin {
     #[allow(unused_variables)]
     fn set_server_list(&self, server_list: Vec<String>) {
+        // noop
+    }
+
+    #[allow(unused_variables)]
+    fn set_scheme(&self, scheme: &str) {
         // noop
     }
 

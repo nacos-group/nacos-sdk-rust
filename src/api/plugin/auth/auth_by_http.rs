@@ -17,6 +17,7 @@ pub(crate) const TOKEN_TTL: &str = "tokenTtl";
 /// Http login AuthPlugin.
 pub struct HttpLoginAuthPlugin {
     server_list: RwLock<Vec<String>>,
+    scheme: RwLock<Option<String>>,
     login_identity: RwLock<LoginIdentityContext>,
     next_login_refresh: RwLock<Instant>,
 }
@@ -25,6 +26,7 @@ impl Default for HttpLoginAuthPlugin {
     fn default() -> Self {
         Self {
             server_list: RwLock::new(vec![]),
+            scheme: RwLock::new(None),
             login_identity: RwLock::new(LoginIdentityContext::default()),
             next_login_refresh: RwLock::new(Instant::now()),
         }
@@ -35,6 +37,12 @@ impl AuthPlugin for HttpLoginAuthPlugin {
     fn set_server_list(&self, server_list: Vec<String>) {
         if let Ok(mut mutex) = self.server_list.write() {
             *mutex = server_list;
+        }
+    }
+
+    fn set_scheme(&self, scheme: &str) {
+        if let Ok(mut mutex) = self.scheme.write() {
+            *mutex = Some(scheme.to_string())
         }
     }
 
@@ -57,8 +65,16 @@ impl AuthPlugin for HttpLoginAuthPlugin {
                 .to_string()
         };
 
-        // todo support https
-        let login_url = format!("http://{}/nacos/v1/auth/login", server_addr);
+        let login_url = {
+            let mutex = self.scheme.read().unwrap();
+            let scheme = match &*mutex {
+                Some(scheme) => scheme.clone(),
+                None => "http".to_string(),
+            };
+            format!("{scheme}://{server_addr}/nacos/v1/auth/login",)
+        };
+
+        tracing::info!("======>> {login_url}");
 
         tracing::debug!(
             "Http login with username={},password={}",

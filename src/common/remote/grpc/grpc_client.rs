@@ -28,8 +28,8 @@ pub(crate) struct GrpcClient {
 }
 
 impl GrpcClient {
-    pub(crate) async fn new(address: &str) -> Result<Self> {
-        let address = crate::common::remote::into_grpc_server_addr(address, true)?;
+    pub(crate) async fn new(address: &str, grpc_port: Option<u32>) -> Result<Self> {
+        let address = crate::common::remote::into_grpc_server_addr(address, true, grpc_port)?;
         let address = address.as_str();
         info!("init grpc client: {}", address);
         let env = Arc::new(Environment::new(1));
