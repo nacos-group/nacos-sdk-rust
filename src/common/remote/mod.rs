@@ -104,10 +104,28 @@ mod tests {
     }
 
     #[test]
+    fn test_single_host_address_with_grpc_port() {
+        let grpc_port = Some(9838);
+        let addr = "127.0.0.1:8848";
+        let expected = "127.0.0.1:9838";
+        let result = into_grpc_server_addr(addr, false, grpc_port).unwrap();
+        assert_eq!(expected, result);
+    }
+
+    #[test]
     fn test_multiple_ipv4_address() {
         let addr = "127.0.0.1:8848,127.0.0.1:8849,127.0.0.1:8850";
         let expected = "ipv4:127.0.0.1:9848,127.0.0.1:9849,127.0.0.1:9850";
         let result = into_grpc_server_addr(addr, false, None).unwrap();
+        assert_eq!(expected, result);
+    }
+
+    #[test]
+    fn test_multiple_ipv4_address_with_grpc_port() {
+        let grpc_port = Some(9838);
+        let addr = "127.0.0.1:8848,127.0.0.1:8849,127.0.0.1:8850";
+        let expected = "ipv4:127.0.0.1:9838,127.0.0.1:9838,127.0.0.1:9838";
+        let result = into_grpc_server_addr(addr, false, grpc_port).unwrap();
         assert_eq!(expected, result);
     }
 }
