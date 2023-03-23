@@ -7,6 +7,6 @@ pub(crate) struct DefaultHandler;
 
 impl GrpcPayloadHandler for DefaultHandler {
     fn hand(&self, _: ResponseWriter, payload: Payload) {
-        info!("DefaultHandler receive a bi payload: {:?}", payload);
+        info!("DefaultHandler receive a bi payload: {payload:?}");
     }
 }

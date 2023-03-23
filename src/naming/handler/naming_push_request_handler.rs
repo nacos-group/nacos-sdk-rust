@@ -35,7 +35,7 @@ impl GrpcPayloadHandler for NamingPushRequestHandler {
     fn hand(&self, response_writer: ResponseWriter, payload: Payload) {
         let request = GrpcMessage::<NotifySubscriberRequest>::from_payload(payload);
         if let Err(e) = request {
-            error!("convert payload to NotifySubscriberRequest error. {:?}", e);
+            error!("convert payload to NotifySubscriberRequest error. {e:?}");
             return;
         }
 
@@ -43,10 +43,7 @@ impl GrpcPayloadHandler for NamingPushRequestHandler {
 
         let body = request.into_body();
 
-        debug!(
-            "receive NotifySubscriberRequest from nacos server: {:?}",
-            body
-        );
+        debug!("receive NotifySubscriberRequest from nacos server: {body:?}");
 
         let request_id = body.request_id;
         let service_info = body.service_info;
@@ -59,17 +56,14 @@ impl GrpcPayloadHandler for NamingPushRequestHandler {
             let grpc_message = GrpcMessageBuilder::new(response).build();
             let payload = grpc_message.into_payload();
             if let Err(e) = payload {
-                error!(
-                    "occur an error when handing NotifySubscriberRequest. {:?}",
-                    e
-                );
+                error!("occur an error when handing NotifySubscriberRequest. {e:?}");
                 return;
             }
             let payload = payload.unwrap();
 
             let ret = response_writer.write(payload).await;
             if let Err(e) = ret {
-                error!("bi_sender send grpc message to server error. {:?}", e);
+                error!("bi_sender send grpc message to server error. {e:?}");
             }
         });
 
@@ -138,10 +132,7 @@ impl ServiceInfoHolder {
 
         if old_service.is_none() {
             let ip_count = new_service.ip_count();
-            info!(
-                "init new ips({}) service: {} -> {}",
-                ip_count, key, hosts_json
-            );
+            info!("init new ips({ip_count}) service: {key} -> {hosts_json}");
             return true;
         }
 
@@ -246,10 +237,7 @@ impl ServiceInfoHolder {
         match serde_json::to_string::<Vec<T>>(vec) {
             Ok(json) => json,
             Err(e) => {
-                warn!(
-                    "vec to json string error, it will return default value '[]', {:?}",
-                    e
-                );
+                warn!("vec to json string error, it will return default value '[]', {e:?}");
                 "[]".to_string()
             }
         }

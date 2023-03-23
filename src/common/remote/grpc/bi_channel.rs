@@ -35,7 +35,7 @@ impl ResponseWriter {
     pub(crate) async fn write(&self, payload: Payload) -> Result<()> {
         let ret = self.local_message_sender.send(Ok(payload)).await;
         if let Err(e) = ret {
-            warn!("ResponseWriter write message occur an error. {:?}", e);
+            warn!("ResponseWriter write message occur an error. {e:?}");
             return Err(ErrResult(
                 "ResponseWriter write message occur an error".to_string(),
             ));
@@ -46,7 +46,7 @@ impl ResponseWriter {
     pub(crate) fn blocking_write(&self, payload: Payload) -> Result<()> {
         let ret = self.local_message_sender.blocking_send(Ok(payload));
         if let Err(e) = ret {
-            warn!("ResponseWriter write message occur an error. {:?}", e);
+            warn!("ResponseWriter write message occur an error. {e:?}");
             return Err(ErrResult(
                 "ResponseWriter write message occur an error".to_string(),
             ));
@@ -74,7 +74,7 @@ impl BiChannel {
             let local_message_sender = local_message_sender_for_read_server_message_task;
             while let Some(payload) = server_message_receiver.next().await {
                 if let Err(e) = payload {
-                    error!("receive message  occur an error: {:?}, close bi channel", e);
+                    error!("receive message  occur an error: {e:?}, close bi channel");
                     let _ = local_message_sender.send(Err(GrpcioJoin(e))).await;
                     break;
                 }
@@ -98,7 +98,7 @@ impl BiChannel {
         let write_server_message_task = async move {
             while let Some(payload) = local_message_receiver.recv().await {
                 if let Err(e) = payload {
-                    error!("send message occur an error: {:?}, close bi channel", e);
+                    error!("send message occur an error: {e:?}, close bi channel");
                     local_message_receiver.close();
                     let _ = server_message_sender.close().await;
                     break;
@@ -125,7 +125,7 @@ impl BiChannel {
     pub(crate) async fn write(&self, payload: Payload) -> Result<()> {
         let ret = self.local_message_sender.send(Ok(payload)).await;
         if let Err(e) = ret {
-            warn!("send message occur an error. {:?}", e);
+            warn!("send message occur an error. {e:?}");
             return Err(ErrResult("send message occur an error".to_string()));
         }
 
@@ -136,7 +136,7 @@ impl BiChannel {
         let ret = self.local_message_sender.blocking_send(Ok(payload));
 
         if let Err(e) = ret {
-            warn!("send message occur an error. {:?}", e);
+            warn!("send message occur an error. {e:?}");
             return Err(ErrResult("send message occur an error".to_string()));
         }
 
@@ -149,7 +149,7 @@ impl BiChannel {
             .send(Err(ErrResult("close bi channel".to_string())))
             .await;
         if let Err(e) = ret {
-            warn!("close channel occur an error. {:?}", e);
+            warn!("close channel occur an error. {e:?}");
             return Err(ErrResult("close channel occur an error".to_string()));
         }
         Ok(())
@@ -160,7 +160,7 @@ impl BiChannel {
             .local_message_sender
             .blocking_send(Err(ErrResult("close bi channel".to_string())));
         if let Err(e) = ret {
-            warn!("close channel occur an error. {:?}", e);
+            warn!("close channel occur an error. {e:?}");
             return Err(ErrResult("close channel occur an error".to_string()));
         }
         Ok(())

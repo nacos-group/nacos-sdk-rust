@@ -147,13 +147,13 @@ mod tests {
     fn test_spawn_hundred_task() {
         for i in 1..100 {
             let _ = spawn(async move {
-                println!("test_spawn_thousand_task spawn {}", i);
+                println!("test_spawn_thousand_task spawn {i}");
             });
         }
         for j in 1..100 {
             let _ = schedule(
                 async move {
-                    println!("test_spawn_thousand_task schedule {}", j);
+                    println!("test_spawn_thousand_task schedule {j}");
                 },
                 Duration::from_millis(j),
             );

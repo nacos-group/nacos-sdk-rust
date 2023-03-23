@@ -31,7 +31,7 @@ impl GrpcClient {
     pub(crate) async fn new(address: &str, grpc_port: Option<u32>) -> Result<Self> {
         let address = crate::common::remote::into_grpc_server_addr(address, true, grpc_port)?;
         let address = address.as_str();
-        info!("init grpc client: {}", address);
+        info!("init grpc client: {address}");
         let env = Arc::new(Environment::new(1));
         let grpc_channel = ChannelBuilder::new(env)
             .keepalive_time(Duration::from_secs(30))
@@ -79,7 +79,7 @@ impl GrpcClient {
             .request_bi_stream_opt(call_opt);
 
         if let Err(e) = bi_stream {
-            error!("request bi stream occur an error. {:?}", e);
+            error!("request bi stream occur an error. {e:?}");
             return Err(ErrResult("request bi stream occur an error.".to_string()));
         }
 
@@ -102,8 +102,7 @@ impl GrpcClient {
         if request_payload.is_err() {
             let error = request_payload.unwrap_err();
             error!(
-                "unary_call_async request grpc message convert to payload occur an error:{:?}",
-                error
+                "unary_call_async request grpc message convert to payload occur an error:{error:?}"
             );
             return Err(error);
         }
@@ -112,20 +111,14 @@ impl GrpcClient {
         let response_payload = self.request_client.request_async(&request_payload);
 
         if let Err(error) = response_payload {
-            error!(
-                "unary_call_async send grpc messages occur an error. {:?}",
-                error
-            );
+            error!("unary_call_async send grpc messages occur an error. {error:?}");
             return Err(GrpcioJoin(error));
         }
 
         let response_payload = response_payload.unwrap().await;
 
         if let Err(error) = response_payload {
-            error!(
-                "unary_call_async receive grpc messages occur an error. {:?}",
-                error
-            );
+            error!("unary_call_async receive grpc messages occur an error. {error:?}");
             return Err(GrpcioJoin(error));
         }
 
@@ -133,10 +126,7 @@ impl GrpcClient {
 
         let message = GrpcMessage::<P>::from_payload(response_payload);
         if let Err(error) = message {
-            error!(
-                "unary_call_async response grpc message convert to message object occur an error. {:?}",
-                error
-            );
+            error!("unary_call_async response grpc message convert to message object occur an error. {error:?}");
             return Err(error);
         }
         Ok(message.unwrap())
@@ -263,7 +253,7 @@ impl From<i8> for GrpcClientState {
             0 => Self::Healthy,
             1 => Self::Unhealthy,
             2 => Self::Shutdown,
-            _ => panic!("illegal state code, {}", code),
+            _ => panic!("illegal state code={code}"),
         }
     }
 }

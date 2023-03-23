@@ -37,7 +37,7 @@ impl ConfigWorker {
 
         let remote_client = NacosGrpcClientBuilder::new()
             .address(client_props.server_addr.clone())
-            .grpc_port(client_props.grpc_port.clone())
+            .grpc_port(client_props.grpc_port)
             .namespace(client_props.namespace.clone())
             .app_name(client_props.app_name.clone())
             .client_version(client_props.client_version.clone())

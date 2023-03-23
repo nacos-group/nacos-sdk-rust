@@ -112,7 +112,7 @@ impl ServiceInfo {
         }
         let json = serde_json::to_string(self.hosts.as_ref().unwrap());
         if let Err(e) = json {
-            error!("hosts to json failed. {:?}", e);
+            error!("hosts to json failed. {e:?}");
             return "".to_string();
         }
         json.unwrap()

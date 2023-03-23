@@ -14,8 +14,7 @@ impl RandomWeightChooser {
     pub fn new(service_name: String, items: Vec<ServiceInstance>) -> Result<Self> {
         if items.is_empty() {
             return Err(ErrResult(format!(
-                "no available {} service instance can be selected",
-                service_name
+                "no available {service_name} service instance can be selected"
             )));
         }
         let mut init_items: Vec<ServiceInstance> = Vec::with_capacity(items.len());

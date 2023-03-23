@@ -69,7 +69,7 @@ impl NacosNamingService {
 
         let nacos_grpc_client = NacosGrpcClientBuilder::new()
             .address(client_props.server_addr.clone())
-            .grpc_port(client_props.grpc_port.clone())
+            .grpc_port(client_props.grpc_port)
             .namespace(namespace.clone())
             .app_name(client_props.app_name)
             .client_version(client_props.client_version)
@@ -372,8 +372,7 @@ impl NacosNamingService {
         let instance = chooser.choose();
         if instance.is_none() {
             return Err(ErrResult(format!(
-                "no available {} service instance can be selected",
-                service_name_for_tip
+                "no available {service_name_for_tip} service instance can be selected"
             )));
         }
         let instance = instance.unwrap();
@@ -463,7 +462,7 @@ impl NacosNamingService {
             )));
         }
 
-        debug!("subscribe the {:?}", response);
+        debug!("subscribe the {response:?}");
         redo_task.frozen();
 
         Ok(response.service_info)
@@ -511,7 +510,7 @@ impl NacosNamingService {
                 response.message.unwrap_or_default()
             )));
         }
-        debug!("unsubscribe the {:?}", response);
+        debug!("unsubscribe the {response:?}");
         self.redo_task_executor
             .remove_task(redo_task.task_key().as_str())
             .await;
@@ -788,7 +787,7 @@ pub(crate) mod tests {
 
         let ret =
             naming_service.register_instance("test-service".to_string(), None, service_instance);
-        info!("response. {:?}", ret);
+        info!("response. {ret:?}");
 
         let ten_millis = time::Duration::from_secs(100);
         thread::sleep(ten_millis);
@@ -826,7 +825,7 @@ pub(crate) mod tests {
             None,
             service_instance.clone(),
         );
-        info!("response. {:?}", ret);
+        info!("response. {ret:?}");
 
         let ten_millis = time::Duration::from_secs(30);
         thread::sleep(ten_millis);
@@ -836,7 +835,7 @@ pub(crate) mod tests {
             Some(crate::api::constants::DEFAULT_GROUP.to_string()),
             service_instance,
         );
-        info!("response. {:?}", ret);
+        info!("response. {ret:?}");
 
         let ten_millis = time::Duration::from_secs(30);
         thread::sleep(ten_millis);
@@ -890,7 +889,7 @@ pub(crate) mod tests {
             Some(crate::api::constants::DEFAULT_GROUP.to_string()),
             instance_vec,
         );
-        info!("response. {:?}", ret);
+        info!("response. {ret:?}");
 
         let ten_millis = time::Duration::from_secs(300);
         thread::sleep(ten_millis);
@@ -943,7 +942,7 @@ pub(crate) mod tests {
             Some(crate::api::constants::DEFAULT_GROUP.to_string()),
             instance_vec,
         );
-        info!("response. {:?}", ret);
+        info!("response. {ret:?}");
 
         let ten_millis = time::Duration::from_secs(10);
         thread::sleep(ten_millis);
@@ -954,7 +953,7 @@ pub(crate) mod tests {
             Vec::default(),
             false,
         );
-        info!("response. {:?}", all_instances);
+        info!("response. {all_instances:?}");
 
         thread::sleep(ten_millis);
         Ok(())
@@ -1006,7 +1005,7 @@ pub(crate) mod tests {
             Some(crate::api::constants::DEFAULT_GROUP.to_string()),
             instance_vec,
         );
-        info!("response. {:?}", ret);
+        info!("response. {ret:?}");
 
         let ten_millis = time::Duration::from_secs(10);
         thread::sleep(ten_millis);
@@ -1018,7 +1017,7 @@ pub(crate) mod tests {
             false,
             true,
         );
-        info!("response. {:?}", all_instances);
+        info!("response. {all_instances:?}");
 
         thread::sleep(ten_millis);
         Ok(())
@@ -1070,7 +1069,7 @@ pub(crate) mod tests {
             Some(crate::api::constants::DEFAULT_GROUP.to_string()),
             instance_vec,
         );
-        info!("response. {:?}", ret);
+        info!("response. {ret:?}");
 
         let ten_millis = time::Duration::from_secs(10);
         thread::sleep(ten_millis);
@@ -1082,7 +1081,7 @@ pub(crate) mod tests {
                 Vec::default(),
                 false,
             );
-            info!("response. {:?}", all_instances);
+            info!("response. {all_instances:?}");
         }
 
         thread::sleep(ten_millis);
@@ -1135,13 +1134,13 @@ pub(crate) mod tests {
             Some(crate::api::constants::DEFAULT_GROUP.to_string()),
             instance_vec,
         );
-        info!("response. {:?}", ret);
+        info!("response. {ret:?}");
 
         let ten_millis = time::Duration::from_secs(10);
         thread::sleep(ten_millis);
 
         let service_list = naming_service.get_service_list(1, 50, None);
-        info!("response. {:?}", service_list);
+        info!("response. {service_list:?}");
 
         thread::sleep(ten_millis);
         Ok(())
@@ -1152,7 +1151,7 @@ pub(crate) mod tests {
 
     impl NamingEventListener for InstancesChangeEventListener {
         fn event(&self, event: Arc<NamingChangeEvent>) {
-            info!("InstancesChangeEventListener: {:?}", event);
+            info!("InstancesChangeEventListener: {event:?}");
         }
     }
 
@@ -1202,7 +1201,7 @@ pub(crate) mod tests {
             Some(crate::api::constants::DEFAULT_GROUP.to_string()),
             instance_vec,
         );
-        info!("response. {:?}", ret);
+        info!("response. {ret:?}");
 
         let listener = Arc::new(InstancesChangeEventListener);
         let ret = naming_service.subscribe(
@@ -1212,7 +1211,7 @@ pub(crate) mod tests {
             listener,
         );
 
-        info!("response. {:?}", ret);
+        info!("response. {ret:?}");
 
         let ten_millis = time::Duration::from_secs(300);
         thread::sleep(ten_millis);

@@ -20,7 +20,7 @@ impl NacosEventSubscriber for ConnectionHealthCheckEventSubscriber {
     type EventType = ConnectionHealthCheckEvent;
 
     fn on_event(&self, _: &Self::EventType) {
-        debug!("received connection health check event.");
+        debug!("received ConnectionHealthCheckEvent.");
 
         let nacos_grpc_client = self.nacos_grpc_client.clone();
         executor::spawn(async move {
@@ -32,7 +32,7 @@ impl NacosEventSubscriber for ConnectionHealthCheckEventSubscriber {
                 .unary_call_async::<HealthCheckRequest, HealthCheckResponse>(health_check_request)
                 .await;
             if let Err(e) = ret {
-                error!("connection health check failed: {:?}", e);
+                error!("connection health check failed: {e:?}");
             }
         });
     }

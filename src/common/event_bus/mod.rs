@@ -28,7 +28,7 @@ impl<T: NacosEventSubscriber> Subscriber for T {
         let event_identity = event.event_identity();
         let event = event.as_any().downcast_ref::<T::EventType>();
         if event.is_none() {
-            warn!("event {} cannot cast target object", event_identity);
+            warn!("event {event_identity} cannot cast target object");
             return;
         }
         let event = event.unwrap();
@@ -109,7 +109,7 @@ mod __private {
                             });
                         }
                     } else {
-                        warn!("{:?} has not been subscribed by anyone.", key);
+                        warn!("{key:?} has not been subscribed by anyone.");
                     }
                 }
             });
@@ -234,7 +234,7 @@ mod tests {
         type EventType = NamingChangeEvent;
 
         fn on_event(&self, event: &Self::EventType) {
-            println!("it has already received an event. {:?}", event);
+            println!("it has already received an event. {event:?}");
         }
     }
 
