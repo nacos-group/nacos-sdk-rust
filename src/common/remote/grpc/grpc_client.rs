@@ -34,8 +34,6 @@ impl GrpcClient {
         info!("init grpc client: {address}");
         let env = Arc::new(Environment::new(1));
         let grpc_channel = ChannelBuilder::new(env)
-            .keepalive_time(Duration::from_secs(30))
-            .keepalive_timeout(Duration::from_secs(10))
             .load_balancing_policy(LbPolicy::PickFirst)
             .use_local_subchannel_pool(true) // same target-addr build multi sub-channel, independent link, not reused.
             .connect(address);

@@ -38,6 +38,7 @@ use self::redo::RedoTaskExecutor;
 use self::subscribers::InstancesChangeEventSubscriber;
 use self::subscribers::RedoTaskDisconnectEventSubscriber;
 use self::subscribers::RedoTaskReconnectEventSubscriber;
+use self::updater::ServiceInfoUpdater;
 
 mod chooser;
 mod dto;
@@ -46,6 +47,7 @@ mod handler;
 mod message;
 mod redo;
 mod subscribers;
+mod updater;
 
 pub(crate) struct NacosNamingService {
     nacos_grpc_client: Arc<NacosGrpcClient>,
@@ -54,6 +56,7 @@ pub(crate) struct NacosNamingService {
     redo_task_executor: Arc<RedoTaskExecutor>,
     instances_change_event_subscriber: Arc<InstancesChangeEventSubscriber>,
     service_info_holder: Arc<ServiceInfoHolder>,
+    service_info_updater: Arc<ServiceInfoUpdater>,
 }
 
 impl NacosNamingService {
@@ -124,6 +127,14 @@ impl NacosNamingService {
             Arc::new(InstancesChangeEventSubscriber::new(namespace.clone()));
         event_bus::register(instances_change_event_subscriber.clone());
 
+        // create service info updater
+
+        let service_info_updater = Arc::new(ServiceInfoUpdater::new(
+            service_info_holder.clone(),
+            nacos_grpc_client.clone(),
+            namespace.clone(),
+        ));
+
         Ok(NacosNamingService {
             redo_task_executor,
             nacos_grpc_client,
@@ -131,6 +142,7 @@ impl NacosNamingService {
             namespace,
             instances_change_event_subscriber,
             service_info_holder,
+            service_info_updater,
         })
     }
 
@@ -425,6 +437,11 @@ impl NacosNamingService {
             .filter(|data| !data.is_empty())
             .unwrap_or_else(|| crate::api::constants::DEFAULT_GROUP.to_owned());
 
+        // add updater task
+        self.service_info_updater
+            .schedule_update(service_name.clone(), group_name.clone(), clusters.clone())
+            .await;
+
         // add event listener
         if let Some(event_listener) = event_listener {
             self.instances_change_event_subscriber
@@ -479,6 +496,11 @@ impl NacosNamingService {
         let group_name = group_name
             .filter(|data| !data.is_empty())
             .unwrap_or_else(|| crate::api::constants::DEFAULT_GROUP.to_owned());
+
+        // stop updater task
+        self.service_info_updater
+            .stop_update(service_name.clone(), group_name.clone(), clusters.clone())
+            .await;
 
         // remove event listener
         if let Some(event_listener) = event_listener {
