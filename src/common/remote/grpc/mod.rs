@@ -40,6 +40,7 @@ pub(crate) mod subscribers;
 
 type HandlerMap = HashMap<String, Vec<Arc<dyn GrpcPayloadHandler>>>;
 const APP_FILED: &str = "app";
+const DEFAULT_CALL_TIME_OUT: u64 = 3000;
 
 pub(crate) struct NacosGrpcClient {
     grpc_client: RwLock<GrpcClient>,
@@ -104,7 +105,9 @@ impl NacosGrpcClient {
 
         let bi_channel = bi_channel.unwrap();
         while !bi_channel.is_closed() {
-            sleep(Duration::from_millis(retry_count * retry_wait_time));
+            sleep(Duration::from_millis(
+                (retry_wait_time << retry_count).min(1000 * 30),
+            ));
             retry_count += 1;
 
             // set up
@@ -237,7 +240,9 @@ impl NacosGrpcClient {
             .build();
 
         let grpc_client = self.grpc_client.read().await;
-        let ret = grpc_client.unary_call_async::<R, P>(grpc_message).await?;
+        let ret = grpc_client
+            .unary_call_async::<R, P>(grpc_message, Duration::from_millis(DEFAULT_CALL_TIME_OUT))
+            .await?;
         let body = ret.into_body();
         if !body.is_success() {
             let message = body
