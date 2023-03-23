@@ -1,5 +1,26 @@
 # 变更日志 | Change log
 
+### 0.2.4
+
+- 清理无用代码
+- login url 携带账号密码
+- 统一使用变量名占位方式打印日志
+- 支持 https login 认证
+- 支持自定义 grpc 端口
+- 实现 List-Watch 机制 naming 模块
+- 设置默认 grpc 请求超时时间
+- 修复服务端多次推送服务变更信息
+
+---
+
+- Chore: login with url encode username password.
+- Chore: clean code with clippy 
+- Chore: log macro args into string 
+- Feature: add https scheme in feathre for auth and custom grpc port support 
+- Feature: implement List-Watch for naming module 
+- Enhance: set default timeout 
+- Fix: service info push many times from server 
+
 ### 0.2.3
 
 - 提供 async api，可以通过 `features = ["async"]` 来启用
