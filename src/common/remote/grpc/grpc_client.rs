@@ -33,7 +33,10 @@ impl GrpcClient {
         let address = address.as_str();
         info!("init grpc client: {address}");
         let env = Arc::new(Environment::new(1));
+        // TODO grpc keep-alive configuration should be customized by users rather than default values
         let grpc_channel = ChannelBuilder::new(env)
+            .keepalive_time(Duration::from_secs(60 * 6))
+            .keepalive_timeout(Duration::from_secs(20))
             .load_balancing_policy(LbPolicy::PickFirst)
             .use_local_subchannel_pool(true) // same target-addr build multi sub-channel, independent link, not reused.
             .connect(address);
@@ -91,6 +94,7 @@ impl GrpcClient {
     pub(crate) async fn unary_call_async<R, P>(
         &self,
         message: GrpcMessage<R>,
+        time_out: Duration,
     ) -> Result<GrpcMessage<P>>
     where
         R: GrpcMessageData,
@@ -106,7 +110,10 @@ impl GrpcClient {
         }
         let request_payload = request_payload.unwrap();
 
-        let response_payload = self.request_client.request_async(&request_payload);
+        let call_option = CallOption::default().timeout(time_out);
+        let response_payload = self
+            .request_client
+            .request_async_opt(&request_payload, call_option);
 
         if let Err(error) = response_payload {
             error!("unary_call_async send grpc messages occur an error. {error:?}");
@@ -143,7 +150,9 @@ impl GrpcClient {
                 }
 
                 let channel_state = grpc_channel.check_connectivity_state(true);
-                let deadline = Duration::from_secs(5);
+
+                // deadline wait 10 minutes
+                let deadline = Duration::from_secs(60 * 10);
 
                 match channel_state {
                     ConnectivityState::GRPC_CHANNEL_CONNECTING => {
@@ -176,6 +185,7 @@ impl GrpcClient {
                                 break;
                             }
 
+                            debug!("the connection is already reconnect!");
                             // send event
                             event_bus::post(Arc::new(ReconnectedEvent));
                         }
