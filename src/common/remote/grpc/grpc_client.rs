@@ -3,7 +3,7 @@ use std::{sync::Arc, time::Duration};
 
 use grpcio::{CallOption, Channel, ChannelBuilder, ConnectivityState, Environment, LbPolicy};
 
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info, instrument, warn, Instrument};
 
 use crate::api::error::Result;
 use crate::common::remote::grpc::events::ReconnectedEvent;
@@ -25,10 +25,16 @@ pub(crate) struct GrpcClient {
     request_client: RequestClient,
     bi_request_stream_client: BiRequestStreamClient,
     client_state: Arc<AtomicI8>,
+    client_id: String,
 }
 
 impl GrpcClient {
-    pub(crate) async fn new(address: &str, grpc_port: Option<u32>) -> Result<Self> {
+    #[instrument(fields(client_id = client_id), skip_all)]
+    pub(crate) async fn new(
+        address: &str,
+        grpc_port: Option<u32>,
+        client_id: String,
+    ) -> Result<Self> {
         let address = crate::common::remote::into_grpc_server_addr(address, true, grpc_port)?;
         let address = address.as_str();
         info!("init grpc client: {address}");
@@ -56,12 +62,14 @@ impl GrpcClient {
             request_client,
             bi_request_stream_client,
             client_state: Arc::new(AtomicI8::new(GrpcClientState::Healthy.state_code())),
+            client_id,
         };
 
         client.health_check(grpc_channel);
         Ok(client)
     }
 
+    #[instrument(fields(client_id = &self.client_id), skip_all)]
     pub(crate) async fn shutdown(&mut self) {
         self.client_state.store(
             GrpcClientState::Shutdown.into(),
@@ -70,6 +78,7 @@ impl GrpcClient {
         info!("grpc client shutdown.");
     }
 
+    #[instrument(fields(client_id = &self.client_id), skip_all)]
     pub(crate) async fn open_bi_channel<F>(&self, processor: F) -> Result<BiChannel>
     where
         F: Fn(Payload, ResponseWriter) + Send + Sync + 'static,
@@ -86,11 +95,12 @@ impl GrpcClient {
 
         let bi_stream = bi_stream.unwrap();
 
-        let bi_channel = BiChannel::new(bi_stream, Arc::new(processor));
+        let bi_channel = BiChannel::new(bi_stream, Arc::new(processor), self.client_id.clone());
 
         Ok(bi_channel)
     }
 
+    #[instrument(fields(client_id = &self.client_id), skip_all)]
     pub(crate) async fn unary_call_async<R, P>(
         &self,
         message: GrpcMessage<R>,
@@ -101,12 +111,10 @@ impl GrpcClient {
         P: GrpcMessageData,
     {
         let request_payload = message.into_payload();
-        if request_payload.is_err() {
-            let error = request_payload.unwrap_err();
-            error!(
-                "unary_call_async request grpc message convert to payload occur an error:{error:?}"
-            );
-            return Err(error);
+
+        if let Err(e) = request_payload {
+            error!("unary_call_async request grpc message convert to payload occur an error:{e:?}");
+            return Err(e);
         }
         let request_payload = request_payload.unwrap();
 
@@ -137,7 +145,9 @@ impl GrpcClient {
         Ok(message.unwrap())
     }
 
+    #[instrument(parent = None , fields(client_id = &self.client_id), skip_all)]
     fn health_check(&self, grpc_channel: Channel) {
+        let client_id = self.client_id.clone();
         let client_state = self.client_state.clone();
         let check_task = async move {
             loop {
@@ -187,7 +197,9 @@ impl GrpcClient {
 
                             debug!("the connection is already reconnect!");
                             // send event
-                            event_bus::post(Arc::new(ReconnectedEvent));
+                            event_bus::post(Arc::new(ReconnectedEvent {
+                                scope: client_id.clone()
+                            }));
                         }
 
                         grpc_channel
@@ -197,7 +209,9 @@ impl GrpcClient {
                     ConnectivityState::GRPC_CHANNEL_TRANSIENT_FAILURE => {
                         error!("the current grpc connection state is in transient_failure");
                         // send event
-                        event_bus::post(Arc::new(DisconnectEvent));
+                        event_bus::post(Arc::new(DisconnectEvent {
+                            scope: client_id.clone()
+                        }));
 
                         let ret = client_state.compare_exchange(
                             current_state.state_code(),
@@ -215,7 +229,9 @@ impl GrpcClient {
                     ConnectivityState::GRPC_CHANNEL_IDLE => {
                         debug!("the current grpc connection state is in idle");
                         // health check
-                        event_bus::post(Arc::new(ConnectionHealthCheckEvent));
+                        event_bus::post(Arc::new(ConnectionHealthCheckEvent {
+                            scope: client_id.clone()
+                        }));
 
                         grpc_channel
                             .wait_for_state_change(ConnectivityState::GRPC_CHANNEL_IDLE, deadline)
@@ -231,9 +247,11 @@ impl GrpcClient {
                     }
                 }
             }
-            event_bus::post(Arc::new(ShutdownEvent));
+            event_bus::post(Arc::new(ShutdownEvent {
+                scope: client_id.clone()
+            }));
             warn!("health_check_task quit!");
-        };
+        }.in_current_span();
         executor::spawn(check_task);
     }
 }

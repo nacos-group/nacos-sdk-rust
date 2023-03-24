@@ -7,10 +7,11 @@ use crate::{
 use futures::{SinkExt, StreamExt};
 use grpcio::{ClientDuplexReceiver, StreamingCallSink, WriteFlags};
 use tokio::sync::mpsc::{self, Sender};
-use tracing::{error, warn};
+use tracing::{debug_span, error, instrument, warn, Instrument};
 
 pub(crate) struct BiChannel {
     local_message_sender: Sender<Result<Payload>>,
+    client_id: String,
 }
 
 pub(crate) struct ResponseWriter {
@@ -60,10 +61,13 @@ impl BiChannel {
     pub(crate) fn new<F>(
         bi_stream: (StreamingCallSink<Payload>, ClientDuplexReceiver<Payload>),
         processor: Arc<F>,
+        client_id: String,
     ) -> Self
     where
         F: Fn(Payload, ResponseWriter) + Send + Sync + 'static,
     {
+        let _bi_channel_span = debug_span!(parent: None, "bi_channel", client_id).entered();
+
         let (local_message_sender, mut local_message_receiver) =
             mpsc::channel::<Result<Payload>>(1024);
 
@@ -86,14 +90,15 @@ impl BiChannel {
                 let processor_task = async move {
                     processor(payload, response_writer);
                 };
-                executor::spawn(processor_task);
+                executor::spawn(processor_task.in_current_span());
             }
 
             error!("read server message task quit.");
             let _ = local_message_sender
                 .send(Err(ErrResult("read server message quit".to_string())))
                 .await;
-        };
+        }
+        .in_current_span();
 
         let write_server_message_task = async move {
             while let Some(payload) = local_message_receiver.recv().await {
@@ -112,16 +117,19 @@ impl BiChannel {
 
             error!("write server message task quit.");
             let _ = server_message_sender.close().await;
-        };
+        }
+        .in_current_span();
 
         executor::spawn(read_server_message_task);
         executor::spawn(write_server_message_task);
 
         Self {
             local_message_sender,
+            client_id,
         }
     }
 
+    #[instrument(fields(client_id = &self.client_id), skip_all)]
     pub(crate) async fn write(&self, payload: Payload) -> Result<()> {
         let ret = self.local_message_sender.send(Ok(payload)).await;
         if let Err(e) = ret {
@@ -132,6 +140,7 @@ impl BiChannel {
         Ok(())
     }
 
+    #[instrument(fields(client_id = &self.client_id), skip_all)]
     pub(crate) fn blocking_write(&self, payload: Payload) -> Result<()> {
         let ret = self.local_message_sender.blocking_send(Ok(payload));
 
@@ -143,6 +152,7 @@ impl BiChannel {
         Ok(())
     }
 
+    #[instrument(fields(client_id = &self.client_id), skip_all)]
     pub(crate) async fn close(&self) -> Result<()> {
         let ret = self
             .local_message_sender
@@ -155,6 +165,7 @@ impl BiChannel {
         Ok(())
     }
 
+    #[instrument(fields(client_id = &self.client_id), skip_all)]
     pub(crate) fn blocking_close(&self) -> Result<()> {
         let ret = self
             .local_message_sender
@@ -166,10 +177,12 @@ impl BiChannel {
         Ok(())
     }
 
+    #[instrument(fields(client_id = &self.client_id), skip_all)]
     pub(crate) fn is_closed(&self) -> bool {
         self.local_message_sender.is_closed()
     }
 
+    #[instrument(fields(client_id = &self.client_id), skip_all)]
     pub(crate) async fn closed(&self) {
         self.local_message_sender.closed().await
     }

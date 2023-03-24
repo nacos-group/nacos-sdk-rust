@@ -7,14 +7,22 @@ use crate::config::message::response::ConfigChangeNotifyResponse;
 use crate::config::util;
 use crate::nacos_proto::v2::Payload;
 use tokio::sync::mpsc::Sender;
+use tracing::{debug_span, Instrument};
 
 /// Handler for ConfigChangeNotify
 pub(crate) struct ConfigChangeNotifyHandler {
     pub(crate) notify_change_tx: Sender<String>,
+    pub(crate) client_id: String,
 }
 
 impl GrpcPayloadHandler for ConfigChangeNotifyHandler {
     fn hand(&self, response_writer: ResponseWriter, payload: Payload) {
+        let _config_change_notify_dandler_span = debug_span!(
+            parent: None,
+            "config_change_notify_dandler",
+            client_id = &self.client_id
+        );
+
         tracing::debug!("[ConfigChangeNotifyHandler] receive config-change, handle start.");
 
         let request = GrpcMessage::<ConfigChangeNotifyRequest>::from_payload(payload);
@@ -45,6 +53,6 @@ impl GrpcPayloadHandler for ConfigChangeNotifyHandler {
             if let Err(e) = ret {
                 tracing::error!("bi_sender send grpc message to server error. {e:?}");
             }
-        });
+        }.in_current_span());
     }
 }

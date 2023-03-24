@@ -1,3 +1,4 @@
+use crate::api::error::Result;
 use futures::Future;
 use lazy_static::lazy_static;
 use tokio::{
@@ -5,11 +6,11 @@ use tokio::{
     task::JoinHandle,
     time::{interval, sleep, Duration},
 };
+use tracing::{error, Instrument};
 
 lazy_static! {
     static ref RT: Runtime = Builder::new_multi_thread()
         .enable_all()
-        // .worker_threads(available_parallelism().unwrap().get() * 2 + 1) // default is num_cpus
         .thread_name("nacos-client-thread-pool")
         .build()
         .unwrap();
@@ -36,46 +37,44 @@ where
 }
 
 #[allow(dead_code)]
-pub(crate) fn schedule_at_fixed_rate<Fut>(
-    func: impl Fn() -> Option<Fut> + Send + 'static,
+pub(crate) fn schedule_at_fixed_rate(
+    task: impl Fn() -> Result<()> + Send + Sync + 'static,
     duration: Duration,
-) -> JoinHandle<()>
-where
-    Fut: Future<Output = ()> + Send + 'static,
-{
-    RT.spawn(async move {
-        loop {
-            let future = func();
-            if future.is_none() {
-                break;
+) -> JoinHandle<()> {
+    RT.spawn(
+        async move {
+            loop {
+                let ret = async { task() }.await;
+                if let Err(e) = ret {
+                    error!("schedule_at_fixed_rate occur an error: {e}");
+                    break;
+                }
+                sleep(duration).await;
             }
-            let future = future.unwrap();
-            future.await;
-            sleep(duration).await;
         }
-    })
+        .in_current_span(),
+    )
 }
 
 #[allow(dead_code)]
-pub(crate) fn schedule_at_fixed_delay<Fut>(
-    func: impl Fn() -> Option<Fut> + Send + 'static,
+pub(crate) fn schedule_at_fixed_delay(
+    task: impl Fn() -> Result<()> + Send + Sync + 'static,
     duration: Duration,
-) -> JoinHandle<()>
-where
-    Fut: Future + Send + 'static,
-{
-    RT.spawn(async move {
-        let mut interval = interval(duration);
-        loop {
-            interval.tick().await;
-            let future = func();
-            if future.is_none() {
-                break;
+) -> JoinHandle<()> {
+    RT.spawn(
+        async move {
+            let mut interval = interval(duration);
+            loop {
+                interval.tick().await;
+                let ret = async { task() }.await;
+                if let Err(e) = ret {
+                    error!("schedule_at_fixed_delay occur an error: {e}");
+                    break;
+                }
             }
-            let future = future.unwrap();
-            future.await;
         }
-    })
+        .in_current_span(),
+    )
 }
 
 #[cfg(test)]
@@ -113,9 +112,8 @@ mod tests {
     fn test_schedule_at_fixed_delay() {
         let handler = schedule_at_fixed_delay(
             || {
-                Some(async move {
-                    println!("test schedule at fixed delay");
-                })
+                println!("test schedule at fixed delay");
+                Ok(())
             },
             tokio::time::Duration::from_secs(1),
         );
@@ -130,9 +128,8 @@ mod tests {
     fn test_schedule_at_fixed_rate() {
         let handler = schedule_at_fixed_rate(
             || {
-                Some(async move {
-                    println!("test schedule at fixed rate");
-                })
+                println!("test schedule at fixed rate");
+                Ok(())
             },
             tokio::time::Duration::from_secs(1),
         );

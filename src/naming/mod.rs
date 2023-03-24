@@ -1,6 +1,10 @@
+use std::sync::atomic::AtomicU64;
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
 use tracing::debug;
+use tracing::debug_span;
+use tracing::instrument;
 
 use crate::api::error::Error::ErrResult;
 use crate::api::error::Result;
@@ -57,10 +61,28 @@ pub(crate) struct NacosNamingService {
     instances_change_event_subscriber: Arc<InstancesChangeEventSubscriber>,
     service_info_holder: Arc<ServiceInfoHolder>,
     service_info_updater: Arc<ServiceInfoUpdater>,
+    client_id: String,
+}
+
+const MODULE_NAME: &str = "naming";
+static SEQ: AtomicU64 = AtomicU64::new(1);
+
+fn generate_client_id(server_addr: &str, namespace: &str) -> String {
+    // module_name + server_addr + namespace + [seq]
+    let client_id = format!(
+        "{MODULE_NAME}:{server_addr}:{namespace}:{}",
+        SEQ.fetch_add(1, Ordering::SeqCst)
+    );
+    client_id
 }
 
 impl NacosNamingService {
     pub(crate) fn new(client_props: ClientProps, auth_plugin: Arc<dyn AuthPlugin>) -> Result<Self> {
+        let client_id = generate_client_id(&client_props.server_addr, &client_props.namespace);
+
+        // create span
+        let _naming_init_span = debug_span!("naming_init", client_id).entered();
+
         let server_list = Arc::new(client_props.get_server_list()?);
 
         let mut namespace = client_props.namespace;
@@ -68,9 +90,9 @@ impl NacosNamingService {
             namespace = crate::api::constants::DEFAULT_NAMESPACE.to_owned();
         }
 
-        let service_info_holder = Arc::new(ServiceInfoHolder::new(namespace.clone()));
+        let service_info_holder = Arc::new(ServiceInfoHolder::new(client_id.clone()));
 
-        let nacos_grpc_client = NacosGrpcClientBuilder::new()
+        let nacos_grpc_client = NacosGrpcClientBuilder::new(client_id.clone())
             .address(client_props.server_addr.clone())
             .grpc_port(client_props.grpc_port)
             .namespace(namespace.clone())
@@ -90,7 +112,7 @@ impl NacosNamingService {
             )
             .add_labels(client_props.labels)
             .register_bi_call_handler::<NotifySubscriberRequest>(Arc::new(
-                NamingPushRequestHandler::new(service_info_holder.clone()),
+                NamingPushRequestHandler::new(service_info_holder.clone(), client_id.clone()),
             ))
             .build()?;
 
@@ -98,33 +120,38 @@ impl NacosNamingService {
         let auth_context = Arc::new(AuthContext::default().add_params(client_props.auth_context));
         plugin.set_server_list(server_list.to_vec());
         plugin.login((*auth_context).clone());
-        crate::common::executor::schedule_at_fixed_delay(
-            move || {
-                plugin.set_server_list(server_list.to_vec());
-                plugin.login((*auth_context).clone());
-                Some(async {
+
+        debug_span!("naming_auth_task", client_id).in_scope(|| {
+            crate::common::executor::schedule_at_fixed_delay(
+                move || {
+                    plugin.set_server_list(server_list.to_vec());
+                    plugin.login((*auth_context).clone());
                     tracing::debug!("auth_plugin schedule at fixed delay");
-                })
-            },
-            tokio::time::Duration::from_secs(30),
-        );
+                    Ok(())
+                },
+                tokio::time::Duration::from_secs(30),
+            );
+        });
 
         let redo_task_executor = Arc::new(RedoTaskExecutor::new(
             nacos_grpc_client.clone(),
             auth_plugin.clone(),
+            client_id.clone(),
         ));
         // redo grpc event subscriber
         event_bus::register(Arc::new(RedoTaskDisconnectEventSubscriber {
             redo_task_executor: redo_task_executor.clone(),
+            scope: client_id.clone(),
         }));
 
         event_bus::register(Arc::new(RedoTaskReconnectEventSubscriber {
             redo_task_executor: redo_task_executor.clone(),
+            scope: client_id.clone(),
         }));
 
         // instance change event subscriber
         let instances_change_event_subscriber =
-            Arc::new(InstancesChangeEventSubscriber::new(namespace.clone()));
+            Arc::new(InstancesChangeEventSubscriber::new(client_id.clone()));
         event_bus::register(instances_change_event_subscriber.clone());
 
         // create service info updater
@@ -133,6 +160,7 @@ impl NacosNamingService {
             service_info_holder.clone(),
             nacos_grpc_client.clone(),
             namespace.clone(),
+            client_id.clone(),
         ));
 
         Ok(NacosNamingService {
@@ -143,6 +171,7 @@ impl NacosNamingService {
             instances_change_event_subscriber,
             service_info_holder,
             service_info_updater,
+            client_id,
         })
     }
 
@@ -542,6 +571,7 @@ impl NacosNamingService {
 
 #[cfg(not(feature = "async"))]
 impl NamingService for NacosNamingService {
+    #[instrument(fields(client_id = &self.client_id), skip_all)]
     fn register_service(
         &self,
         service_name: String,
@@ -552,6 +582,7 @@ impl NamingService for NacosNamingService {
         futures::executor::block_on(future)
     }
 
+    #[instrument(fields(client_id = &self.client_id), skip_all)]
     fn deregister_instance(
         &self,
         service_name: String,
@@ -562,6 +593,7 @@ impl NamingService for NacosNamingService {
         futures::executor::block_on(future)
     }
 
+    #[instrument(  fields(client_id = &self.client_id), skip_all)]
     fn batch_register_instance(
         &self,
         service_name: String,
@@ -573,6 +605,7 @@ impl NamingService for NacosNamingService {
         futures::executor::block_on(future)
     }
 
+    #[instrument( fields(client_id = &self.client_id), skip_all)]
     fn get_all_instances(
         &self,
         service_name: String,
@@ -584,6 +617,7 @@ impl NamingService for NacosNamingService {
         futures::executor::block_on(future)
     }
 
+    #[instrument( fields(client_id = &self.client_id), skip_all)]
     fn select_instance(
         &self,
         service_name: String,
@@ -597,6 +631,7 @@ impl NamingService for NacosNamingService {
         futures::executor::block_on(future)
     }
 
+    #[instrument( fields(client_id = &self.client_id), skip_all)]
     fn select_one_healthy_instance(
         &self,
         service_name: String,
@@ -609,6 +644,7 @@ impl NamingService for NacosNamingService {
         futures::executor::block_on(future)
     }
 
+    #[instrument( fields(client_id = &self.client_id), skip_all)]
     fn get_service_list(
         &self,
         page_no: i32,
@@ -619,6 +655,7 @@ impl NamingService for NacosNamingService {
         futures::executor::block_on(future)
     }
 
+    #[instrument( fields(client_id = &self.client_id), skip_all)]
     fn subscribe(
         &self,
         service_name: String,
@@ -631,6 +668,7 @@ impl NamingService for NacosNamingService {
         Ok(())
     }
 
+    #[instrument( fields(client_id = &self.client_id), skip_all)]
     fn unsubscribe(
         &self,
         service_name: String,
@@ -643,6 +681,7 @@ impl NamingService for NacosNamingService {
         futures::executor::block_on(future)
     }
 
+    #[instrument( fields(client_id = &self.client_id), skip_all)]
     fn register_instance(
         &self,
         service_name: String,
@@ -653,6 +692,7 @@ impl NamingService for NacosNamingService {
         futures::executor::block_on(future)
     }
 
+    #[instrument( fields(client_id = &self.client_id), skip_all)]
     fn select_instances(
         &self,
         service_name: String,
@@ -670,6 +710,7 @@ impl NamingService for NacosNamingService {
 #[cfg(feature = "async")]
 #[async_trait::async_trait]
 impl NamingService for NacosNamingService {
+    #[instrument( fields(client_id = &self.client_id), skip_all)]
     async fn deregister_instance(
         &self,
         service_name: String,
@@ -680,6 +721,7 @@ impl NamingService for NacosNamingService {
             .await
     }
 
+    #[instrument( fields(client_id = &self.client_id), skip_all)]
     async fn batch_register_instance(
         &self,
         service_name: String,
@@ -690,6 +732,7 @@ impl NamingService for NacosNamingService {
             .await
     }
 
+    #[instrument( fields(client_id = &self.client_id), skip_all)]
     async fn get_all_instances(
         &self,
         service_name: String,
@@ -701,6 +744,7 @@ impl NamingService for NacosNamingService {
             .await
     }
 
+    #[instrument( fields(client_id = &self.client_id), skip_all)]
     async fn select_one_healthy_instance(
         &self,
         service_name: String,
@@ -712,6 +756,7 @@ impl NamingService for NacosNamingService {
             .await
     }
 
+    #[instrument( fields(client_id = &self.client_id), skip_all)]
     async fn get_service_list(
         &self,
         page_no: i32,
@@ -722,6 +767,7 @@ impl NamingService for NacosNamingService {
             .await
     }
 
+    #[instrument( fields(client_id = &self.client_id), skip_all)]
     async fn subscribe(
         &self,
         service_name: String,
@@ -735,6 +781,7 @@ impl NamingService for NacosNamingService {
         Ok(())
     }
 
+    #[instrument( fields(client_id = &self.client_id), skip_all)]
     async fn unsubscribe(
         &self,
         service_name: String,
@@ -746,6 +793,7 @@ impl NamingService for NacosNamingService {
             .await
     }
 
+    #[instrument( fields(client_id = &self.client_id), skip_all)]
     async fn register_instance(
         &self,
         service_name: String,
@@ -756,6 +804,7 @@ impl NamingService for NacosNamingService {
             .await
     }
 
+    #[instrument( fields(client_id = &self.client_id), skip_all)]
     async fn select_instances(
         &self,
         service_name: String,

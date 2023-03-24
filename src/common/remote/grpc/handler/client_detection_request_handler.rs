@@ -11,14 +11,23 @@ use crate::{
     },
     nacos_proto::v2::Payload,
 };
-use tracing::{debug, error};
+use tracing::{debug, debug_span, error, Instrument};
 
 use super::GrpcPayloadHandler;
 
-pub(crate) struct ClientDetectionRequestHandler;
+pub(crate) struct ClientDetectionRequestHandler {
+    pub(crate) client_id: String,
+}
 
 impl GrpcPayloadHandler for ClientDetectionRequestHandler {
     fn hand(&self, response_writer: ResponseWriter, payload: Payload) {
+        let _client_detection_request_handler_span = debug_span!(
+            parent: None,
+            "client_detection_request_handler",
+            client_id = self.client_id
+        )
+        .entered();
+
         let request_message = GrpcMessage::<ClientDetectionRequest>::from_payload(payload);
         if let Err(e) = request_message {
             error!("convert payload to ClientDetectionRequest error. {e:?}");
@@ -41,12 +50,17 @@ impl GrpcPayloadHandler for ClientDetectionRequestHandler {
         }
         let payload = payload.unwrap();
 
-        executor::spawn(async move {
-            let ret = response_writer.write(payload).await;
-            if let Err(e) = ret {
-                error!("ClientDetectionRequestHandler write grpc message to server error. {e:?}");
+        executor::spawn(
+            async move {
+                let ret = response_writer.write(payload).await;
+                if let Err(e) = ret {
+                    error!(
+                        "ClientDetectionRequestHandler write grpc message to server error. {e:?}"
+                    );
+                }
             }
-        });
+            .in_current_span(),
+        );
     }
 }
 
@@ -70,7 +84,9 @@ mod tests {
     pub fn test_payload_convert_error() {
         setup();
 
-        let target_handler = ClientDetectionRequestHandler;
+        let target_handler = ClientDetectionRequestHandler {
+            client_id: "test".to_string(),
+        };
 
         let (sender, mut receiver) =
             tokio::sync::mpsc::channel::<crate::api::error::Result<Payload>>(1024);
