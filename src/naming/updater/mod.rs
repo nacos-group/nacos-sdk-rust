@@ -8,7 +8,7 @@ use std::{
 };
 
 use tokio::{sync::Mutex, time::sleep};
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, instrument, Instrument};
 
 use crate::common::{
     executor,
@@ -29,6 +29,7 @@ pub(crate) struct ServiceInfoUpdater {
     nacos_grpc_client: Arc<NacosGrpcClient>,
     namespace: String,
     task_map: Mutex<HashMap<String, ServiceInfoUpdateTask>>,
+    client_id: String,
 }
 
 impl ServiceInfoUpdater {
@@ -36,15 +37,18 @@ impl ServiceInfoUpdater {
         service_info_holder: Arc<ServiceInfoHolder>,
         nacos_grpc_client: Arc<NacosGrpcClient>,
         namespace: String,
+        client_id: String,
     ) -> Self {
         Self {
             service_info_holder,
             nacos_grpc_client,
             namespace,
             task_map: Mutex::new(HashMap::default()),
+            client_id,
         }
     }
 
+    #[instrument(fields(client_id = &self.client_id), skip_all)]
     pub(crate) async fn schedule_update(
         &self,
         service_name: String,
@@ -65,10 +69,12 @@ impl ServiceInfoUpdater {
                 self.nacos_grpc_client.clone(),
             );
             update_task.start();
+
             let _ = lock.insert(task_key, update_task);
         }
     }
 
+    #[instrument(fields(client_id = &self.client_id), skip_all)]
     pub(crate) async fn stop_update(
         &self,
         service_name: String,
@@ -241,7 +247,7 @@ impl ServiceInfoUpdateTask {
             }
 
             info!("{log_tag}:ServiceInfoUpdateTask is stopped");
-        });
+        }.in_current_span());
     }
 
     fn stop(&self) {

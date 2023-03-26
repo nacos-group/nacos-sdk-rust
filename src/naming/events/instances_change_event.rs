@@ -6,20 +6,20 @@ use crate::naming::dto::ServiceInfo;
 
 #[derive(Clone, Debug)]
 pub struct InstancesChangeEvent {
-    event_scope: String,
+    scope: String,
     service_info: Arc<ServiceInfo>,
 }
 
 impl InstancesChangeEvent {
-    pub fn new(event_scope: String, service_info: Arc<ServiceInfo>) -> Self {
+    pub fn new(scope: String, service_info: Arc<ServiceInfo>) -> Self {
         Self {
-            event_scope,
+            scope,
             service_info,
         }
     }
 
-    pub fn event_scope(&self) -> &str {
-        &self.event_scope
+    pub fn scope(&self) -> &str {
+        &self.scope
     }
 
     pub fn service_name(&self) -> &str {
@@ -48,7 +48,11 @@ impl NacosEvent for InstancesChangeEvent {
         self
     }
 
-    fn event_identity(&self) -> String {
-        "InstancesChangeEvent".to_string()
+    fn event_identity(&self) -> &str {
+        "InstancesChangeEvent"
+    }
+
+    fn scope(&self) -> &str {
+        &self.scope
     }
 }

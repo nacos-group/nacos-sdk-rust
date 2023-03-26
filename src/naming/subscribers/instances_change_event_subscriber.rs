@@ -1,7 +1,7 @@
 use std::{collections::HashMap, sync::Arc};
 
 use tokio::sync::RwLock;
-use tracing::debug;
+use tracing::{debug, debug_span, Instrument};
 
 use crate::api::naming::{NamingChangeEvent, NamingEventListener};
 use crate::common::{event_bus::NacosEventSubscriber, executor};
@@ -11,14 +11,14 @@ use crate::naming::events::InstancesChangeEvent;
 type ListenerMap = Arc<RwLock<HashMap<String, Vec<Arc<dyn NamingEventListener>>>>>;
 pub(crate) struct InstancesChangeEventSubscriber {
     listener_map: ListenerMap,
-    event_scope: String,
+    scope: String,
 }
 
 impl InstancesChangeEventSubscriber {
-    pub(crate) fn new(event_scope: String) -> Self {
+    pub(crate) fn new(scope: String) -> Self {
         Self {
             listener_map: Arc::new(RwLock::new(HashMap::new())),
-            event_scope,
+            scope,
         }
     }
 
@@ -108,10 +108,14 @@ impl NacosEventSubscriber for InstancesChangeEventSubscriber {
     type EventType = InstancesChangeEvent;
 
     fn on_event(&self, event: &Self::EventType) {
+        let _instances_change_event_subscriber_span = debug_span!(
+            parent: None,
+            "instances_change_event_subscriber",
+            client_id = self.scope
+        )
+        .entered();
+
         debug!("receive InstancesChangeEvent, notify instance change.");
-        if self.event_scope != event.event_scope() {
-            return;
-        }
 
         let service_info = event.service_info();
         let listener_map = self.listener_map.clone();
@@ -125,26 +129,35 @@ impl NacosEventSubscriber for InstancesChangeEventSubscriber {
 
         let naming_event = Arc::new(naming_event);
         debug!("naming change event: {naming_event:?}");
-        executor::spawn(async move {
-            let grouped_name =
-                ServiceInfo::get_grouped_service_name(&service_info.name, &service_info.group_name);
-            let key = ServiceInfo::get_key(&grouped_name, &service_info.clusters);
-            debug!("naming change subscriber key: {key:?}");
-            let map = listener_map.read().await;
-            let listeners = map.get(&key);
-            if listeners.is_none() {
-                debug!("the key of subscriber unregister. {key:?}");
-                return;
+        executor::spawn(
+            async move {
+                let grouped_name = ServiceInfo::get_grouped_service_name(
+                    &service_info.name,
+                    &service_info.group_name,
+                );
+                let key = ServiceInfo::get_key(&grouped_name, &service_info.clusters);
+                debug!("naming change subscriber key: {key:?}");
+                let map = listener_map.read().await;
+                let listeners = map.get(&key);
+                if listeners.is_none() {
+                    debug!("the key of subscriber unregister. {key:?}");
+                    return;
+                }
+                let listeners = listeners.unwrap();
+                if !listeners.is_empty() {
+                    debug!("notify nacos service instance subscriber.");
+                }
+                for listener in listeners {
+                    let naming_event = naming_event.clone();
+                    let listener = listener.clone();
+                    executor::spawn(async move { listener.event(naming_event) });
+                }
             }
-            let listeners = listeners.unwrap();
-            if !listeners.is_empty() {
-                debug!("notify nacos service instance subscriber.");
-            }
-            for listener in listeners {
-                let naming_event = naming_event.clone();
-                let listener = listener.clone();
-                executor::spawn(async move { listener.event(naming_event) });
-            }
-        });
+            .in_current_span(),
+        );
+    }
+
+    fn scope(&self) -> &str {
+        &self.scope
     }
 }

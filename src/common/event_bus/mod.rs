@@ -12,7 +12,9 @@ pub(crate) trait NacosEvent: Any + Send + Sync + 'static {
 
     fn as_any(&self) -> &dyn Any;
 
-    fn event_identity(&self) -> String;
+    fn event_identity(&self) -> &str;
+
+    fn scope(&self) -> &str;
 }
 
 pub(crate) trait Subscriber: Send + Sync + 'static {
@@ -21,6 +23,8 @@ pub(crate) trait Subscriber: Send + Sync + 'static {
     fn event_type(&self) -> TypeId;
 
     fn subscriber_type(&self) -> TypeId;
+
+    fn scope(&self) -> &str;
 }
 
 impl<T: NacosEventSubscriber> Subscriber for T {
@@ -42,12 +46,18 @@ impl<T: NacosEventSubscriber> Subscriber for T {
     fn subscriber_type(&self) -> TypeId {
         TypeId::of::<T>()
     }
+
+    fn scope(&self) -> &str {
+        NacosEventSubscriber::scope(self)
+    }
 }
 
 pub(crate) trait NacosEventSubscriber: Send + Sync + 'static {
     type EventType;
 
     fn on_event(&self, event: &Self::EventType);
+
+    fn scope(&self) -> &str;
 }
 
 mod __private {
@@ -58,7 +68,7 @@ mod __private {
         mpsc::{channel, Receiver, Sender},
         RwLock,
     };
-    use tracing::warn;
+    use tracing::{debug_span, warn, Instrument};
 
     use crate::common::executor;
 
@@ -77,6 +87,7 @@ mod __private {
 
     impl EventBus {
         pub(crate) fn new() -> Self {
+            let _event_bus_span = debug_span!(parent: None, "event_bus").entered();
             let (sender, receiver) = channel::<Arc<dyn NacosEvent>>(2048);
 
             let subscribers = Arc::new(RwLock::new(
@@ -93,26 +104,34 @@ mod __private {
             mut receiver: Receiver<Arc<dyn NacosEvent>>,
             subscribers: SubscribersContainerType,
         ) {
-            executor::spawn(async move {
-                while let Some(event) = receiver.recv().await {
-                    let lock_guard = subscribers.read().await;
-                    let key = event.event_type();
+            executor::spawn(
+                async move {
+                    while let Some(event) = receiver.recv().await {
+                        let lock_guard = subscribers.read().await;
+                        let key = event.event_type();
 
-                    let subscribers = lock_guard.get(&key);
+                        let subscribers = lock_guard.get(&key);
 
-                    if let Some(subscribers) = subscribers {
-                        for subscriber in subscribers {
-                            let event = event.clone();
-                            let subscriber = subscriber.clone();
-                            executor::spawn(async move {
-                                subscriber.on_event(event);
-                            });
+                        if let Some(subscribers) = subscribers {
+                            for subscriber in subscribers {
+                                let event = event.clone();
+                                let subscriber = subscriber.clone();
+                                if event.scope().eq(subscriber.scope()) {
+                                    executor::spawn(
+                                        async move {
+                                            subscriber.on_event(event);
+                                        }
+                                        .in_current_span(),
+                                    );
+                                }
+                            }
+                        } else {
+                            warn!("{key:?} has not been subscribed by anyone.");
                         }
-                    } else {
-                        warn!("{key:?} has not been subscribed by anyone.");
                     }
                 }
-            });
+                .in_current_span(),
+            );
         }
 
         pub(crate) fn post(&self, event: Arc<dyn NacosEvent>) {
@@ -222,8 +241,12 @@ mod tests {
             self
         }
 
-        fn event_identity(&self) -> String {
-            "NamingChangeEvent".to_string()
+        fn event_identity(&self) -> &str {
+            "NamingChangeEvent".into()
+        }
+
+        fn scope(&self) -> &str {
+            "test_scope".into()
         }
     }
 
@@ -235,6 +258,10 @@ mod tests {
 
         fn on_event(&self, event: &Self::EventType) {
             println!("it has already received an event. {event:?}");
+        }
+
+        fn scope(&self) -> &str {
+            "test_scope".into()
         }
     }
 

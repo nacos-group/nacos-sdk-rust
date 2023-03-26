@@ -10,7 +10,7 @@ use crate::naming::events::InstancesChangeEvent;
 
 use serde::Serialize;
 use tokio::sync::Mutex;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, debug_span, error, info, warn, Instrument};
 
 use crate::common::event_bus;
 use crate::{
@@ -21,18 +21,27 @@ use crate::{
 
 pub(crate) struct NamingPushRequestHandler {
     service_info_holder: Arc<ServiceInfoHolder>,
+    client_id: String,
 }
 
 impl NamingPushRequestHandler {
-    pub(crate) fn new(service_info_holder: Arc<ServiceInfoHolder>) -> Self {
+    pub(crate) fn new(service_info_holder: Arc<ServiceInfoHolder>, client_id: String) -> Self {
         Self {
             service_info_holder,
+            client_id,
         }
     }
 }
 
 impl GrpcPayloadHandler for NamingPushRequestHandler {
     fn hand(&self, response_writer: ResponseWriter, payload: Payload) {
+        let _naming_push_request_handler_span = debug_span!(
+            parent: None,
+            "naming_push_request_handler",
+            client_id = self.client_id
+        )
+        .entered();
+
         let request = GrpcMessage::<NotifySubscriberRequest>::from_payload(payload);
         if let Err(e) = request {
             error!("convert payload to NotifySubscriberRequest error. {e:?}");
@@ -49,42 +58,48 @@ impl GrpcPayloadHandler for NamingPushRequestHandler {
         let service_info = body.service_info;
         let service_info_holder = self.service_info_holder.clone();
 
-        executor::spawn(async move {
-            let mut response = NotifySubscriberResponse::ok();
-            response.request_id = request_id;
+        executor::spawn(
+            async move {
+                let mut response = NotifySubscriberResponse::ok();
+                response.request_id = request_id;
 
-            let grpc_message = GrpcMessageBuilder::new(response).build();
-            let payload = grpc_message.into_payload();
-            if let Err(e) = payload {
-                error!("occur an error when handing NotifySubscriberRequest. {e:?}");
-                return;
+                let grpc_message = GrpcMessageBuilder::new(response).build();
+                let payload = grpc_message.into_payload();
+                if let Err(e) = payload {
+                    error!("occur an error when handing NotifySubscriberRequest. {e:?}");
+                    return;
+                }
+                let payload = payload.unwrap();
+
+                let ret = response_writer.write(payload).await;
+                if let Err(e) = ret {
+                    error!("bi_sender send grpc message to server error. {e:?}");
+                }
             }
-            let payload = payload.unwrap();
+            .in_current_span(),
+        );
 
-            let ret = response_writer.write(payload).await;
-            if let Err(e) = ret {
-                error!("bi_sender send grpc message to server error. {e:?}");
+        executor::spawn(
+            async move {
+                service_info_holder.process_service_info(service_info).await;
             }
-        });
-
-        executor::spawn(async move {
-            service_info_holder.process_service_info(service_info).await;
-        });
+            .in_current_span(),
+        );
     }
 }
 
 pub(crate) struct ServiceInfoHolder {
     service_info_map: Mutex<HashMap<String, Arc<ServiceInfo>>>,
     push_empty_protection: bool,
-    event_scope: String,
+    client_id: String,
 }
 
 impl ServiceInfoHolder {
-    pub(crate) fn new(event_scope: String) -> Self {
+    pub(crate) fn new(client_id: String) -> Self {
         Self {
             service_info_map: Mutex::new(HashMap::new()),
             push_empty_protection: true,
-            event_scope,
+            client_id,
         }
     }
 
@@ -113,7 +128,7 @@ impl ServiceInfoHolder {
                 service_info.hosts_to_json()
             );
             let event = Arc::new(InstancesChangeEvent::new(
-                self.event_scope.clone(),
+                self.client_id.clone(),
                 service_info.clone(),
             ));
             event_bus::post(event);
