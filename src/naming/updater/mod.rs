@@ -213,7 +213,7 @@ impl ServiceInfoUpdateTask {
                 request.request_id = Some(generate_request_id());
 
                 let ret = grpc_client
-                    .unary_call_async::<ServiceQueryRequest, QueryServiceResponse>(request)
+                    .send_request::<ServiceQueryRequest, QueryServiceResponse>(request)
                     .await;
                 if let Err(e) = ret {
                     error!("{log_tag}:ServiceInfoUpdateTask occur an error: {e:?}");

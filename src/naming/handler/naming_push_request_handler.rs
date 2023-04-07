@@ -2,19 +2,18 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::api::naming::ServiceInstance;
-use crate::common::remote::grpc::bi_channel::ResponseWriter;
-use crate::common::remote::grpc::handler::GrpcPayloadHandler;
 use crate::common::remote::grpc::message::{GrpcMessage, GrpcMessageBuilder};
+use crate::common::remote::grpc::nacos_grpc_service::ServerRequestHandler;
 use crate::naming::dto::ServiceInfo;
 use crate::naming::events::InstancesChangeEvent;
 
 use serde::Serialize;
 use tokio::sync::Mutex;
-use tracing::{error, info, info_span, warn, Instrument};
+use tonic::async_trait;
+use tracing::{debug, debug_span, error, info, warn};
 
 use crate::common::event_bus;
 use crate::{
-    common::executor,
     nacos_proto::v2::Payload,
     naming::message::{request::NotifySubscriberRequest, response::NotifySubscriberResponse},
 };
@@ -33,19 +32,13 @@ impl NamingPushRequestHandler {
     }
 }
 
-impl GrpcPayloadHandler for NamingPushRequestHandler {
-    fn hand(&self, response_writer: ResponseWriter, payload: Payload) {
-        let _naming_push_request_handler_span = info_span!(
-            parent: None,
-            "naming_push_request_handler",
-            client_id = self.client_id
-        )
-        .entered();
-
-        let request = GrpcMessage::<NotifySubscriberRequest>::from_payload(payload);
+#[async_trait]
+impl ServerRequestHandler for NamingPushRequestHandler {
+    async fn request_reply(&self, request: Payload) -> Option<Payload> {
+        let request = GrpcMessage::<NotifySubscriberRequest>::from_payload(request);
         if let Err(e) = request {
             error!("convert payload to NotifySubscriberRequest error. {e:?}");
-            return;
+            return None;
         }
         let request = request.unwrap();
 
@@ -53,36 +46,22 @@ impl GrpcPayloadHandler for NamingPushRequestHandler {
         info!("receive NotifySubscriberRequest from nacos server: {body:?}");
 
         let request_id = body.request_id;
-        let service_info = body.service_info;
-        let service_info_holder = self.service_info_holder.clone();
+        self.service_info_holder
+            .process_service_info(body.service_info)
+            .await;
 
-        executor::spawn(
-            async move {
-                let mut response = NotifySubscriberResponse::ok();
-                response.request_id = request_id;
+        let mut response = NotifySubscriberResponse::ok();
+        response.request_id = request_id;
 
-                let grpc_message = GrpcMessageBuilder::new(response).build();
-                let payload = grpc_message.into_payload();
-                if let Err(e) = payload {
-                    error!("occur an error when handing NotifySubscriberRequest. {e:?}");
-                    return;
-                }
-                let payload = payload.unwrap();
+        let grpc_message = GrpcMessageBuilder::new(response).build();
+        let payload = grpc_message.into_payload();
+        if let Err(e) = payload {
+            error!("occur an error when handing NotifySubscriberRequest. {e:?}");
+            return None;
+        }
+        let payload = payload.unwrap();
 
-                let ret = response_writer.write(payload).await;
-                if let Err(e) = ret {
-                    error!("bi_sender send grpc message to server error. {e:?}");
-                }
-            }
-            .in_current_span(),
-        );
-
-        executor::spawn(
-            async move {
-                service_info_holder.process_service_info(service_info).await;
-            }
-            .in_current_span(),
-        );
+        return Some(payload);
     }
 }
 

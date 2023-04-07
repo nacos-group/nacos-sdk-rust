@@ -1,0 +1,337 @@
+use std::{collections::HashMap, sync::Arc, time::Duration};
+use tokio::task::JoinHandle;
+
+use crate::api::error::Error;
+use crate::common::executor;
+use crate::common::remote::grpc::message::{request::NacosClientAbilities, GrpcMessageData};
+use crate::common::remote::grpc::message::{
+    GrpcMessage, GrpcMessageBuilder, GrpcRequestMessage, GrpcResponseMessage,
+};
+
+use super::handlers::client_detection_request_handler::ClientDetectionRequestHandler;
+use super::message::request::ClientDetectionRequest;
+use super::nacos_grpc_connection::{NacosGrpcConnection, SendRequest};
+use super::server_list_service::PollingServerListService;
+use super::tonic::TonicBuilder;
+use super::{config::GrpcConfiguration, nacos_grpc_service::ServerRequestHandler};
+
+const APP_FILED: &str = "app";
+
+pub(crate) struct NacosGrpcClient {
+    app_name: String,
+    send_request: Arc<dyn SendRequest + Send + Sync + 'static>,
+}
+
+impl NacosGrpcClient {
+    pub(crate) async fn send_request<Request, Response>(
+        &self,
+        mut request: Request,
+    ) -> Result<Response, Error>
+    where
+        Request: GrpcRequestMessage + 'static,
+        Response: GrpcResponseMessage + 'static,
+    {
+        let request_headers = request.take_headers();
+
+        let grpc_request = GrpcMessageBuilder::new(request)
+            .header(APP_FILED.to_owned(), self.app_name.clone())
+            .headers(request_headers)
+            .build();
+        let grpc_request = grpc_request.into_payload()?;
+
+        let grpc_response = self.send_request.send_request(grpc_request).await?;
+
+        let grpc_response = GrpcMessage::<Response>::from_payload(grpc_response)?;
+        Ok(grpc_response.into_body())
+    }
+}
+
+type HandlerMap = HashMap<String, Arc<dyn ServerRequestHandler>>;
+type ConnectListener = Arc<dyn Fn(String) + Send + Sync + 'static>;
+
+pub(crate) struct NacosGrpcClientBuilder {
+    app_name: String,
+    client_version: String,
+    namespace: String,
+    labels: HashMap<String, String>,
+    client_abilities: NacosClientAbilities,
+    grpc_config: GrpcConfiguration,
+    server_request_handler_map: HandlerMap,
+    server_list: Vec<String>,
+    connected_listener: Option<ConnectListener>,
+}
+
+impl NacosGrpcClientBuilder {
+    pub(crate) fn new(server_list: Vec<String>) -> Self {
+        Self {
+            app_name: "RUST-UNKNOWN-APP".to_owned(),
+            client_version: Default::default(),
+            namespace: Default::default(),
+            labels: Default::default(),
+            client_abilities: Default::default(),
+            grpc_config: Default::default(),
+            server_request_handler_map: Default::default(),
+            server_list,
+            connected_listener: None,
+        }
+    }
+
+    pub(crate) fn app_name(self, app_name: String) -> Self {
+        Self { app_name, ..self }
+    }
+
+    pub(crate) fn client_version(self, client_version: String) -> Self {
+        Self {
+            client_version,
+            ..self
+        }
+    }
+
+    pub(crate) fn namespace(self, namespace: String) -> Self {
+        Self { namespace, ..self }
+    }
+
+    pub(crate) fn add_label(mut self, key: String, value: String) -> Self {
+        self.labels.insert(key, value);
+        Self { ..self }
+    }
+
+    pub(crate) fn add_labels(mut self, labels: HashMap<String, String>) -> Self {
+        self.labels.extend(labels);
+        Self { ..self }
+    }
+
+    pub(crate) fn support_remote_connection(mut self, enable: bool) -> Self {
+        self.client_abilities.support_remote_connection(enable);
+        Self { ..self }
+    }
+
+    pub(crate) fn support_config_remote_metrics(mut self, enable: bool) -> Self {
+        self.client_abilities.support_config_remote_metrics(enable);
+        Self { ..self }
+    }
+
+    pub(crate) fn support_naming_delta_push(mut self, enable: bool) -> Self {
+        self.client_abilities.support_naming_delta_push(enable);
+        Self { ..self }
+    }
+
+    pub(crate) fn support_naming_remote_metric(mut self, enable: bool) -> Self {
+        self.client_abilities.support_naming_remote_metric(enable);
+        Self { ..self }
+    }
+
+    pub(crate) fn origin(mut self, uri: &str) -> Self {
+        let grpc_config = self.grpc_config.with_origin(uri);
+        Self {
+            grpc_config,
+            ..self
+        }
+    }
+
+    pub(crate) fn user_agent(mut self, ua: String) -> Self {
+        let grpc_config = self.grpc_config.with_user_agent(ua);
+        Self {
+            grpc_config,
+            ..self
+        }
+    }
+
+    pub(crate) fn timeout(mut self, timeout: Duration) -> Self {
+        let grpc_config = self.grpc_config.with_timeout(timeout);
+        Self {
+            grpc_config,
+            ..self
+        }
+    }
+
+    pub(crate) fn concurrency_limit(mut self, concurrency_limit: usize) -> Self {
+        let grpc_config = self.grpc_config.with_concurrency_limit(concurrency_limit);
+        Self {
+            grpc_config,
+            ..self
+        }
+    }
+
+    pub(crate) fn rate_limit(mut self, rate_limit: (u64, Duration)) -> Self {
+        let grpc_config = self.grpc_config.with_rate_limit(rate_limit);
+        Self {
+            grpc_config,
+            ..self
+        }
+    }
+
+    pub(crate) fn init_stream_window_size(mut self, init_stream_window_size: u32) -> Self {
+        let grpc_config = self
+            .grpc_config
+            .with_init_stream_window_size(init_stream_window_size);
+        Self {
+            grpc_config,
+            ..self
+        }
+    }
+
+    pub(crate) fn init_connection_window_size(mut self, init_connection_window_size: u32) -> Self {
+        let grpc_config = self
+            .grpc_config
+            .with_init_connection_window_size(init_connection_window_size);
+        Self {
+            grpc_config,
+            ..self
+        }
+    }
+
+    pub(crate) fn tcp_keepalive(mut self, tcp_keepalive: Duration) -> Self {
+        let grpc_config = self.grpc_config.with_tcp_keepalive(tcp_keepalive);
+        Self {
+            grpc_config,
+            ..self
+        }
+    }
+
+    pub(crate) fn tcp_nodelay(mut self, tcp_nodelay: bool) -> Self {
+        let grpc_config = self.grpc_config.with_tcp_nodelay(tcp_nodelay);
+        Self {
+            grpc_config,
+            ..self
+        }
+    }
+
+    pub(crate) fn http2_keep_alive_interval(mut self, http2_keep_alive_interval: Duration) -> Self {
+        let grpc_config = self
+            .grpc_config
+            .with_http2_keep_alive_interval(http2_keep_alive_interval);
+        Self {
+            grpc_config,
+            ..self
+        }
+    }
+
+    pub(crate) fn http2_keep_alive_timeout(mut self, http2_keep_alive_timeout: Duration) -> Self {
+        let grpc_config = self
+            .grpc_config
+            .with_http2_keep_alive_timeout(http2_keep_alive_timeout);
+        Self {
+            grpc_config,
+            ..self
+        }
+    }
+
+    pub(crate) fn http2_keep_alive_while_idle(mut self, http2_keep_alive_while_idle: bool) -> Self {
+        let grpc_config = self
+            .grpc_config
+            .with_http2_keep_alive_while_idle(http2_keep_alive_while_idle);
+        Self {
+            grpc_config,
+            ..self
+        }
+    }
+
+    pub(crate) fn connect_timeout(mut self, connect_timeout: Duration) -> Self {
+        let grpc_config = self.grpc_config.with_connect_timeout(connect_timeout);
+        Self {
+            grpc_config,
+            ..self
+        }
+    }
+
+    pub(crate) fn http2_adaptive_window(mut self, http2_adaptive_window: bool) -> Self {
+        let grpc_config = self
+            .grpc_config
+            .with_http2_adaptive_window(http2_adaptive_window);
+        Self {
+            grpc_config,
+            ..self
+        }
+    }
+
+    pub(crate) fn register_server_request_handler<T: GrpcMessageData>(
+        mut self,
+        handler: Arc<dyn ServerRequestHandler>,
+    ) -> Self {
+        self.server_request_handler_map
+            .insert(T::identity().to_string(), handler);
+        Self { ..self }
+    }
+
+    pub(crate) fn connected_listener(
+        mut self,
+        listener: impl Fn(String) + Send + Sync + 'static,
+    ) -> Self {
+        self.connected_listener = Some(Arc::new(listener));
+        Self { ..self }
+    }
+
+    pub(crate) fn build(mut self) -> NacosGrpcClient {
+        self.server_request_handler_map.insert(
+            ClientDetectionRequest::identity().to_string(),
+            Arc::new(ClientDetectionRequestHandler {
+                client_id: Default::default(),
+            }),
+        );
+        let join_handler: JoinHandle<Arc<dyn SendRequest + Send + Sync + 'static>> =
+            executor::spawn(async move {
+                let server_list = PollingServerListService::new(self.server_list);
+                let tonic_builder = TonicBuilder::new(self.grpc_config, server_list);
+                let connection = NacosGrpcConnection::new(
+                    tonic_builder,
+                    self.server_request_handler_map,
+                    self.client_version,
+                    self.namespace,
+                    self.labels,
+                    self.client_abilities,
+                );
+
+                let failover_connection = connection
+                    .connected_listener(self.connected_listener)
+                    .into_failover_connection();
+                Arc::new(failover_connection) as Arc<dyn SendRequest + Send + Sync + 'static>
+            });
+
+        let send_request = futures::executor::block_on(join_handler).unwrap();
+        let app_name = self.app_name;
+
+        NacosGrpcClient {
+            app_name,
+            send_request,
+        }
+    }
+}
+
+#[cfg(test)]
+pub mod tests {
+
+    use tracing::metadata::LevelFilter;
+
+    use crate::common::remote::grpc::message::{
+        request::HealthCheckRequest, response::HealthCheckResponse,
+    };
+
+    use super::*;
+
+    #[tokio::test]
+    pub async fn test() {
+        tracing_subscriber::fmt()
+            .with_thread_names(true)
+            .with_file(true)
+            .with_level(true)
+            .with_line_number(true)
+            .with_thread_ids(true)
+            .with_max_level(LevelFilter::DEBUG)
+            .init();
+
+        let grpc_client_builder =
+            NacosGrpcClientBuilder::new(vec!["http://127.0.0.1:9848".to_string()]);
+        let grpc_client = grpc_client_builder.build();
+
+        let health_check = HealthCheckRequest::default();
+
+        let ret = grpc_client
+            .send_request::<HealthCheckRequest, HealthCheckResponse>(health_check)
+            .await;
+
+        println!("ret: {:?}", ret);
+
+        tokio::time::sleep(Duration::from_secs(60 * 30)).await;
+    }
+}

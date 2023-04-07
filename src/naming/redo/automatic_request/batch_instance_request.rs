@@ -3,7 +3,7 @@ use tracing::debug;
 use tracing::error;
 use tracing::Instrument;
 
-use crate::naming::redo::AutomaticRequestInvoker;
+use crate::common::remote::grpc::NacosGrpcClient;
 use crate::{
     common::{
         executor,
@@ -16,14 +16,14 @@ use crate::{
 };
 
 impl AutomaticRequest for BatchInstanceRequest {
-    fn run(&self, invoker: Arc<AutomaticRequestInvoker>, call_back: crate::naming::redo::CallBack) {
+    fn run(&self, grpc_client: Arc<NacosGrpcClient>, call_back: crate::naming::redo::CallBack) {
         let mut request = self.clone();
         request.request_id = Some(generate_request_id());
         debug!("automatically execute batch instance request. {request:?}");
         executor::spawn(
             async move {
-                let ret = invoker
-                    .invoke::<BatchInstanceRequest, BatchInstanceResponse>(request)
+                let ret = grpc_client
+                    .send_request::<BatchInstanceRequest, BatchInstanceResponse>(request)
                     .in_current_span()
                     .await;
                 if let Err(e) = ret {

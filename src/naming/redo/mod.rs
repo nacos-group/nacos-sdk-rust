@@ -8,36 +8,24 @@ use tokio::{
     sync::RwLock,
     time::{self, sleep},
 };
-use tracing::{debug, debug_span, instrument, Instrument};
+use tracing::{debug, debug_span, instrument};
 
+use crate::api::{error::Result, plugin::AuthPlugin};
 use crate::common::{executor, remote::grpc::NacosGrpcClient};
-use crate::{
-    api::{error::Result, plugin::AuthPlugin},
-    common::remote::grpc::message::{GrpcRequestMessage, GrpcResponseMessage},
-};
 
 pub(crate) mod automatic_request;
 
 pub(crate) struct RedoTaskExecutor {
     map: Arc<RwLock<HashMap<String, Arc<dyn RedoTask>>>>,
-    automatic_request_invoker: Arc<AutomaticRequestInvoker>,
     client_id: String,
 }
 
 impl RedoTaskExecutor {
-    pub(crate) fn new(
-        nacos_grpc_client: Arc<NacosGrpcClient>,
-        auth_plugin: Arc<dyn AuthPlugin>,
-        client_id: String,
-    ) -> Self {
+    pub(crate) fn new(auth_plugin: Arc<dyn AuthPlugin>, client_id: String) -> Self {
         let _redo_task_executor_span =
             debug_span!(parent: None, "redo_task_executor", client_id = client_id).entered();
         let executor = Self {
             map: Arc::new(RwLock::new(HashMap::new())),
-            automatic_request_invoker: Arc::new(AutomaticRequestInvoker {
-                nacos_grpc_client,
-                auth_plugin,
-            }),
             client_id,
         };
         executor.start_schedule();
@@ -47,31 +35,27 @@ impl RedoTaskExecutor {
     fn start_schedule(&self) {
         debug!("start schedule automatic request task.");
         let map = self.map.clone();
-        let invoker = self.automatic_request_invoker.clone();
-        executor::spawn(
-            async move {
-                sleep(Duration::from_millis(3000)).await;
-                let mut interval = time::interval(Duration::from_millis(3000));
-                loop {
-                    interval.tick().await;
+        executor::spawn(async move {
+            sleep(Duration::from_millis(3000)).await;
+            let mut interval = time::interval(Duration::from_millis(3000));
+            loop {
+                interval.tick().await;
 
-                    let map = map.read().await;
-                    let active_tasks: Vec<Arc<dyn RedoTask>> = map
-                        .iter()
-                        .filter(|(_, v)| v.is_active())
-                        .map(|(_, v)| v.clone())
-                        .collect();
-                    if !active_tasks.is_empty() {
-                        debug!("automatic request task triggered!");
-                    }
-                    for task in active_tasks {
-                        debug!("automatic request task: {:?}", task.task_key());
-                        task.run(invoker.clone());
-                    }
+                let map = map.read().await;
+                let active_tasks: Vec<Arc<dyn RedoTask>> = map
+                    .iter()
+                    .filter(|(_, v)| v.is_active())
+                    .map(|(_, v)| v.clone())
+                    .collect();
+                if !active_tasks.is_empty() {
+                    debug!("automatic request task triggered!");
+                }
+                for task in active_tasks {
+                    debug!("automatic request task: {:?}", task.task_key());
+                    task.run();
                 }
             }
-            .in_current_span(),
-        );
+        });
     }
 
     #[instrument(fields(client_id = &self.client_id), skip_all)]
@@ -85,14 +69,6 @@ impl RedoTaskExecutor {
     pub(crate) async fn remove_task(&self, task_key: &str) {
         let mut map = self.map.write().await;
         map.remove(task_key);
-    }
-
-    #[instrument(fields(client_id = &self.client_id), skip_all)]
-    pub(crate) async fn on_grpc_client_disconnect(&self) {
-        let map = self.map.read().await;
-        for (_, v) in map.iter() {
-            v.frozen()
-        }
     }
 
     #[instrument(fields(client_id = &self.client_id), skip_all)]
@@ -113,45 +89,31 @@ pub(crate) trait RedoTask: Send + Sync + 'static {
 
     fn is_active(&self) -> bool;
 
-    fn run(&self, invoker: Arc<AutomaticRequestInvoker>);
+    fn run(&self);
 }
 
 type CallBack = Box<dyn Fn(Result<()>) + Send + Sync + 'static>;
 pub(crate) trait AutomaticRequest: Send + Sync + 'static {
-    fn run(&self, invoker: Arc<AutomaticRequestInvoker>, call_back: CallBack);
+    fn run(&self, grpc_client: Arc<NacosGrpcClient>, call_back: CallBack);
 
     fn name(&self) -> String;
-}
-
-pub(crate) struct AutomaticRequestInvoker {
-    nacos_grpc_client: Arc<NacosGrpcClient>,
-    auth_plugin: Arc<dyn AuthPlugin>,
-}
-
-impl AutomaticRequestInvoker {
-    pub(crate) async fn invoke<R, P>(&self, mut request: R) -> Result<P>
-    where
-        R: GrpcRequestMessage + 'static,
-        P: GrpcResponseMessage + 'static,
-    {
-        request.add_headers(self.auth_plugin.get_login_identity().contexts);
-        self.nacos_grpc_client
-            .unary_call_async::<R, P>(request)
-            .in_current_span()
-            .await
-    }
 }
 
 pub(crate) struct NamingRedoTask {
     active: Arc<AtomicBool>,
     automatic_request: Arc<dyn AutomaticRequest>,
+    grpc_client: Arc<NacosGrpcClient>,
 }
 
 impl NamingRedoTask {
-    pub(crate) fn new(automatic_request: Arc<dyn AutomaticRequest>) -> Self {
+    pub(crate) fn new(
+        grpc_client: Arc<NacosGrpcClient>,
+        automatic_request: Arc<dyn AutomaticRequest>,
+    ) -> Self {
         Self {
             active: Arc::new(AtomicBool::new(false)),
             automatic_request,
+            grpc_client,
         }
     }
 }
@@ -175,10 +137,10 @@ impl RedoTask for NamingRedoTask {
         self.active.load(std::sync::atomic::Ordering::Acquire)
     }
 
-    fn run(&self, invoker: Arc<AutomaticRequestInvoker>) {
+    fn run(&self) {
         let active = self.active.clone();
         self.automatic_request.run(
-            invoker,
+            self.grpc_client.clone(),
             Box::new(move |ret| {
                 if ret.is_ok() {
                     active.store(false, std::sync::atomic::Ordering::Release);
