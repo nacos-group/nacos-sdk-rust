@@ -87,17 +87,18 @@ pub(crate) fn schedule_at_fixed_delay(
 mod tests {
 
     use super::*;
+    use crate::api::constants::ENV_NACOS_CLIENT_COMMON_THREAD_CORES;
 
     #[test]
     fn test_common_thread_cores() {
-        let num_cpus = std::env::var(crate::api::constants::ENV_NACOS_CLIENT_COMMON_THREAD_CORES)
+        let num_cpus = std::env::var(ENV_NACOS_CLIENT_COMMON_THREAD_CORES)
             .ok()
             .and_then(|v| v.parse::<usize>().ok().filter(|n| *n > 0))
             .unwrap_or(std::thread::available_parallelism().unwrap().get());
         assert!(num_cpus > 0);
 
-        std::env::set_var(crate::api::constants::ENV_NACOS_CLIENT_COMMON_THREAD_CORES, "4");
-        let num_cpus = std::env::var(crate::api::constants::ENV_NACOS_CLIENT_COMMON_THREAD_CORES)
+        std::env::set_var(ENV_NACOS_CLIENT_COMMON_THREAD_CORES, "4");
+        let num_cpus = std::env::var(ENV_NACOS_CLIENT_COMMON_THREAD_CORES)
             .ok()
             .and_then(|v| v.parse::<usize>().ok().filter(|n| *n > 0))
             .unwrap_or(std::thread::available_parallelism().unwrap().get());
