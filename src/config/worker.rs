@@ -68,7 +68,6 @@ impl ConfigWorker {
             .build()?;
 
         // todo Event/Subscriber instead of mpsc Sender/Receiver
-
         crate::common::executor::spawn(
             Self::notify_change_to_cache_data(
                 Arc::clone(&remote_client),
