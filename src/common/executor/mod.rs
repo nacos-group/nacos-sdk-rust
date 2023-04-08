@@ -89,6 +89,22 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_common_thread_cores() {
+        let num_cpus = std::env::var(crate::api::constants::ENV_NACOS_CLIENT_COMMON_THREAD_CORES)
+            .ok()
+            .and_then(|v| v.parse::<usize>().ok().filter(|n| *n > 0))
+            .unwrap_or(std::thread::available_parallelism().unwrap().get());
+        assert!(num_cpus > 0);
+
+        std::env::set_var(crate::api::constants::ENV_NACOS_CLIENT_COMMON_THREAD_CORES, "4");
+        let num_cpus = std::env::var(crate::api::constants::ENV_NACOS_CLIENT_COMMON_THREAD_CORES)
+            .ok()
+            .and_then(|v| v.parse::<usize>().ok().filter(|n| *n > 0))
+            .unwrap_or(std::thread::available_parallelism().unwrap().get());
+        assert_eq!(num_cpus, 4);
+    }
+
+    #[test]
     fn test_spawn() {
         let handler = spawn(async {
             println!("test spawn task");
