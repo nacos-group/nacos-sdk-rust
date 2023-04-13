@@ -158,6 +158,7 @@ impl NacosGrpcClient {
         info!("new connection id: {connection_id}");
 
         unsafe {
+            #[warn(clippy::cast_ref_to_mut)]
             let mutable_self = &mut *(self as *const Self as *mut Self);
             mutable_self.connection_id = connection_id;
         }
