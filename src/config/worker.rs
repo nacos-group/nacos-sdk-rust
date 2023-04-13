@@ -68,33 +68,19 @@ impl ConfigWorker {
             .build()?;
 
         // todo Event/Subscriber instead of mpsc Sender/Receiver
-        crate::common::executor::spawn(
-            Self::notify_change_to_cache_data(
-                Arc::clone(&remote_client),
-                Arc::clone(&auth_plugin),
-                Arc::clone(&cache_data_map),
-                notify_change_rx,
-            )
-            .instrument(debug_span!(
-                parent: None,
-                "notify_change_to_cache_data",
-                client_id = client_id
-            )),
-        );
+        crate::common::executor::spawn(Self::notify_change_to_cache_data(
+            Arc::clone(&remote_client),
+            Arc::clone(&auth_plugin),
+            Arc::clone(&cache_data_map),
+            notify_change_rx,
+        ));
 
-        crate::common::executor::spawn(
-            Self::list_ensure_cache_data_newest(
-                Arc::clone(&remote_client),
-                Arc::clone(&auth_plugin),
-                Arc::clone(&cache_data_map),
-                notify_change_tx_clone,
-            )
-            .instrument(debug_span!(
-                parent: None,
-                "list_ensure_cache_data_newest",
-                client_id = client_id
-            )),
-        );
+        crate::common::executor::spawn(Self::list_ensure_cache_data_newest(
+            Arc::clone(&remote_client),
+            Arc::clone(&auth_plugin),
+            Arc::clone(&cache_data_map),
+            notify_change_tx_clone,
+        ));
 
         let server_list = Arc::new(client_props.get_server_list()?);
         let plugin = Arc::clone(&auth_plugin);
@@ -389,13 +375,16 @@ impl ConfigWorker {
 
 impl ConfigWorker {
     /// List-Watch, list ensure cache-data newest.
+    #[instrument(fields(client_id = remote_client.client_id, conn_id = remote_client.connection_id), skip_all)]
     async fn list_ensure_cache_data_newest(
         remote_client: Arc<NacosGrpcClient>,
         auth_plugin: Arc<dyn AuthPlugin>,
         cache_data_map: Arc<Mutex<HashMap<String, CacheData>>>,
         notify_change_tx: tokio::sync::mpsc::Sender<String>,
     ) {
+        tracing::info!("list_ensure_cache_data_newest started");
         loop {
+            tracing::info!("list_ensure_cache_data_newest refreshing");
             // todo invoke remove_listener with ConfigBatchListenClientRequest::new(false) when is_empty(),
             //  and then remove cache_data from cache_data_map.
             let mut listen_context_vec = Vec::with_capacity(6);
@@ -413,6 +402,7 @@ impl ConfigWorker {
                 }
             }
             if !listen_context_vec.is_empty() {
+                tracing::debug!("list_ensure_cache_data_newest context={listen_context_vec:?}");
                 let mut req =
                     ConfigBatchListenRequest::new(true).config_listen_context(listen_context_vec);
                 req.add_headers(auth_plugin.get_login_identity().contexts);
@@ -440,6 +430,8 @@ impl ConfigWorker {
                     }
                 }
             }
+            tracing::info!("list_ensure_cache_data_newest finish");
+
             tokio::time::sleep(std::time::Duration::from_secs(60)).await;
         }
     }
@@ -459,10 +451,9 @@ impl ConfigWorker {
             cache_data.notify_listener();
         }
     }
-}
 
-impl ConfigWorker {
     /// Notify change to cache_data.
+    #[instrument(fields(client_id = remote_client.client_id, conn_id = remote_client.connection_id), skip_all)]
     async fn notify_change_to_cache_data(
         remote_client: Arc<NacosGrpcClient>,
         auth_plugin: Arc<dyn AuthPlugin>,

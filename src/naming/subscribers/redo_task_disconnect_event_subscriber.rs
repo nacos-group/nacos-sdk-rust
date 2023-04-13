@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use tracing::{debug, debug_span, Instrument};
+use tracing::{warn, warn_span, Instrument};
 
 use crate::{
     common::{event_bus::NacosEventSubscriber, executor, remote::grpc::events::DisconnectEvent},
@@ -16,14 +16,14 @@ impl NacosEventSubscriber for RedoTaskDisconnectEventSubscriber {
     type EventType = DisconnectEvent;
 
     fn on_event(&self, _: &Self::EventType) {
-        let _redo_task_disconnect_event_subscriber_span = debug_span!(
+        let _redo_task_disconnect_event_subscriber_span = warn_span!(
             parent: None,
             "redo_task_disconnect_event_subscriber",
             client_id = self.scope
         )
         .entered();
 
-        debug!("receive DisconnectEvent, notify redo task executor.");
+        warn!("receive DisconnectEvent, notify redo task executor.");
         let redo_task_executor = self.redo_task_executor.clone();
         executor::spawn(
             async move {

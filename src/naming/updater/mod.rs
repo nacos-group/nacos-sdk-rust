@@ -8,7 +8,7 @@ use std::{
 };
 
 use tokio::{sync::Mutex, time::sleep};
-use tracing::{debug, error, info, instrument, Instrument};
+use tracing::{debug, error, info, instrument, warn, Instrument};
 
 use crate::common::{
     executor,
@@ -169,7 +169,7 @@ impl ServiceInfoUpdateTask {
                 request.cluster
             );
 
-            debug!("{log_tag}:ServiceInfoUpdateTask started ");
+            info!("{log_tag}:ServiceInfoUpdateTask started ");
 
             while running.load(Ordering::Acquire) {
                 let delay_time_millis = Duration::from_millis(
@@ -178,11 +178,11 @@ impl ServiceInfoUpdateTask {
                 sleep(delay_time_millis).await;
 
                 if !running.load(Ordering::Acquire) {
-                    debug!("{log_tag}:ServiceInfoUpdateTask has been already stopped!");
+                    warn!("{log_tag}:ServiceInfoUpdateTask has been already stopped!");
                     break;
                 }
 
-                debug!("{log_tag}:ServiceInfoUpdateTask refreshing");
+                info!("{log_tag}:ServiceInfoUpdateTask refreshing");
 
                 let service_info = service_info_holder
                     .get_service_info(
@@ -243,10 +243,10 @@ impl ServiceInfoUpdateTask {
                 service_info_holder.process_service_info(service_info).await;
 
                 failed_count = 0;
-                debug!("{log_tag}:ServiceInfoUpdateTask refresh service info successful");
+                info!("{log_tag}:ServiceInfoUpdateTask finish");
             }
 
-            info!("{log_tag}:ServiceInfoUpdateTask is stopped");
+            warn!("{log_tag}:ServiceInfoUpdateTask is stopped");
         }.in_current_span());
     }
 

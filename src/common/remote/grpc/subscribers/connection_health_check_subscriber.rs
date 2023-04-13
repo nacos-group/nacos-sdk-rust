@@ -24,7 +24,8 @@ impl NacosEventSubscriber for ConnectionHealthCheckEventSubscriber {
         let _connection_health_check_event_subscriber_span = debug_span!(
             parent: None,
             "connection_health_check_event_subscriber",
-            client_id = self.scope
+            client_id = self.scope,
+            conn_id = self.nacos_grpc_client.connection_id
         )
         .entered();
         debug!("received ConnectionHealthCheckEvent.");
