@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use tracing::{debug_span, error, info, Instrument};
+use tracing::{error, warn, warn_span, Instrument};
 
 use crate::common::{
     event_bus::NacosEventSubscriber,
@@ -20,13 +20,14 @@ impl NacosEventSubscriber for ReconnectedEventSubscriber {
     type EventType = ReconnectedEvent;
 
     fn on_event(&self, _: &Self::EventType) {
-        let _reconnected_event_subscriber_span = debug_span!(
+        let _reconnected_event_subscriber_span = warn_span!(
             parent: None,
             "reconnected_event_subscriber",
-            client_id = self.scope
+            client_id = self.scope,
+            conn_id = self.nacos_grpc_client.connection_id
         )
         .entered();
-        info!("received ReconnectedEvent.");
+        warn!("received ReconnectedEvent.");
 
         let nacos_grpc_client = self.nacos_grpc_client.clone();
         let set_up_info = self.set_up_info.clone();

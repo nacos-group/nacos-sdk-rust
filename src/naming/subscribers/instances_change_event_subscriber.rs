@@ -1,7 +1,7 @@
 use std::{collections::HashMap, sync::Arc};
 
 use tokio::sync::RwLock;
-use tracing::{debug, debug_span, Instrument};
+use tracing::{debug, info, info_span, Instrument};
 
 use crate::api::naming::{NamingChangeEvent, NamingEventListener};
 use crate::common::{event_bus::NacosEventSubscriber, executor};
@@ -108,14 +108,13 @@ impl NacosEventSubscriber for InstancesChangeEventSubscriber {
     type EventType = InstancesChangeEvent;
 
     fn on_event(&self, event: &Self::EventType) {
-        let _instances_change_event_subscriber_span = debug_span!(
+        let _instances_change_event_subscriber_span = info_span!(
             parent: None,
             "instances_change_event_subscriber",
             client_id = self.scope
         )
         .entered();
-
-        debug!("receive InstancesChangeEvent, notify instance change.");
+        info!("receive InstancesChangeEvent, notify instance change.");
 
         let service_info = event.service_info();
         let listener_map = self.listener_map.clone();

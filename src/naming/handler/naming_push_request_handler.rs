@@ -10,7 +10,7 @@ use crate::naming::events::InstancesChangeEvent;
 
 use serde::Serialize;
 use tokio::sync::Mutex;
-use tracing::{debug, debug_span, error, info, warn, Instrument};
+use tracing::{error, info, info_span, warn, Instrument};
 
 use crate::common::event_bus;
 use crate::{
@@ -35,7 +35,7 @@ impl NamingPushRequestHandler {
 
 impl GrpcPayloadHandler for NamingPushRequestHandler {
     fn hand(&self, response_writer: ResponseWriter, payload: Payload) {
-        let _naming_push_request_handler_span = debug_span!(
+        let _naming_push_request_handler_span = info_span!(
             parent: None,
             "naming_push_request_handler",
             client_id = self.client_id
@@ -47,12 +47,10 @@ impl GrpcPayloadHandler for NamingPushRequestHandler {
             error!("convert payload to NotifySubscriberRequest error. {e:?}");
             return;
         }
-
         let request = request.unwrap();
 
         let body = request.into_body();
-
-        debug!("receive NotifySubscriberRequest from nacos server: {body:?}");
+        info!("receive NotifySubscriberRequest from nacos server: {body:?}");
 
         let request_id = body.request_id;
         let service_info = body.service_info;

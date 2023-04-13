@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc, thread::sleep, time::Duration};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
@@ -45,8 +45,8 @@ const DEFAULT_CALL_TIME_OUT: u64 = 3000;
 
 pub(crate) struct NacosGrpcClient {
     grpc_client: RwLock<GrpcClient>,
-    pub(crate) connection_id: Arc<RwLock<String>>,
-    client_id: String,
+    pub(crate) connection_id: String,
+    pub(crate) client_id: String,
     bi_handler_map: HandlerMap,
     app_name: String,
 }
@@ -67,7 +67,7 @@ impl NacosGrpcClient {
 
         Ok(NacosGrpcClient {
             grpc_client,
-            connection_id: Arc::new(RwLock::new("".to_string())),
+            connection_id: "".to_string(),
             client_id,
             bi_handler_map,
             app_name,
@@ -114,9 +114,10 @@ impl NacosGrpcClient {
 
         let bi_channel = bi_channel.unwrap();
         while !bi_channel.is_closed() {
-            sleep(Duration::from_millis(
+            tokio::time::sleep(Duration::from_millis(
                 (retry_wait_time << retry_count).min(1000 * 30),
-            ));
+            ))
+            .await;
             retry_count += 1;
 
             // set up
@@ -154,15 +155,15 @@ impl NacosGrpcClient {
         }
 
         let connection_id = connection_id.unwrap();
-
         info!("new connection id: {connection_id}");
 
-        {
-            let mut self_connection_id = self.connection_id.write().await;
-            *self_connection_id = connection_id;
+        unsafe {
+            #[warn(clippy::cast_ref_to_mut)]
+            let mutable_self = &mut *(self as *const Self as *mut Self);
+            mutable_self.connection_id = connection_id;
         }
 
-        sleep(Duration::from_millis(500));
+        tokio::time::sleep(Duration::from_millis(500)).await;
 
         debug!("nacos grpc client init complete.");
         event_bus::post(Arc::new(ClientInitCompleteEvent {
@@ -247,7 +248,7 @@ impl NacosGrpcClient {
         Ok(())
     }
 
-    #[instrument(fields(client_id = &self.client_id), skip(self, request))]
+    #[instrument(fields(client_id = &self.client_id, conn_id = &self.connection_id), skip(self, request))]
     pub(crate) async fn unary_call_async<R, P>(&self, mut request: R) -> Result<P>
     where
         R: GrpcRequestMessage + 'static,
@@ -273,7 +274,7 @@ impl NacosGrpcClient {
                 .map(|data| data.to_string())
                 .unwrap_or_else(|| "error".to_string());
             let error_code = body.error_code();
-            debug!("error response: {:?},{:?}", message, error_code);
+            error!("error response: {:?},{:?}", message, error_code);
             return Err(crate::api::error::Error::ErrResult(format!(
                 "msg:{:?}, code:{:?}",
                 message, error_code
@@ -282,7 +283,7 @@ impl NacosGrpcClient {
         Ok(body)
     }
 
-    #[instrument(fields(client_id = &self.client_id), skip_all)]
+    #[instrument(skip_all)]
     pub(crate) async fn register_bi_call_handler(
         &mut self,
         key: String,
@@ -511,7 +512,7 @@ impl NacosGrpcClientBuilder {
         T: GrpcMessageData,
     {
         let key = T::identity().to_string();
-        debug!("register_bi_call_handler key={}", key);
+        info!("register_bi_call_handler key={}", key);
         let value = self.bi_call_handlers.get_mut(&key);
         if let Some(vec) = value {
             vec.push(call_handler);

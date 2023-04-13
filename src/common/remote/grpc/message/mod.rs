@@ -62,14 +62,13 @@ where
             return Err(ErrResult("grpc payload body is empty".to_string()));
         }
 
-        let body = body.unwrap();
+        let body_any = body.unwrap();
 
-        let body = T::from_proto_any(body);
+        let body = T::from_proto_any(&body_any);
+
         if let Err(error) = body {
-            error!(
-                "Deserialize from Any to GrpcMessage occur an error:{:?}",
-                error
-            );
+            let body_str = String::from_utf8(body_any.value);
+            error!("Deserialize from Any[{body_str:?}] to GrpcMessage occur an error:{error:?}");
             return Err(error);
         }
         let body = body.unwrap();
@@ -112,7 +111,7 @@ pub(crate) trait GrpcMessageData:
         Ok(any)
     }
 
-    fn from_proto_any<T: GrpcMessageData>(any: Any) -> Result<T> {
+    fn from_proto_any<T: GrpcMessageData>(any: &Any) -> Result<T> {
         let body: serde_json::Result<T> = serde_json::from_slice(&any.value);
         if let Err(error) = body {
             return Err(Serialization(error));
