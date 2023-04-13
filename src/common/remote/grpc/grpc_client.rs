@@ -29,20 +29,15 @@ pub(crate) struct GrpcClient {
 }
 
 impl GrpcClient {
-    #[instrument(fields(client_id = client_id), skip_all)]
-    pub(crate) async fn new(
-        address: &str,
-        grpc_port: Option<u32>,
-        client_id: String,
-    ) -> Result<Self> {
-        let address = crate::common::remote::into_grpc_server_addr(address, true, grpc_port)?;
-        let address = address.as_str();
+    // #[instrument(fields(client_id = client_id), skip_all)]
+    pub(crate) async fn new(address: &str, client_id: String) -> Result<Self> {
         info!("init grpc client: {address}");
         let env = Arc::new(Environment::new(1));
         // TODO grpc keep-alive configuration should be customized by users rather than default values
         let grpc_channel = ChannelBuilder::new(env)
             .keepalive_time(Duration::from_secs(60 * 6))
             .keepalive_timeout(Duration::from_secs(20))
+            // LbPolicy::PickFirst, It is a sequential attempt to link, so need reorder address to balance the load as much as possible. pls see https://github.com/grpc/grpc/blob/master/doc/load-balancing.md
             .load_balancing_policy(LbPolicy::PickFirst)
             .use_local_subchannel_pool(true) // same target-addr build multi sub-channel, independent link, not reused.
             .connect(address);

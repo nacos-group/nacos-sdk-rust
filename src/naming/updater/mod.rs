@@ -48,7 +48,7 @@ impl ServiceInfoUpdater {
         }
     }
 
-    #[instrument(fields(client_id = &self.client_id), skip_all)]
+    #[instrument(skip_all)]
     pub(crate) async fn schedule_update(
         &self,
         service_name: String,

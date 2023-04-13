@@ -14,6 +14,7 @@ use crate::common::{
             GrpcMessageBuilder,
         },
     },
+    remote::into_grpc_server_addr,
 };
 
 use self::{
@@ -51,14 +52,15 @@ pub(crate) struct NacosGrpcClient {
 }
 
 impl NacosGrpcClient {
-    #[instrument(fields(client_id = client_id), skip_all)]
+    #[instrument(skip_all)]
     pub(crate) async fn new(
         address: String,
         app_name: String,
         grpc_port: Option<u32>,
         client_id: String,
     ) -> Result<Self> {
-        let grpc_client = GrpcClient::new(address.as_str(), grpc_port, client_id.clone()).await?;
+        let address = into_grpc_server_addr(address.as_str(), true, grpc_port)?;
+        let grpc_client = GrpcClient::new(address.as_str(), client_id.clone()).await?;
         let grpc_client = RwLock::new(grpc_client);
 
         let bi_handler_map = HashMap::new();
@@ -72,10 +74,10 @@ impl NacosGrpcClient {
         })
     }
 
-    #[instrument(fields(client_id = &self.client_id), skip_all)]
+    #[instrument(skip_all)]
     pub(crate) async fn switch_server(
         &self,
-        server_address: String,
+        address: String,
         grpc_port: Option<u32>,
         set_up: NacosServerSetUP,
     ) -> Result<()> {
@@ -86,8 +88,8 @@ impl NacosGrpcClient {
             old_grpc_client.shutdown().await;
 
             info!("create a new grpc client.");
-            let new_client =
-                GrpcClient::new(server_address.as_str(), grpc_port, self.client_id.clone()).await?;
+            let address = into_grpc_server_addr(address.as_str(), true, grpc_port)?;
+            let new_client = GrpcClient::new(address.as_str(), self.client_id.clone()).await?;
             *old_grpc_client = new_client;
         }
         warn!("init new grpc client.");
@@ -95,7 +97,7 @@ impl NacosGrpcClient {
         self.init(set_up).await
     }
 
-    #[instrument(fields(client_id = &self.client_id), skip_all)]
+    #[instrument(skip_all)]
     pub(crate) async fn init(&self, set_up: NacosServerSetUP) -> Result<()> {
         debug!("init nacos grpc client.");
 
@@ -169,7 +171,7 @@ impl NacosGrpcClient {
         Ok(())
     }
 
-    #[instrument(fields(client_id = &self.client_id), skip_all)]
+    #[instrument(skip_all)]
     async fn open_bi_channel(&self) -> Result<BiChannel> {
         let grpc_client = self.grpc_client.read().await;
         let handler_map = self.bi_handler_map.clone();
@@ -210,7 +212,7 @@ impl NacosGrpcClient {
         Ok(bi_channel)
     }
 
-    #[instrument(fields(client_id = &self.client_id), skip_all)]
+    #[instrument(skip_all)]
     async fn check_server(&self) -> Result<ServerCheckResponse> {
         debug!("check server");
         let request = ServerCheckRequest::new();
@@ -220,7 +222,7 @@ impl NacosGrpcClient {
         Ok(message)
     }
 
-    #[instrument(fields(client_id = &self.client_id), skip_all)]
+    #[instrument(skip_all)]
     async fn setup(&self, bi_channel: &BiChannel, set_up: NacosServerSetUP) -> Result<()> {
         debug!("set up");
 

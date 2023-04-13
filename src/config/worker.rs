@@ -103,7 +103,7 @@ impl ConfigWorker {
         plugin.set_server_list(server_list.to_vec());
         plugin.login((*auth_context).clone());
 
-        debug_span!("config_auth_task", client_id = client_id).in_scope(|| {
+        debug_span!("config_auth_task").in_scope(|| {
             crate::common::executor::schedule_at_fixed_delay(
                 move || {
                     plugin.set_server_list(server_list.to_vec());
@@ -127,7 +127,7 @@ impl ConfigWorker {
 }
 
 impl ConfigWorker {
-    #[instrument( fields(client_id = &self.client_id), skip_all)]
+    #[instrument(skip_all)]
     pub(crate) async fn get_config(
         &self,
         data_id: String,
@@ -165,7 +165,7 @@ impl ConfigWorker {
         ))
     }
 
-    #[instrument( fields(client_id = &self.client_id), skip_all)]
+    #[instrument(skip_all)]
     pub(crate) async fn publish_config(
         &self,
         data_id: String,
@@ -196,7 +196,7 @@ impl ConfigWorker {
         .await
     }
 
-    #[instrument( fields(client_id = &self.client_id), skip_all)]
+    #[instrument(skip_all)]
     pub(crate) async fn publish_config_cas(
         &self,
         data_id: String,
@@ -228,7 +228,7 @@ impl ConfigWorker {
         .await
     }
 
-    #[instrument( fields(client_id = &self.client_id), skip_all)]
+    #[instrument(skip_all)]
     pub(crate) async fn publish_config_beta(
         &self,
         data_id: String,
@@ -260,7 +260,7 @@ impl ConfigWorker {
         .await
     }
 
-    #[instrument( fields(client_id = &self.client_id), skip_all)]
+    #[instrument(skip_all)]
     pub(crate) async fn publish_config_param(
         &self,
         data_id: String,
@@ -293,7 +293,7 @@ impl ConfigWorker {
         .await
     }
 
-    #[instrument( fields(client_id = &self.client_id), skip_all)]
+    #[instrument(skip_all)]
     pub(crate) async fn remove_config(
         &self,
         data_id: String,
@@ -311,7 +311,7 @@ impl ConfigWorker {
     }
 
     /// Add listener.
-    #[instrument( fields(client_id = &self.client_id), skip_all)]
+    #[instrument(skip_all)]
     pub(crate) async fn add_listener(
         &self,
         data_id: String,
@@ -367,7 +367,7 @@ impl ConfigWorker {
     }
 
     /// Remove listener.
-    #[instrument( fields(client_id = &self.client_id), skip_all)]
+    #[instrument(skip_all)]
     pub(crate) async fn remove_listener(
         &self,
         data_id: String,

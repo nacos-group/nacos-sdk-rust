@@ -49,7 +49,7 @@ impl NacosConfigService {
 
 #[cfg(not(feature = "async"))]
 impl ConfigService for NacosConfigService {
-    #[instrument( fields(client_id = &self.client_id), skip_all)]
+    #[instrument(fields(client_id = &self.client_id, group = group, data_id = data_id), skip_all)]
     fn get_config(
         &self,
         data_id: String,
@@ -59,7 +59,7 @@ impl ConfigService for NacosConfigService {
         futures::executor::block_on(future)
     }
 
-    #[instrument( fields(client_id = &self.client_id), skip_all)]
+    #[instrument(fields(client_id = &self.client_id, group = group, data_id = data_id), skip_all)]
     fn publish_config(
         &self,
         data_id: String,
@@ -73,7 +73,7 @@ impl ConfigService for NacosConfigService {
         futures::executor::block_on(future)
     }
 
-    #[instrument( fields(client_id = &self.client_id), skip_all)]
+    #[instrument(fields(client_id = &self.client_id, group = group, data_id = data_id), skip_all)]
     fn publish_config_cas(
         &self,
         data_id: String,
@@ -88,7 +88,7 @@ impl ConfigService for NacosConfigService {
         futures::executor::block_on(future)
     }
 
-    #[instrument( fields(client_id = &self.client_id), skip_all)]
+    #[instrument(fields(client_id = &self.client_id, group = group, data_id = data_id), skip_all)]
     fn publish_config_beta(
         &self,
         data_id: String,
@@ -103,7 +103,7 @@ impl ConfigService for NacosConfigService {
         futures::executor::block_on(future)
     }
 
-    #[instrument( fields(client_id = &self.client_id), skip_all)]
+    #[instrument(fields(client_id = &self.client_id, group = group, data_id = data_id), skip_all)]
     fn publish_config_param(
         &self,
         data_id: String,
@@ -124,13 +124,13 @@ impl ConfigService for NacosConfigService {
         futures::executor::block_on(future)
     }
 
-    #[instrument( fields(client_id = &self.client_id), skip_all)]
+    #[instrument(fields(client_id = &self.client_id, group = group, data_id = data_id), skip_all)]
     fn remove_config(&self, data_id: String, group: String) -> crate::api::error::Result<bool> {
         let future = self.client_worker.remove_config(data_id, group);
         futures::executor::block_on(future)
     }
 
-    #[instrument( fields(client_id = &self.client_id), skip_all)]
+    #[instrument(fields(client_id = &self.client_id, group = group, data_id = data_id), skip_all)]
     fn add_listener(
         &self,
         data_id: String,
@@ -142,7 +142,7 @@ impl ConfigService for NacosConfigService {
         Ok(())
     }
 
-    #[instrument( fields(client_id = &self.client_id), skip_all)]
+    #[instrument(fields(client_id = &self.client_id, group = group, data_id = data_id), skip_all)]
     fn remove_listener(
         &self,
         data_id: String,
@@ -158,7 +158,7 @@ impl ConfigService for NacosConfigService {
 #[cfg(feature = "async")]
 #[async_trait::async_trait]
 impl ConfigService for NacosConfigService {
-    #[instrument( fields(client_id = &self.client_id), skip_all)]
+    #[instrument(fields(client_id = &self.client_id, group = group, data_id = data_id), skip_all)]
     async fn get_config(
         &self,
         data_id: String,
@@ -167,7 +167,7 @@ impl ConfigService for NacosConfigService {
         self.client_worker.get_config(data_id, group).await
     }
 
-    #[instrument( fields(client_id = &self.client_id), skip_all)]
+    #[instrument(fields(client_id = &self.client_id, group = group, data_id = data_id), skip_all)]
     async fn publish_config(
         &self,
         data_id: String,
@@ -180,7 +180,7 @@ impl ConfigService for NacosConfigService {
             .await
     }
 
-    #[instrument( fields(client_id = &self.client_id), skip_all)]
+    #[instrument(fields(client_id = &self.client_id, group = group, data_id = data_id), skip_all)]
     async fn publish_config_cas(
         &self,
         data_id: String,
@@ -194,7 +194,7 @@ impl ConfigService for NacosConfigService {
             .await
     }
 
-    #[instrument( fields(client_id = &self.client_id), skip_all)]
+    #[instrument(fields(client_id = &self.client_id, group = group, data_id = data_id), skip_all)]
     async fn publish_config_beta(
         &self,
         data_id: String,
@@ -208,7 +208,7 @@ impl ConfigService for NacosConfigService {
             .await
     }
 
-    #[instrument( fields(client_id = &self.client_id), skip_all)]
+    #[instrument(fields(client_id = &self.client_id, group = group, data_id = data_id), skip_all)]
     async fn publish_config_param(
         &self,
         data_id: String,
@@ -223,7 +223,7 @@ impl ConfigService for NacosConfigService {
             .await
     }
 
-    #[instrument( fields(client_id = &self.client_id), skip_all)]
+    #[instrument(fields(client_id = &self.client_id, group = group, data_id = data_id), skip_all)]
     async fn remove_config(
         &self,
         data_id: String,
@@ -232,7 +232,7 @@ impl ConfigService for NacosConfigService {
         self.client_worker.remove_config(data_id, group).await
     }
 
-    #[instrument( fields(client_id = &self.client_id), skip_all)]
+    #[instrument(fields(client_id = &self.client_id, group = group, data_id = data_id), skip_all)]
     async fn add_listener(
         &self,
         data_id: String,
@@ -245,7 +245,7 @@ impl ConfigService for NacosConfigService {
         Ok(())
     }
 
-    #[instrument( fields(client_id = &self.client_id), skip_all)]
+    #[instrument(fields(client_id = &self.client_id, group = group, data_id = data_id), skip_all)]
     async fn remove_listener(
         &self,
         data_id: String,
