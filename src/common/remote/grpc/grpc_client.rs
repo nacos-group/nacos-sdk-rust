@@ -245,15 +245,6 @@ impl GrpcClient {
     }
 }
 
-impl Drop for GrpcClient {
-    fn drop(&mut self) {
-        self.client_state.store(
-            GrpcClientState::Shutdown.into(),
-            std::sync::atomic::Ordering::Release,
-        );
-    }
-}
-
 #[derive(Clone, Debug)]
 enum GrpcClientState {
     Healthy,
