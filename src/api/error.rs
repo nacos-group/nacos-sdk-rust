@@ -47,9 +47,6 @@ pub enum Error {
     #[error("remote client unhealthy failed: {0}")]
     ClientUnhealthy(String),
 
-    #[error("grpcio conn failed: {0}")]
-    GrpcioJoin(#[from] grpcio::Error),
-
     #[error("tonic grpc transport error: {0}")]
     TonicGrpcTransport(#[from] tonic::transport::Error),
 

@@ -10,7 +10,7 @@ use crate::naming::events::InstancesChangeEvent;
 use serde::Serialize;
 use tokio::sync::Mutex;
 use tonic::async_trait;
-use tracing::{debug, error, info, warn};
+use tracing::{error, info, warn};
 
 use crate::common::event_bus;
 use crate::{
