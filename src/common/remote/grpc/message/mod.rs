@@ -67,20 +67,10 @@ where
 
         let body_any = body.unwrap();
 
-        let r_type;
-        let client_ip;
-        let headers;
-        let meta_data = payload.metadata;
-
-        if let Some(meta_data) = meta_data {
-            r_type = meta_data.r#type;
-            client_ip = meta_data.client_ip;
-            headers = meta_data.headers;
-        } else {
-            r_type = Default::default();
-            client_ip = Default::default();
-            headers = Default::default();
-        }
+        let meta_data = payload.metadata.unwrap_or_default();
+        let r_type = meta_data.r#type;
+        let client_ip = meta_data.client_ip;
+        let headers = meta_data.headers;
 
         let de_body;
 

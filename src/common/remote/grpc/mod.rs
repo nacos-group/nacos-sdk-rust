@@ -152,7 +152,7 @@ impl NacosGrpcClient {
                     }
                 }
                 let response = response.unwrap().into_body();
-                info!("health check. {response:?}");
+                debug!("health check. {response:?}");
                 tokio::time::sleep(Duration::from_secs(5)).await;
             }
         });
@@ -173,7 +173,7 @@ impl NacosGrpcClient {
             .unary_call_async::<HealthCheckRequest, HealthCheckResponse>(health_check_request)
             .await;
         if response.is_ok() {
-            warn!("the current client health check pass, don't need to reinitialize");
+            debug!("the current client health check pass, don't need to reinitialize");
             return Ok(());
         }
 
