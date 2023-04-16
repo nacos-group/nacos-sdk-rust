@@ -47,7 +47,8 @@ impl NacosGrpcClient {
 }
 
 type HandlerMap = HashMap<String, Arc<dyn ServerRequestHandler>>;
-type ConnectListener = Arc<dyn Fn(String) + Send + Sync + 'static>;
+type ConnectedListener = Arc<dyn Fn(String) + Send + Sync + 'static>;
+type DisconnectedListener = Arc<dyn Fn(String) + Send + Sync + 'static>;
 
 pub(crate) struct NacosGrpcClientBuilder {
     app_name: String,
@@ -58,13 +59,14 @@ pub(crate) struct NacosGrpcClientBuilder {
     grpc_config: GrpcConfiguration,
     server_request_handler_map: HandlerMap,
     server_list: Vec<String>,
-    connected_listener: Option<ConnectListener>,
+    connected_listener: Option<ConnectedListener>,
+    disconnected_listener: Option<DisconnectedListener>,
 }
 
 impl NacosGrpcClientBuilder {
     pub(crate) fn new(server_list: Vec<String>) -> Self {
         Self {
-            app_name: "RUST-UNKNOWN-APP".to_owned(),
+            app_name: "unknown".to_owned(),
             client_version: Default::default(),
             namespace: Default::default(),
             labels: Default::default(),
@@ -73,6 +75,7 @@ impl NacosGrpcClientBuilder {
             server_request_handler_map: Default::default(),
             server_list,
             connected_listener: None,
+            disconnected_listener: None,
         }
     }
 
@@ -121,7 +124,7 @@ impl NacosGrpcClientBuilder {
         Self { ..self }
     }
 
-    pub(crate) fn origin(mut self, uri: &str) -> Self {
+    pub(crate) fn origin(self, uri: &str) -> Self {
         let grpc_config = self.grpc_config.with_origin(uri);
         Self {
             grpc_config,
@@ -129,7 +132,7 @@ impl NacosGrpcClientBuilder {
         }
     }
 
-    pub(crate) fn user_agent(mut self, ua: String) -> Self {
+    pub(crate) fn user_agent(self, ua: String) -> Self {
         let grpc_config = self.grpc_config.with_user_agent(ua);
         Self {
             grpc_config,
@@ -137,7 +140,7 @@ impl NacosGrpcClientBuilder {
         }
     }
 
-    pub(crate) fn timeout(mut self, timeout: Duration) -> Self {
+    pub(crate) fn timeout(self, timeout: Duration) -> Self {
         let grpc_config = self.grpc_config.with_timeout(timeout);
         Self {
             grpc_config,
@@ -145,7 +148,7 @@ impl NacosGrpcClientBuilder {
         }
     }
 
-    pub(crate) fn concurrency_limit(mut self, concurrency_limit: usize) -> Self {
+    pub(crate) fn concurrency_limit(self, concurrency_limit: usize) -> Self {
         let grpc_config = self.grpc_config.with_concurrency_limit(concurrency_limit);
         Self {
             grpc_config,
@@ -153,7 +156,7 @@ impl NacosGrpcClientBuilder {
         }
     }
 
-    pub(crate) fn rate_limit(mut self, rate_limit: (u64, Duration)) -> Self {
+    pub(crate) fn rate_limit(self, rate_limit: (u64, Duration)) -> Self {
         let grpc_config = self.grpc_config.with_rate_limit(rate_limit);
         Self {
             grpc_config,
@@ -161,7 +164,7 @@ impl NacosGrpcClientBuilder {
         }
     }
 
-    pub(crate) fn init_stream_window_size(mut self, init_stream_window_size: u32) -> Self {
+    pub(crate) fn init_stream_window_size(self, init_stream_window_size: u32) -> Self {
         let grpc_config = self
             .grpc_config
             .with_init_stream_window_size(init_stream_window_size);
@@ -171,7 +174,7 @@ impl NacosGrpcClientBuilder {
         }
     }
 
-    pub(crate) fn init_connection_window_size(mut self, init_connection_window_size: u32) -> Self {
+    pub(crate) fn init_connection_window_size(self, init_connection_window_size: u32) -> Self {
         let grpc_config = self
             .grpc_config
             .with_init_connection_window_size(init_connection_window_size);
@@ -181,7 +184,7 @@ impl NacosGrpcClientBuilder {
         }
     }
 
-    pub(crate) fn tcp_keepalive(mut self, tcp_keepalive: Duration) -> Self {
+    pub(crate) fn tcp_keepalive(self, tcp_keepalive: Duration) -> Self {
         let grpc_config = self.grpc_config.with_tcp_keepalive(tcp_keepalive);
         Self {
             grpc_config,
@@ -189,7 +192,7 @@ impl NacosGrpcClientBuilder {
         }
     }
 
-    pub(crate) fn tcp_nodelay(mut self, tcp_nodelay: bool) -> Self {
+    pub(crate) fn tcp_nodelay(self, tcp_nodelay: bool) -> Self {
         let grpc_config = self.grpc_config.with_tcp_nodelay(tcp_nodelay);
         Self {
             grpc_config,
@@ -197,7 +200,7 @@ impl NacosGrpcClientBuilder {
         }
     }
 
-    pub(crate) fn http2_keep_alive_interval(mut self, http2_keep_alive_interval: Duration) -> Self {
+    pub(crate) fn http2_keep_alive_interval(self, http2_keep_alive_interval: Duration) -> Self {
         let grpc_config = self
             .grpc_config
             .with_http2_keep_alive_interval(http2_keep_alive_interval);
@@ -207,7 +210,7 @@ impl NacosGrpcClientBuilder {
         }
     }
 
-    pub(crate) fn http2_keep_alive_timeout(mut self, http2_keep_alive_timeout: Duration) -> Self {
+    pub(crate) fn http2_keep_alive_timeout(self, http2_keep_alive_timeout: Duration) -> Self {
         let grpc_config = self
             .grpc_config
             .with_http2_keep_alive_timeout(http2_keep_alive_timeout);
@@ -217,7 +220,7 @@ impl NacosGrpcClientBuilder {
         }
     }
 
-    pub(crate) fn http2_keep_alive_while_idle(mut self, http2_keep_alive_while_idle: bool) -> Self {
+    pub(crate) fn http2_keep_alive_while_idle(self, http2_keep_alive_while_idle: bool) -> Self {
         let grpc_config = self
             .grpc_config
             .with_http2_keep_alive_while_idle(http2_keep_alive_while_idle);
@@ -227,7 +230,7 @@ impl NacosGrpcClientBuilder {
         }
     }
 
-    pub(crate) fn connect_timeout(mut self, connect_timeout: Duration) -> Self {
+    pub(crate) fn connect_timeout(self, connect_timeout: Duration) -> Self {
         let grpc_config = self.grpc_config.with_connect_timeout(connect_timeout);
         Self {
             grpc_config,
@@ -235,7 +238,7 @@ impl NacosGrpcClientBuilder {
         }
     }
 
-    pub(crate) fn http2_adaptive_window(mut self, http2_adaptive_window: bool) -> Self {
+    pub(crate) fn http2_adaptive_window(self, http2_adaptive_window: bool) -> Self {
         let grpc_config = self
             .grpc_config
             .with_http2_adaptive_window(http2_adaptive_window);
@@ -262,6 +265,14 @@ impl NacosGrpcClientBuilder {
         Self { ..self }
     }
 
+    pub(crate) fn disconnected_listener(
+        mut self,
+        listener: impl Fn(String) + Send + Sync + 'static,
+    ) -> Self {
+        self.disconnected_listener = Some(Arc::new(listener));
+        Self { ..self }
+    }
+
     pub(crate) fn build(mut self) -> NacosGrpcClient {
         self.server_request_handler_map.insert(
             ClientDetectionRequest::identity().to_string(),
@@ -273,7 +284,7 @@ impl NacosGrpcClientBuilder {
             executor::spawn(async move {
                 let server_list = PollingServerListService::new(self.server_list);
                 let tonic_builder = TonicBuilder::new(self.grpc_config, server_list);
-                let connection = NacosGrpcConnection::new(
+                let mut connection = NacosGrpcConnection::new(
                     tonic_builder,
                     self.server_request_handler_map,
                     self.client_version,
@@ -282,9 +293,15 @@ impl NacosGrpcClientBuilder {
                     self.client_abilities,
                 );
 
-                let failover_connection = connection
-                    .connected_listener(self.connected_listener)
-                    .into_failover_connection();
+                if let Some(connected_listener) = self.connected_listener {
+                    connection = connection.connected_listener(connected_listener);
+                }
+
+                if let Some(disconnected_listener) = self.disconnected_listener {
+                    connection = connection.disconnected_listener(disconnected_listener);
+                }
+
+                let failover_connection = connection.into_failover_connection();
                 Arc::new(failover_connection) as Arc<dyn SendRequest + Send + Sync + 'static>
             });
 

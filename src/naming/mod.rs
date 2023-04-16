@@ -60,7 +60,7 @@ pub(crate) struct NacosNamingService {
     redo_task_executor: Arc<RedoTaskExecutor>,
     instances_change_event_subscriber: Arc<InstancesChangeEventSubscriber>,
     service_info_holder: Arc<ServiceInfoHolder>,
-    service_info_updater: Arc<ServiceInfoUpdater>,
+    service_info_updater: ServiceInfoUpdater,
     client_id: String,
 }
 
@@ -94,7 +94,8 @@ impl NacosNamingService {
             auth_plugin.clone(),
             client_id.clone(),
         ));
-        let redo_task_executor_clone = redo_task_executor.clone();
+        let redo_task_executor_on_connected = redo_task_executor.clone();
+        let redo_task_executor_on_disconnected = redo_task_executor.clone();
 
         let service_info_holder = Arc::new(ServiceInfoHolder::new(client_id.clone()));
 
@@ -120,9 +121,16 @@ impl NacosNamingService {
             ))
             .connected_listener(move |connection_id| {
                 info!("connection {} connected.", connection_id);
-                let redo = redo_task_executor_clone.clone();
+                let redo = redo_task_executor_on_connected.clone();
                 executor::spawn(async move {
                     redo.on_grpc_client_reconnect().await;
+                });
+            })
+            .disconnected_listener(move |connection_id| {
+                info!("connection {} disconnected.", connection_id);
+                let redo = redo_task_executor_on_disconnected.clone();
+                executor::spawn(async move {
+                    redo.on_grpc_client_disconnect().await;
                 });
             })
             .build();
@@ -135,13 +143,12 @@ impl NacosNamingService {
         event_bus::register(instances_change_event_subscriber.clone());
 
         // // create service info updater
-
-        let service_info_updater = Arc::new(ServiceInfoUpdater::new(
+        let service_info_updater = ServiceInfoUpdater::new(
             service_info_holder.clone(),
             nacos_grpc_client.clone(),
             namespace.clone(),
             client_id.clone(),
-        ));
+        );
 
         Ok(NacosNamingService {
             redo_task_executor,

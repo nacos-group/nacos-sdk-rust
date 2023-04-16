@@ -6,7 +6,7 @@ use std::{collections::HashMap, pin::Pin, sync::Arc};
 use async_stream::stream;
 use futures::StreamExt;
 use futures::{future, Future};
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{mpsc, oneshot, watch};
 use tokio::time::sleep;
 use tonic::async_trait;
 use tower::buffer::Buffer;
@@ -33,17 +33,17 @@ use super::nacos_grpc_service::NacosGrpcCall;
 use super::nacos_grpc_service::ServerRequestHandler;
 
 type ConnectedListener = Arc<dyn Fn(String) + Send + Sync + 'static>;
+type DisconnectedListener = Arc<dyn Fn(String) + Send + Sync + 'static>;
 
 type HandlerMap = HashMap<String, Arc<dyn ServerRequestHandler>>;
 const MAX_RETRY: i32 = 6;
 
 fn sleep_time(retry_count: i32) -> i32 {
-    let sleep_time = if retry_count > MAX_RETRY {
+    if retry_count > MAX_RETRY {
         1 << (retry_count % MAX_RETRY)
     } else {
         1 << retry_count
-    };
-    sleep_time
+    }
 }
 
 pub(crate) struct NacosGrpcConnection<M>
@@ -60,7 +60,10 @@ where
     health: Arc<AtomicBool>,
     connection_id: Option<String>,
     retry_count: i32,
-    connected_listener: Option<ConnectedListener>,
+    connection_id_watcher: (
+        watch::Sender<Option<String>>,
+        watch::Receiver<Option<String>>,
+    ),
 }
 
 impl<M> NacosGrpcConnection<M>
@@ -80,6 +83,8 @@ where
         labels: HashMap<String, String>,
         client_abilities: NacosClientAbilities,
     ) -> Self {
+        let connection_id_watcher = watch::channel(None);
+
         Self {
             handler_map: Arc::new(handler_map),
             mk_service,
@@ -91,12 +96,47 @@ where
             health: Arc::new(AtomicBool::new(false)),
             connection_id: None,
             retry_count: 0,
-            connected_listener: None,
+            connection_id_watcher,
         }
     }
 
-    pub(crate) fn connected_listener(mut self, listener: Option<ConnectedListener>) -> Self {
-        self.connected_listener = listener;
+    pub(crate) fn connected_listener(self, listener: ConnectedListener) -> Self {
+        let mut rx = self.connection_id_watcher.1.clone();
+        let watch_fu = async move {
+            let mut previous_id = None;
+            while rx.changed().await.is_ok() {
+                let current_id = { rx.borrow().clone() };
+
+                // if previous id is none and the current id is some then the state is connected
+                if previous_id.is_none() && current_id.is_some() {
+                    let current_id = current_id.as_ref().unwrap().clone();
+                    listener(current_id);
+                }
+                previous_id = current_id;
+            }
+            debug!("connected listener quit.");
+        };
+        executor::spawn(watch_fu);
+        self
+    }
+
+    pub(crate) fn disconnected_listener(self, listener: DisconnectedListener) -> Self {
+        let mut rx = self.connection_id_watcher.1.clone();
+        let watch_fu = async move {
+            let mut previous_id: Option<String> = None;
+            while rx.changed().await.is_ok() {
+                let current_id = { rx.borrow().clone() };
+
+                // if previous id is some and the current id is none then the state is disconnected
+                if previous_id.is_some() && current_id.is_none() {
+                    let previous_id = previous_id.as_ref().unwrap().clone();
+                    listener(previous_id);
+                }
+                previous_id = current_id;
+            }
+            debug!("disconnect listener quit.");
+        };
+        executor::spawn(watch_fu);
         self
     }
 
@@ -115,7 +155,7 @@ where
         health: Arc<AtomicBool>,
     ) -> Result<(M::Service, String), Error> {
         // setup
-        let _ = NacosGrpcConnection::<M>::setup(
+        NacosGrpcConnection::<M>::setup(
             handler_map,
             &mut service,
             health,
@@ -130,7 +170,7 @@ where
         for _ in [(); 10] {
             let health_check =
                 NacosGrpcConnection::<M>::connection_health_check(&mut service).await;
-            if let Err(_) = health_check {
+            if health_check.is_err() {
                 sleep(Duration::from_millis(300)).await;
                 continue;
             }
@@ -239,11 +279,9 @@ where
                 }
                 let handler_key = handler_key.unwrap();
                 debug!("server stream handler: {}", handler_key);
-                let handler = server_stream_handlers
-                    .get(&handler_key)
-                    .map(|handler| handler.clone());
+                let handler = server_stream_handlers.get(&handler_key).cloned();
 
-                let handler = handler.unwrap_or(Arc::new(DefaultHandler));
+                let handler = handler.unwrap_or_else(|| Arc::new(DefaultHandler));
                 let ret = handler.request_reply(response).await;
                 if ret.is_none() {
                     debug!(
@@ -413,6 +451,14 @@ where
             match self.state {
                 State::Idle => {
                     info!("create new connection.");
+                    let send_ret = self.connection_id_watcher.0.send(None);
+                    if let Err(e) = send_ret {
+                        // this never happen maybe.
+                        warn!(
+                            "connection id watch channel exception, send to receiver error: {}",
+                            e
+                        );
+                    }
                     let mk_fut = self.mk_service.make_service(());
                     self.state = State::Connecting(mk_fut);
                     continue;
@@ -436,7 +482,7 @@ where
                             continue;
                         }
                         Poll::Ready(Err(e)) => {
-                            self.retry_count = self.retry_count + 1;
+                            self.retry_count += 1;
                             let sleep_time = sleep_time(self.retry_count);
                             error!("create connection error, this operate will be retry after {} sec, retry count:{}. {}", sleep_time,  self.retry_count, e);
                             self.state = State::Retry(Box::new(sleep(Duration::from_secs(
@@ -460,13 +506,13 @@ where
                                 connection_id
                             );
 
-                            // invoke connected listener
-                            if let Some(ref listener) = self.connected_listener {
-                                let listener = listener.clone();
-                                let connection_id = connection_id.clone();
-                                executor::spawn(async move {
-                                    listener(connection_id);
-                                });
+                            let send_ret = self
+                                .connection_id_watcher
+                                .0
+                                .send(Some(connection_id.clone()));
+                            if let Err(e) = send_ret {
+                                // this never happen maybe.
+                                warn!("connection id watch channel exception, send connection id:{} to receiver error: {}", connection_id, e);
                             }
 
                             self.retry_count = 0;
@@ -476,7 +522,7 @@ where
                             continue;
                         }
                         Poll::Ready(Err(e)) => {
-                            self.retry_count = self.retry_count + 1;
+                            self.retry_count += 1;
                             let sleep_time = sleep_time(self.retry_count);
                             error!("initializing connection error, this operate will be retry after {} sec, retry count:{}. {}", sleep_time,  self.retry_count, e);
                             self.state = State::Retry(Box::new(sleep(Duration::from_secs(
@@ -493,7 +539,7 @@ where
                         Poll::Ready(Ok(_)) => return Poll::Ready(Ok(())),
                         Poll::Ready(Err(e)) => {
                             self.health.store(false, Ordering::Release);
-                            self.retry_count = self.retry_count + 1;
+                            self.retry_count += 1;
                             let sleep_time = sleep_time(self.retry_count);
                             error!("connection {:?} not ready, destroy connection and retry, this operate will be retry after {} sec, retry count:{}. {}", self.connection_id,  sleep_time,  self.retry_count, e);
                             self.state = State::Retry(Box::new(sleep(Duration::from_secs(
@@ -509,9 +555,8 @@ where
 
                     let sleep = unsafe { Pin::new_unchecked(sleep) };
                     let ret = sleep.poll(cx);
-                    match ret {
-                        Poll::Pending => return Poll::Pending,
-                        _ => {}
+                    if ret == Poll::Pending {
+                        return Poll::Pending;
                     }
                     self.state = State::Idle;
                     continue;
@@ -528,7 +573,7 @@ where
             }));
         }
 
-        let ret = match self.state {
+        match self.state {
             State::Connected(ref mut service) => {
                 let (gv, mut tk) = want::new();
                 let (tx, rx) = oneshot::channel::<Result<Payload, Error>>();
@@ -538,7 +583,7 @@ where
                 let response_fut = async move {
                     tk.want();
                     let response = rx.await;
-                    if let Err(_) = response {
+                    if response.is_err() {
                         return Err(ErrResult("sender has been drop".to_string()));
                     }
                     response.unwrap()
@@ -549,8 +594,7 @@ where
             _ => ResponseFuture::new(Box::new(async move {
                 Err(ErrResult("the connection is not connected".to_string()))
             })),
-        };
-        ret
+        }
     }
 }
 
@@ -607,7 +651,7 @@ where
         Self {
             inner,
             svc_health,
-            active_health_check: active_health_check.clone(),
+            active_health_check,
         }
     }
 
@@ -637,7 +681,7 @@ where
             }
             let health_check_request = health_check_request.unwrap();
             let ready = futures_util::future::poll_fn(|cx| svc.poll_ready(cx)).await;
-            if let Err(_) = ready {
+            if ready.is_err() {
                 warn!("connection not ready, wait.");
                 sleep(Duration::from_secs(5)).await;
                 continue;

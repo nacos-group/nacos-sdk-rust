@@ -8,6 +8,7 @@ use tokio::{
     sync::RwLock,
     time::{self, sleep},
 };
+use tonic::async_trait;
 use tracing::{debug, debug_span, instrument};
 
 use crate::api::{error::Result, plugin::AuthPlugin};
@@ -52,7 +53,7 @@ impl RedoTaskExecutor {
                 }
                 for task in active_tasks {
                     debug!("automatic request task: {:?}", task.task_key());
-                    task.run();
+                    task.run().await;
                 }
             }
         });
@@ -78,8 +79,17 @@ impl RedoTaskExecutor {
             v.active()
         }
     }
+
+    #[instrument(fields(client_id = &self.client_id), skip_all)]
+    pub(crate) async fn on_grpc_client_disconnect(&self) {
+        let map = self.map.read().await;
+        for (_, v) in map.iter() {
+            v.frozen()
+        }
+    }
 }
 
+#[async_trait]
 pub(crate) trait RedoTask: Send + Sync + 'static {
     fn task_key(&self) -> String;
 
@@ -89,12 +99,14 @@ pub(crate) trait RedoTask: Send + Sync + 'static {
 
     fn is_active(&self) -> bool;
 
-    fn run(&self);
+    async fn run(&self);
 }
 
 type CallBack = Box<dyn Fn(Result<()>) + Send + Sync + 'static>;
+
+#[async_trait]
 pub(crate) trait AutomaticRequest: Send + Sync + 'static {
-    fn run(&self, grpc_client: Arc<NacosGrpcClient>, call_back: CallBack);
+    async fn run(&self, grpc_client: Arc<NacosGrpcClient>, call_back: CallBack);
 
     fn name(&self) -> String;
 }
@@ -118,6 +130,7 @@ impl NamingRedoTask {
     }
 }
 
+#[async_trait]
 impl RedoTask for NamingRedoTask {
     fn task_key(&self) -> String {
         self.automatic_request.name()
@@ -137,17 +150,19 @@ impl RedoTask for NamingRedoTask {
         self.active.load(std::sync::atomic::Ordering::Acquire)
     }
 
-    fn run(&self) {
+    async fn run(&self) {
         let active = self.active.clone();
-        self.automatic_request.run(
-            self.grpc_client.clone(),
-            Box::new(move |ret| {
-                if ret.is_ok() {
-                    active.store(false, std::sync::atomic::Ordering::Release);
-                } else {
-                    active.store(true, std::sync::atomic::Ordering::Release);
-                }
-            }),
-        );
+        self.automatic_request
+            .run(
+                self.grpc_client.clone(),
+                Box::new(move |ret| {
+                    if ret.is_ok() {
+                        active.store(false, std::sync::atomic::Ordering::Release);
+                    } else {
+                        active.store(true, std::sync::atomic::Ordering::Release);
+                    }
+                }),
+            )
+            .await;
     }
 }

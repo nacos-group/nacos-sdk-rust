@@ -208,11 +208,7 @@ where
         let server_info_fut = self.server_list.call(());
         let grpc_config = self.grpc_config.clone();
         let tonic_fut = async move {
-            let server_info = server_info_fut.await;
-            if let Err(e) = server_info {
-                return Err(e);
-            }
-            let server_info = server_info.unwrap();
+            let server_info = server_info_fut.await?;
             let tonic = Tonic::new(server_info, grpc_config);
             Ok(tonic)
         };

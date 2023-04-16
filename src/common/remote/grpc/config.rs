@@ -3,7 +3,7 @@ use std::time::Duration;
 use reqwest::header::HeaderValue;
 use tonic::transport::Uri;
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub(crate) struct GrpcConfiguration {
     pub(crate) origin: Option<Uri>,
     pub(crate) user_agent: Option<HeaderValue>,
@@ -24,8 +24,7 @@ pub(crate) struct GrpcConfiguration {
 impl GrpcConfiguration {
     pub(crate) fn with_origin(mut self, uri: &str) -> Self {
         let uri = uri.parse::<Uri>();
-        if let Err(_) = uri {
-            // just ignore
+        if uri.is_err() {
             return self;
         }
         self.origin = Some(uri.unwrap());
@@ -34,7 +33,7 @@ impl GrpcConfiguration {
 
     pub(crate) fn with_user_agent(mut self, ua: String) -> Self {
         let ua = HeaderValue::try_from(ua);
-        if let Err(_) = ua {
+        if ua.is_err() {
             return self;
         }
         let ua = ua.unwrap();
@@ -112,26 +111,5 @@ impl GrpcConfiguration {
     pub(crate) fn with_http2_adaptive_window(mut self, http2_adaptive_window: bool) -> Self {
         self.http2_adaptive_window = Some(http2_adaptive_window);
         self
-    }
-}
-
-impl Default for GrpcConfiguration {
-    fn default() -> Self {
-        Self {
-            origin: Default::default(),
-            user_agent: Default::default(),
-            timeout: Default::default(),
-            concurrency_limit: Default::default(),
-            rate_limit: Default::default(),
-            init_stream_window_size: Default::default(),
-            init_connection_window_size: Default::default(),
-            tcp_keepalive: Default::default(),
-            tcp_nodelay: Default::default(),
-            http2_keep_alive_interval: Default::default(),
-            http2_keep_alive_timeout: Default::default(),
-            http2_keep_alive_while_idle: Default::default(),
-            connect_timeout: Default::default(),
-            http2_adaptive_window: Default::default(),
-        }
     }
 }

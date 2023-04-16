@@ -1,5 +1,3 @@
-use crate::common::executor;
-
 use crate::common::remote::grpc::message::{GrpcMessage, GrpcMessageBuilder};
 use crate::common::remote::grpc::nacos_grpc_service::ServerRequestHandler;
 use crate::config::message::request::ConfigChangeNotifyRequest;
@@ -8,7 +6,6 @@ use crate::config::util;
 use crate::nacos_proto::v2::Payload;
 use tokio::sync::mpsc::Sender;
 use tonic::async_trait;
-use tracing::{debug_span, Instrument};
 
 /// Handler for ConfigChangeNotify
 pub(crate) struct ConfigChangeNotifyHandler {
