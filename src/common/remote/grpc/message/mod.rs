@@ -2,10 +2,13 @@ use lazy_static::lazy_static;
 use prost_types::Any;
 use serde::{de::DeserializeOwned, Serialize};
 use std::collections::HashMap;
+use tracing::warn;
 
+use crate::api::error::Error::ErrResponse;
 use crate::api::error::Error::ErrResult;
 use crate::api::error::Error::Serialization;
 use crate::api::error::Result;
+use crate::common::remote::grpc::message::response::ErrorResponse;
 use crate::nacos_proto::v2::{Metadata, Payload};
 use std::fmt::Debug;
 use tracing::error;
@@ -64,30 +67,98 @@ where
 
         let body_any = body.unwrap();
 
-        let body = T::from_proto_any(&body_any);
+        let meta_data = payload.metadata.unwrap_or_default();
+        let r_type = meta_data.r#type;
+        let client_ip = meta_data.client_ip;
+        let headers = meta_data.headers;
 
-        if let Err(error) = body {
-            let body_str = String::from_utf8(body_any.value);
-            error!("Deserialize from Any[{body_str:?}] to GrpcMessage occur an error:{error:?}");
-            return Err(error);
-        }
-        let body = body.unwrap();
+        let de_body;
 
-        let client_ip;
-        let headers;
-        let meta_data = payload.metadata;
+        // try to serialize target type if r_type is not empty
+        if !r_type.is_empty() {
+            if T::identity().eq(&r_type) {
+                let ret: Result<T> = T::from_proto_any(&body_any);
+                if let Err(error) = ret {
+                    let payload_str = std::str::from_utf8(&body_any.value);
+                    if payload_str.is_err() {
+                        error!("can not convert to target type {}, this payload can not convert to string as well", T::identity());
+                        return Err(error);
+                    }
+                    let payload_str = payload_str.unwrap();
+                    error!(
+                        "payload {} can not convert to {} occur an error:{:?}",
+                        payload_str,
+                        T::identity(),
+                        error
+                    );
+                    return Err(error);
+                }
+                de_body = ret.unwrap();
+            } else {
+                warn!(
+                    "payload type {}, target type {}, trying convert to ErrorResponse",
+                    &r_type,
+                    T::identity()
+                );
+                // try to convert to Error Response
+                let ret: Result<ErrorResponse> = ErrorResponse::from_proto_any(&body_any);
+                if let Err(error) = ret {
+                    let payload_str = std::str::from_utf8(&body_any.value);
+                    if payload_str.is_err() {
+                        error!("can not convert to ErrorResponse, this payload can not convert to string as well");
+                        return Err(error);
+                    }
+                    let payload_str = payload_str.unwrap();
+                    error!(
+                        "payload {} can not convert to ErrorResponse occur an error:{:?}",
+                        payload_str, error
+                    );
+                    return Err(error);
+                }
 
-        if let Some(meta_data) = meta_data {
-            client_ip = meta_data.client_ip;
-            headers = meta_data.headers;
+                let error_response = ret.unwrap();
+                return Err(ErrResponse(
+                    error_response.request_id,
+                    error_response.result_code,
+                    error_response.error_code,
+                    error_response.message,
+                ));
+            }
         } else {
-            client_ip = "".to_string();
-            headers = HashMap::new();
+            warn!("payload type is empty!");
+            let ret: Result<T> = T::from_proto_any(&body_any);
+            if let Err(error) = ret {
+                let payload_str = std::str::from_utf8(&body_any.value);
+                if payload_str.is_err() {
+                    error!("can not convert to target type {}, this payload can not convert to string as well", T::identity());
+                    return Err(error);
+                }
+                let payload_str = payload_str.unwrap();
+                warn!(
+                    "payload {} can not convert to {} occur an error:{:?}",
+                    payload_str,
+                    T::identity(),
+                    error
+                );
+                let ret: Result<ErrorResponse> = ErrorResponse::from_proto_any(&body_any);
+                if let Err(e) = ret {
+                    error!("trying convert to ErrorResponse occur an error:{:?}", e);
+                    return Err(error);
+                }
+                let error_response = ret.unwrap();
+                return Err(ErrResponse(
+                    error_response.request_id,
+                    error_response.result_code,
+                    error_response.error_code,
+                    error_response.message,
+                ));
+            }
+            de_body = ret.unwrap();
         }
 
         Ok(GrpcMessage {
             headers,
-            body,
+            body: de_body,
             client_ip,
         })
     }

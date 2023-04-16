@@ -1,20 +1,23 @@
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use serde::{Deserialize, Serialize};
-use tokio::sync::RwLock;
+use tokio::sync::Semaphore;
 use tracing::{debug, error, info, instrument, warn, Instrument};
 
-use crate::common::{
-    event_bus, executor,
-    remote::grpc::{
-        events::ClientInitCompleteEvent,
-        handler::default_handler::DefaultHandler,
-        message::{
-            request::{ConnectionSetupRequest, ServerCheckRequest},
-            GrpcMessageBuilder,
+use crate::{
+    api::error::Error,
+    common::{
+        event_bus, executor,
+        remote::grpc::{
+            events::{ClientInitCompleteEvent, ReconnectedEvent},
+            handler::default_handler::DefaultHandler,
+            message::{
+                request::{ConnectionSetupRequest, ServerCheckRequest},
+                GrpcMessageBuilder,
+            },
         },
+        remote::into_grpc_server_addr,
     },
-    remote::into_grpc_server_addr,
 };
 
 use self::{
@@ -24,12 +27,14 @@ use self::{
         client_detection_request_handler::ClientDetectionRequestHandler, GrpcPayloadHandler,
     },
     message::{
-        request::ClientDetectionRequest, response::ServerCheckResponse, GrpcMessageData,
-        GrpcRequestMessage, GrpcResponseMessage,
+        request::{ClientDetectionRequest, HealthCheckRequest},
+        response::{HealthCheckResponse, ServerCheckResponse},
+        GrpcMessageData, GrpcRequestMessage, GrpcResponseMessage,
     },
     subscribers::{ConnectionHealthCheckEventSubscriber, ReconnectedEventSubscriber},
 };
 use crate::api::error::Error::ClientUnhealthy;
+use crate::api::error::Error::ErrResult;
 use crate::api::error::Result;
 
 pub(crate) mod bi_channel;
@@ -44,11 +49,12 @@ const APP_FILED: &str = "app";
 const DEFAULT_CALL_TIME_OUT: u64 = 3000;
 
 pub(crate) struct NacosGrpcClient {
-    grpc_client: RwLock<GrpcClient>,
+    grpc_client: Arc<GrpcClient>,
     pub(crate) connection_id: String,
     pub(crate) client_id: String,
     bi_handler_map: HandlerMap,
     app_name: String,
+    init_semaphore: Semaphore,
 }
 
 impl NacosGrpcClient {
@@ -61,7 +67,7 @@ impl NacosGrpcClient {
     ) -> Result<Self> {
         let address = into_grpc_server_addr(address.as_str(), true, grpc_port)?;
         let grpc_client = GrpcClient::new(address.as_str(), client_id.clone()).await?;
-        let grpc_client = RwLock::new(grpc_client);
+        let grpc_client = Arc::new(grpc_client);
 
         let bi_handler_map = HashMap::new();
 
@@ -71,35 +77,81 @@ impl NacosGrpcClient {
             client_id,
             bi_handler_map,
             app_name,
+            init_semaphore: Semaphore::new(1),
         })
     }
 
     #[instrument(skip_all)]
-    pub(crate) async fn switch_server(
-        &self,
-        address: String,
-        grpc_port: Option<u32>,
-        set_up: NacosServerSetUP,
-    ) -> Result<()> {
-        // switch server
-        warn!("switch server starting");
-        {
-            let mut old_grpc_client = self.grpc_client.write().await;
-            old_grpc_client.shutdown().await;
+    pub(crate) fn health_check_task(&self) {
+        let client_id = self.client_id.clone();
+        let app_name = self.app_name.clone();
+        let grpc_client = self.grpc_client.clone();
+        executor::spawn(async move {
+            loop {
+                if grpc_client.is_shutdown() {
+                    info!("health check task quit. the grpc client has been shutdown.");
+                    break;
+                }
+                let health_check_request = HealthCheckRequest::default();
+                let grpc_message = GrpcMessageBuilder::new(health_check_request)
+                    .header(APP_FILED.to_owned(), app_name.clone())
+                    .build();
 
-            info!("create a new grpc client.");
-            let address = into_grpc_server_addr(address.as_str(), true, grpc_port)?;
-            let new_client = GrpcClient::new(address.as_str(), self.client_id.clone()).await?;
-            *old_grpc_client = new_client;
-        }
-        warn!("init new grpc client.");
-
-        self.init(set_up).await
+                let response = grpc_client
+                    .unary_call_async::<HealthCheckRequest, HealthCheckResponse>(
+                        grpc_message,
+                        Duration::from_millis(DEFAULT_CALL_TIME_OUT),
+                    )
+                    .await;
+                if let Err(e) = response {
+                    match e {
+                        crate::api::error::Error::ErrResponse(
+                            request_id,
+                            ret_code,
+                            error_code,
+                            message,
+                        ) => {
+                            error!("health check failed, ready to reinitialize grpc client. request_id:{request_id:?} ret_code:{ret_code} error_code:{error_code} message:{message:?}");
+                            // send event
+                            event_bus::post(Arc::new(ReconnectedEvent {
+                                scope: client_id.clone(),
+                            }));
+                            tokio::time::sleep(Duration::from_secs(5)).await;
+                            continue;
+                        }
+                        _ => {
+                            //just ignore error
+                            error!("health check failed. {e}");
+                            tokio::time::sleep(Duration::from_secs(5)).await;
+                            continue;
+                        }
+                    }
+                }
+                let response = response.unwrap().into_body();
+                debug!("health check. {response:?}");
+                tokio::time::sleep(Duration::from_secs(5)).await;
+            }
+        });
     }
 
     #[instrument(skip_all)]
     pub(crate) async fn init(&self, set_up: NacosServerSetUP) -> Result<()> {
         debug!("init nacos grpc client.");
+        let semaphore = self.init_semaphore.try_acquire();
+        if semaphore.is_err() {
+            debug!("the current grpc client is initializing. skip init.");
+            return Ok(());
+        }
+
+        // got permit , health check.
+        let health_check_request = HealthCheckRequest::default();
+        let response = self
+            .unary_call_async::<HealthCheckRequest, HealthCheckResponse>(health_check_request)
+            .await;
+        if response.is_ok() {
+            debug!("the current client health check pass, don't need to reinitialize");
+            return Ok(());
+        }
 
         let mut retry_count = 0;
         let retry_wait_time = 300;
@@ -174,10 +226,10 @@ impl NacosGrpcClient {
 
     #[instrument(skip_all)]
     async fn open_bi_channel(&self) -> Result<BiChannel> {
-        let grpc_client = self.grpc_client.read().await;
         let handler_map = self.bi_handler_map.clone();
         debug!("open bi channel");
-        let bi_channel = grpc_client
+        let bi_channel = self
+            .grpc_client
             .open_bi_channel(move |mut payload, response_writer| {
                 let metadata = payload.metadata.take();
                 if metadata.is_none() {
@@ -261,8 +313,8 @@ impl NacosGrpcClient {
             .headers(request_headers)
             .build();
 
-        let grpc_client = self.grpc_client.read().await;
-        let ret = grpc_client
+        let ret = self
+            .grpc_client
             .unary_call_async::<R, P>(grpc_message, Duration::from_millis(DEFAULT_CALL_TIME_OUT))
             .in_current_span()
             .await?;
@@ -295,6 +347,12 @@ impl NacosGrpcClient {
             let vec = vec![handler];
             self.bi_handler_map.insert(key, vec);
         }
+    }
+}
+
+impl Drop for NacosGrpcClient {
+    fn drop(&mut self) {
+        self.grpc_client.shutdown();
     }
 }
 
@@ -524,61 +582,69 @@ impl NacosGrpcClientBuilder {
     }
 
     pub(crate) fn build(self) -> Result<Arc<NacosGrpcClient>> {
-        futures::executor::block_on(
-            async move {
-                let mut nacos_grpc_client = NacosGrpcClient::new(
-                    self.address,
-                    self.app_name,
-                    self.grpc_port,
-                    self.client_id.clone(),
-                )
-                .await?;
-                let server_set_up = NacosServerSetUP {
-                    labels: self.labels,
-                    client_version: self.client_version,
-                    abilities: self.abilities,
-                    namespace: self.namespace,
-                };
+        let build_fut = async move {
+            let mut nacos_grpc_client = NacosGrpcClient::new(
+                self.address,
+                self.app_name,
+                self.grpc_port,
+                self.client_id.clone(),
+            )
+            .await?;
+            let server_set_up = NacosServerSetUP {
+                labels: self.labels,
+                client_version: self.client_version,
+                abilities: self.abilities,
+                namespace: self.namespace,
+            };
 
-                // register grpc payload handler
-                for (key, handlers) in self.bi_call_handlers {
-                    for handler in handlers {
-                        nacos_grpc_client
-                            .register_bi_call_handler(key.clone(), handler)
-                            .await;
-                    }
+            // register grpc payload handler
+            for (key, handlers) in self.bi_call_handlers {
+                for handler in handlers {
+                    nacos_grpc_client
+                        .register_bi_call_handler(key.clone(), handler)
+                        .await;
                 }
-
-                // register default handler
-                nacos_grpc_client
-                    .register_bi_call_handler(
-                        ClientDetectionRequest::identity().to_string(),
-                        Arc::new(ClientDetectionRequestHandler {
-                            client_id: self.client_id.clone(),
-                        }),
-                    )
-                    .await;
-
-                let nacos_grpc_client = Arc::new(nacos_grpc_client);
-
-                // register event subscriber
-                let reconnect_subscriber = ReconnectedEventSubscriber {
-                    nacos_grpc_client: nacos_grpc_client.clone(),
-                    set_up_info: server_set_up.clone(),
-                    scope: self.client_id.clone(),
-                };
-                let health_check_subscriber = ConnectionHealthCheckEventSubscriber {
-                    nacos_grpc_client: nacos_grpc_client.clone(),
-                    scope: self.client_id.clone(),
-                };
-
-                event_bus::register(Arc::new(reconnect_subscriber));
-                event_bus::register(Arc::new(health_check_subscriber));
-
-                nacos_grpc_client.init(server_set_up).await?;
-                Ok(nacos_grpc_client)
             }
-            .in_current_span(),
-        )
+
+            // register default handler
+            nacos_grpc_client
+                .register_bi_call_handler(
+                    ClientDetectionRequest::identity().to_string(),
+                    Arc::new(ClientDetectionRequestHandler {
+                        client_id: self.client_id.clone(),
+                    }),
+                )
+                .await;
+
+            let nacos_grpc_client = Arc::new(nacos_grpc_client);
+
+            // register event subscriber
+            let reconnect_subscriber = ReconnectedEventSubscriber {
+                nacos_grpc_client: nacos_grpc_client.clone(),
+                set_up_info: server_set_up.clone(),
+                scope: self.client_id.clone(),
+            };
+            let health_check_subscriber = ConnectionHealthCheckEventSubscriber {
+                nacos_grpc_client: nacos_grpc_client.clone(),
+                scope: self.client_id.clone(),
+            };
+
+            event_bus::register(Arc::new(reconnect_subscriber));
+            event_bus::register(Arc::new(health_check_subscriber));
+
+            nacos_grpc_client.init(server_set_up).await?;
+            nacos_grpc_client.health_check_task();
+            Ok::<Arc<NacosGrpcClient>, Error>(nacos_grpc_client)
+        }
+        .in_current_span();
+
+        let ret = futures::executor::block_on(executor::spawn(build_fut));
+
+        if let Err(e) = ret {
+            error!("build client failed. {e}");
+            return Err(ErrResult("build client failed.".to_string()));
+        }
+
+        ret.unwrap()
     }
 }

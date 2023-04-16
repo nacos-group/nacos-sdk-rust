@@ -1284,7 +1284,7 @@ pub(crate) mod tests {
 
         info!("response. {ret:?}");
 
-        let ten_millis = time::Duration::from_secs(300);
+        let ten_millis = time::Duration::from_secs(3000);
         thread::sleep(ten_millis);
         Ok(())
     }

@@ -7,9 +7,7 @@ use tracing::{debug, error, info, instrument, warn, Instrument};
 
 use crate::api::error::Result;
 use crate::common::remote::grpc::events::ReconnectedEvent;
-use crate::common::remote::grpc::events::{
-    ConnectionHealthCheckEvent, DisconnectEvent, ShutdownEvent,
-};
+use crate::common::remote::grpc::events::{DisconnectEvent, ShutdownEvent};
 use crate::{api::error::Error::ClientUnhealthy, api::error::Error::ErrResult, common::event_bus};
 use crate::{api::error::Error::GrpcioJoin, nacos_proto::v2::Payload};
 use crate::{
@@ -65,12 +63,17 @@ impl GrpcClient {
     }
 
     #[instrument(fields(client_id = &self.client_id), skip_all)]
-    pub(crate) async fn shutdown(&mut self) {
+    pub(crate) fn shutdown(&self) {
         self.client_state.store(
             GrpcClientState::Shutdown.into(),
             std::sync::atomic::Ordering::Release,
         );
         info!("grpc client shutdown.");
+    }
+
+    pub(crate) fn is_shutdown(&self) -> bool {
+        let state: GrpcClientState = self.client_state.load(Ordering::Acquire).into();
+        matches!(state, GrpcClientState::Shutdown)
     }
 
     #[instrument(fields(client_id = &self.client_id), skip_all)]
@@ -132,12 +135,8 @@ impl GrpcClient {
 
         let response_payload = response_payload.unwrap();
 
-        let message = GrpcMessage::<P>::from_payload(response_payload);
-        if let Err(error) = message {
-            error!("unary_call_async response grpc message convert to message object occur an error. {error:?}");
-            return Err(error);
-        }
-        Ok(message.unwrap())
+        let message = GrpcMessage::<P>::from_payload(response_payload)?;
+        Ok(message)
     }
 
     #[instrument(parent = None , fields(client_id = &self.client_id), skip_all)]
@@ -223,11 +222,6 @@ impl GrpcClient {
                     }
                     ConnectivityState::GRPC_CHANNEL_IDLE => {
                         debug!("the current grpc connection state is in idle");
-                        // health check
-                        event_bus::post(Arc::new(ConnectionHealthCheckEvent {
-                            scope: client_id.clone()
-                        }));
-
                         grpc_channel
                             .wait_for_state_change(ConnectivityState::GRPC_CHANNEL_IDLE, deadline)
                             .await;

@@ -18,9 +18,9 @@ impl NacosEventSubscriber for RedoTaskReconnectEventSubscriber {
     type EventType = ClientInitCompleteEvent;
 
     fn on_event(&self, _: &Self::EventType) {
-        let _redo_task_disconnect_event_subscriber_span = warn_span!(
+        let _redo_task_reconnect_event_subscriber_span = warn_span!(
             parent: None,
-            "redo_task_disconnect_event_subscriber",
+            "redo_task_reconnect_event_subscriber",
             client_id = self.scope
         )
         .entered();
