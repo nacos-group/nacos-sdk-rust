@@ -1,5 +1,13 @@
 # 变更日志 | Change log
 
+### 0.2.5
+
+- 优化重连机制
+
+---
+
+- Enhance: optimize reconnect logic
+
 ### 0.2.4
 
 - 清理无用代码
