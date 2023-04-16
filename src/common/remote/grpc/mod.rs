@@ -1,7 +1,7 @@
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use serde::{Deserialize, Serialize};
-use tokio::sync::{RwLock, Semaphore};
+use tokio::sync::Semaphore;
 use tracing::{debug, error, info, instrument, warn, Instrument};
 
 use crate::{
@@ -49,7 +49,7 @@ const APP_FILED: &str = "app";
 const DEFAULT_CALL_TIME_OUT: u64 = 3000;
 
 pub(crate) struct NacosGrpcClient {
-    grpc_client: Arc<RwLock<GrpcClient>>,
+    grpc_client: Arc<GrpcClient>,
     pub(crate) connection_id: String,
     pub(crate) client_id: String,
     bi_handler_map: HandlerMap,
@@ -67,7 +67,7 @@ impl NacosGrpcClient {
     ) -> Result<Self> {
         let address = into_grpc_server_addr(address.as_str(), true, grpc_port)?;
         let grpc_client = GrpcClient::new(address.as_str(), client_id.clone()).await?;
-        let grpc_client = Arc::new(RwLock::new(grpc_client));
+        let grpc_client = Arc::new(grpc_client);
 
         let bi_handler_map = HashMap::new();
 
@@ -82,36 +82,12 @@ impl NacosGrpcClient {
     }
 
     #[instrument(skip_all)]
-    pub(crate) async fn switch_server(
-        &self,
-        address: String,
-        grpc_port: Option<u32>,
-        set_up: NacosServerSetUP,
-    ) -> Result<()> {
-        // switch server
-        warn!("switch server starting");
-        {
-            let mut old_grpc_client = self.grpc_client.write().await;
-            old_grpc_client.shutdown().await;
-
-            info!("create a new grpc client.");
-            let address = into_grpc_server_addr(address.as_str(), true, grpc_port)?;
-            let new_client = GrpcClient::new(address.as_str(), self.client_id.clone()).await?;
-            *old_grpc_client = new_client;
-        }
-        warn!("init new grpc client.");
-
-        self.init(set_up).await
-    }
-
-    #[instrument(skip_all)]
     pub(crate) fn health_check_task(&self) {
         let client_id = self.client_id.clone();
         let app_name = self.app_name.clone();
         let grpc_client = self.grpc_client.clone();
         executor::spawn(async move {
             loop {
-                let grpc_client = grpc_client.read().await;
                 if grpc_client.is_shutdown() {
                     info!("health check task quit. the grpc client has been shutdown.");
                     break;
@@ -250,10 +226,10 @@ impl NacosGrpcClient {
 
     #[instrument(skip_all)]
     async fn open_bi_channel(&self) -> Result<BiChannel> {
-        let grpc_client = self.grpc_client.read().await;
         let handler_map = self.bi_handler_map.clone();
         debug!("open bi channel");
-        let bi_channel = grpc_client
+        let bi_channel = self
+            .grpc_client
             .open_bi_channel(move |mut payload, response_writer| {
                 let metadata = payload.metadata.take();
                 if metadata.is_none() {
@@ -337,8 +313,8 @@ impl NacosGrpcClient {
             .headers(request_headers)
             .build();
 
-        let grpc_client = self.grpc_client.read().await;
-        let ret = grpc_client
+        let ret = self
+            .grpc_client
             .unary_call_async::<R, P>(grpc_message, Duration::from_millis(DEFAULT_CALL_TIME_OUT))
             .in_current_span()
             .await?;
@@ -371,6 +347,12 @@ impl NacosGrpcClient {
             let vec = vec![handler];
             self.bi_handler_map.insert(key, vec);
         }
+    }
+}
+
+impl Drop for NacosGrpcClient {
+    fn drop(&mut self) {
+        self.grpc_client.shutdown();
     }
 }
 

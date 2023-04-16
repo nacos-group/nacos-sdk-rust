@@ -63,7 +63,7 @@ impl GrpcClient {
     }
 
     #[instrument(fields(client_id = &self.client_id), skip_all)]
-    pub(crate) async fn shutdown(&mut self) {
+    pub(crate) fn shutdown(&self) {
         self.client_state.store(
             GrpcClientState::Shutdown.into(),
             std::sync::atomic::Ordering::Release,
