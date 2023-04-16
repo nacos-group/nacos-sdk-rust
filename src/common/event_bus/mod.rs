@@ -126,7 +126,8 @@ mod __private {
                                 }
                             }
                         } else {
-                            warn!("{key:?} has not been subscribed by anyone.");
+                            let identity = event.event_identity();
+                            warn!("{identity} {key:?} has not been subscribed by anyone.");
                         }
                     }
                 }

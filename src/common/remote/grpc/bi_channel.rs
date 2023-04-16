@@ -43,18 +43,6 @@ impl ResponseWriter {
         }
         Ok(())
     }
-
-    pub(crate) fn blocking_write(&self, payload: Payload) -> Result<()> {
-        let ret = self.local_message_sender.blocking_send(Ok(payload));
-        if let Err(e) = ret {
-            warn!("ResponseWriter write message occur an error. {e:?}");
-            return Err(ErrResult(
-                "ResponseWriter write message occur an error".to_string(),
-            ));
-        }
-
-        Ok(())
-    }
 }
 
 impl BiChannel {
@@ -141,35 +129,11 @@ impl BiChannel {
     }
 
     #[instrument(fields(client_id = &self.client_id), skip_all)]
-    pub(crate) fn blocking_write(&self, payload: Payload) -> Result<()> {
-        let ret = self.local_message_sender.blocking_send(Ok(payload));
-
-        if let Err(e) = ret {
-            warn!("send message occur an error. {e:?}");
-            return Err(ErrResult("send message occur an error".to_string()));
-        }
-
-        Ok(())
-    }
-
-    #[instrument(fields(client_id = &self.client_id), skip_all)]
     pub(crate) async fn close(&self) -> Result<()> {
         let ret = self
             .local_message_sender
             .send(Err(ErrResult("close bi channel".to_string())))
             .await;
-        if let Err(e) = ret {
-            warn!("close channel occur an error. {e:?}");
-            return Err(ErrResult("close channel occur an error".to_string()));
-        }
-        Ok(())
-    }
-
-    #[instrument(fields(client_id = &self.client_id), skip_all)]
-    pub(crate) fn blocking_close(&self) -> Result<()> {
-        let ret = self
-            .local_message_sender
-            .blocking_send(Err(ErrResult("close bi channel".to_string())));
         if let Err(e) = ret {
             warn!("close channel occur an error. {e:?}");
             return Err(ErrResult("close channel occur an error".to_string()));
