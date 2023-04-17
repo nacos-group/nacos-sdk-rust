@@ -12,7 +12,7 @@ lazy_static! {
     static ref COMMON_THREAD_CORES: usize = std::env::var(crate::api::constants::ENV_NACOS_CLIENT_COMMON_THREAD_CORES)
         .ok()
         .and_then(|v| v.parse::<usize>().ok().filter(|n| *n > 0))
-        .unwrap_or(std::thread::available_parallelism().unwrap().get()); // default is num_cpus
+        .unwrap_or_else(|| std::thread::available_parallelism().unwrap().get()); // default is num_cpus
 
     static ref RT: Runtime = Builder::new_multi_thread()
         .enable_all()

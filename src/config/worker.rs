@@ -40,9 +40,7 @@ impl ConfigWorker {
         let (notify_change_tx, notify_change_rx) = tokio::sync::mpsc::channel(16);
         let notify_change_tx_clone = notify_change_tx.clone();
 
-        let remote_client = NacosGrpcClientBuilder::new(client_id.clone())
-            .address(client_props.server_addr.clone())
-            .grpc_port(client_props.grpc_port)
+        let remote_client = NacosGrpcClientBuilder::new(client_props.get_server_list()?)
             .namespace(client_props.namespace.clone())
             .app_name(client_props.app_name.clone())
             .client_version(client_props.client_version.clone())
@@ -59,14 +57,15 @@ impl ConfigWorker {
                 crate::api::constants::common_remote::LABEL_MODULE_CONFIG.to_owned(),
             )
             .add_labels(client_props.labels.clone())
-            .register_bi_call_handler::<ConfigChangeNotifyRequest>(Arc::new(
+            .register_server_request_handler::<ConfigChangeNotifyRequest>(Arc::new(
                 ConfigChangeNotifyHandler {
                     notify_change_tx,
                     client_id: client_id.clone(),
                 },
             ))
-            .build()?;
+            .build();
 
+        let remote_client = Arc::new(remote_client);
         // todo Event/Subscriber instead of mpsc Sender/Receiver
         crate::common::executor::spawn(Self::notify_change_to_cache_data(
             Arc::clone(&remote_client),
@@ -337,10 +336,10 @@ impl ConfigWorker {
             crate::common::executor::spawn(
                 async move {
                     let _ = remote_client_clone
-                    .unary_call_async::<ConfigBatchListenRequest, ConfigChangeBatchListenResponse>(
-                        req,
-                    )
-                    .await;
+                        .send_request::<ConfigBatchListenRequest, ConfigChangeBatchListenResponse>(
+                            req,
+                        )
+                        .await;
                 }
                 .in_current_span(),
             );
@@ -375,7 +374,7 @@ impl ConfigWorker {
 
 impl ConfigWorker {
     /// List-Watch, list ensure cache-data newest.
-    #[instrument(fields(client_id = remote_client.client_id, conn_id = remote_client.connection_id), skip_all)]
+    #[instrument(skip_all)]
     async fn list_ensure_cache_data_newest(
         remote_client: Arc<NacosGrpcClient>,
         auth_plugin: Arc<dyn AuthPlugin>,
@@ -408,9 +407,7 @@ impl ConfigWorker {
                 req.add_headers(auth_plugin.get_login_identity().contexts);
 
                 let resp = remote_client
-                    .unary_call_async::<ConfigBatchListenRequest, ConfigChangeBatchListenResponse>(
-                        req,
-                    )
+                    .send_request::<ConfigBatchListenRequest, ConfigChangeBatchListenResponse>(req)
                     .in_current_span()
                     .await;
 
@@ -453,7 +450,7 @@ impl ConfigWorker {
     }
 
     /// Notify change to cache_data.
-    #[instrument(fields(client_id = remote_client.client_id, conn_id = remote_client.connection_id), skip_all)]
+    #[instrument(skip_all)]
     async fn notify_change_to_cache_data(
         remote_client: Arc<NacosGrpcClient>,
         auth_plugin: Arc<dyn AuthPlugin>,
@@ -507,7 +504,7 @@ impl ConfigWorker {
         let mut req = ConfigQueryRequest::new(data_id, group, namespace);
         req.add_headers(auth_plugin.get_login_identity().contexts);
         let resp = remote_client
-            .unary_call_async::<ConfigQueryRequest, ConfigQueryResponse>(req)
+            .send_request::<ConfigQueryRequest, ConfigQueryResponse>(req)
             .await?;
 
         if resp.is_success() {
@@ -574,7 +571,7 @@ impl ConfigWorker {
             encrypted_data_key,
         );
         let resp = remote_client
-            .unary_call_async::<ConfigPublishRequest, ConfigPublishResponse>(req)
+            .send_request::<ConfigPublishRequest, ConfigPublishResponse>(req)
             .await?;
 
         if resp.is_success() {
@@ -603,7 +600,7 @@ impl ConfigWorker {
         let mut req = ConfigRemoveRequest::new(data_id, group, namespace);
         req.add_headers(auth_plugin.get_login_identity().contexts);
         let resp = remote_client
-            .unary_call_async::<ConfigRemoveRequest, ConfigRemoveResponse>(req)
+            .send_request::<ConfigRemoveRequest, ConfigRemoveResponse>(req)
             .await?;
 
         if resp.is_success() {
