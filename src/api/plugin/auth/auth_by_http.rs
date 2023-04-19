@@ -88,7 +88,9 @@ impl AuthPlugin for HttpLoginAuthPlugin {
                 sender.send(None).expect("send response failed");
                 return;
             }
-            sender.send(Some(resp_obj.unwrap())).expect("send response failed");
+            sender
+                .send(Some(resp_obj.unwrap()))
+                .expect("send response failed");
         };
 
         crate::common::executor::spawn(future);
