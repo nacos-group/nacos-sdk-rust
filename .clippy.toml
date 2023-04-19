@@ -1,0 +1,14 @@
+type-complexity-threshold = 500
+disallowed-methods = [
+    # Mutating environment variables in a multi-threaded context can cause data races.
+    # see https://github.com/rust-lang/rust/issues/90308 for details.
+    "std::env::set_var",
+    "std::env::remove_var",
+
+    # Use tokio::time::sleep instead.
+    "std::time::sleep",
+]
+disallowed-types = [
+    # Use tokio::time::Instant instead.
+    "std::time::Instant",
+]

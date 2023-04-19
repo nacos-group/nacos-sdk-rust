@@ -1,7 +1,7 @@
 use rand::Rng;
 use std::ops::{Add, Deref};
 use std::sync::RwLock;
-use std::time::{Duration, Instant};
+use tokio::time::{Duration, Instant};
 
 use crate::api::plugin::{AuthContext, AuthPlugin, LoginIdentityContext};
 
