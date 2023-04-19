@@ -1,5 +1,4 @@
 use rand::Rng;
-use reqwest::Response;
 use std::ops::{Add, Deref};
 use std::sync::RwLock;
 use std::time::{Duration, Instant};
