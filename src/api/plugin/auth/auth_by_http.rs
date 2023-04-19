@@ -1,4 +1,5 @@
 use rand::Rng;
+use reqwest::Response;
 use std::ops::{Add, Deref};
 use std::sync::RwLock;
 use std::time::{Duration, Instant};
@@ -45,8 +46,8 @@ impl AuthPlugin for HttpLoginAuthPlugin {
             return;
         }
 
-        let username = auth_context.params.get(USERNAME).unwrap();
-        let password = auth_context.params.get(PASSWORD).unwrap();
+        let username = auth_context.params.get(USERNAME).unwrap().to_owned();
+        let password = auth_context.params.get(PASSWORD).unwrap().to_owned();
 
         let server_addr = {
             let mutex = self.server_list.read().unwrap();
@@ -66,7 +67,8 @@ impl AuthPlugin for HttpLoginAuthPlugin {
 
         tracing::debug!("Http login with username={username},password={password}");
 
-        let future = async {
+        let (sender, receiver) = std::sync::mpsc::channel::<Option<HttpLoginResponse>>();
+        let future = async move {
             let resp = reqwest::Client::new()
                 .post(login_url)
                 .query(&[(USERNAME, username), (PASSWORD, password)])
@@ -75,19 +77,22 @@ impl AuthPlugin for HttpLoginAuthPlugin {
             tracing::debug!("Http login resp={resp:?}");
 
             if resp.is_err() {
-                return None;
+                sender.send(None).expect("send response failed");
+                return;
             }
 
             let resp_text = resp.unwrap().text().await.unwrap();
 
             let resp_obj = serde_json::from_str::<HttpLoginResponse>(&resp_text);
             if resp_obj.is_err() {
-                return None;
+                sender.send(None).expect("send response failed");
+                return;
             }
-            Some(resp_obj.unwrap())
+            sender.send(Some(resp_obj.unwrap())).expect("send response failed");
         };
 
-        let login_response = futures::executor::block_on(future);
+        crate::common::executor::spawn(future);
+        let login_response = receiver.recv().expect("receive response failed");
 
         if let Some(login_response) = login_response {
             let delay_sec = login_response.token_ttl / 10;
