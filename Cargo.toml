@@ -71,6 +71,8 @@ http = "0.2.9"
 pin-project = "1.0.12"
 futures-util = "0.3.28"
 want = "0.3.0"
+dashmap = "5.4.0"
+home = "0.5.4"
 
 
 [dev-dependencies]
