@@ -1,5 +1,6 @@
 use std::{collections::HashMap, sync::Arc, time::Duration};
 use tokio::task::JoinHandle;
+use tower::layer::util::Stack;
 
 use crate::api::error::Error;
 use crate::common::executor;
@@ -7,10 +8,14 @@ use crate::common::remote::grpc::message::{request::NacosClientAbilities, GrpcMe
 use crate::common::remote::grpc::message::{
     GrpcMessage, GrpcMessageBuilder, GrpcRequestMessage, GrpcResponseMessage,
 };
+use crate::common::remote::grpc::nacos_grpc_service::DynamicUnaryCallLayerWrapper;
 
 use super::handlers::client_detection_request_handler::ClientDetectionRequestHandler;
 use super::message::request::ClientDetectionRequest;
 use super::nacos_grpc_connection::{NacosGrpcConnection, SendRequest};
+use super::nacos_grpc_service::{
+    DynamicBiStreamingCallLayer, DynamicBiStreamingCallLayerWrapper, DynamicUnaryCallLayer,
+};
 use super::server_list_service::PollingServerListService;
 use super::tonic::TonicBuilder;
 use super::{config::GrpcConfiguration, nacos_grpc_service::ServerRequestHandler};
@@ -61,6 +66,8 @@ pub(crate) struct NacosGrpcClientBuilder {
     server_list: Vec<String>,
     connected_listener: Option<ConnectedListener>,
     disconnected_listener: Option<DisconnectedListener>,
+    unary_call_layer: Option<DynamicUnaryCallLayer>,
+    bi_call_layer: Option<DynamicBiStreamingCallLayer>,
 }
 
 impl NacosGrpcClientBuilder {
@@ -76,6 +83,8 @@ impl NacosGrpcClientBuilder {
             server_list,
             connected_listener: None,
             disconnected_listener: None,
+            unary_call_layer: None,
+            bi_call_layer: None,
         }
     }
 
@@ -273,6 +282,38 @@ impl NacosGrpcClientBuilder {
         Self { ..self }
     }
 
+    pub(crate) fn unary_call_layer(self, layer: DynamicUnaryCallLayer) -> Self {
+        let stack = if let Some(unary_call_layer) = self.unary_call_layer {
+            Arc::new(Stack::new(
+                DynamicUnaryCallLayerWrapper(layer),
+                DynamicUnaryCallLayerWrapper(unary_call_layer),
+            ))
+        } else {
+            layer
+        };
+
+        Self {
+            unary_call_layer: Some(stack),
+            ..self
+        }
+    }
+
+    pub(crate) fn bi_call_layer(self, layer: DynamicBiStreamingCallLayer) -> Self {
+        let stack = if let Some(bi_call_layer) = self.bi_call_layer {
+            Arc::new(Stack::new(
+                DynamicBiStreamingCallLayerWrapper(layer),
+                DynamicBiStreamingCallLayerWrapper(bi_call_layer),
+            ))
+        } else {
+            layer
+        };
+
+        Self {
+            bi_call_layer: Some(stack),
+            ..self
+        }
+    }
+
     pub(crate) fn build(mut self) -> NacosGrpcClient {
         self.server_request_handler_map.insert(
             ClientDetectionRequest::identity().to_string(),
@@ -283,7 +324,15 @@ impl NacosGrpcClientBuilder {
         let join_handler: JoinHandle<Arc<dyn SendRequest + Send + Sync + 'static>> =
             executor::spawn(async move {
                 let server_list = PollingServerListService::new(self.server_list);
-                let tonic_builder = TonicBuilder::new(self.grpc_config, server_list);
+                let mut tonic_builder = TonicBuilder::new(self.grpc_config, server_list);
+                if let Some(layer) = self.unary_call_layer {
+                    tonic_builder = tonic_builder.unary_call_layer(layer);
+                }
+
+                if let Some(layer) = self.bi_call_layer {
+                    tonic_builder = tonic_builder.bi_call_layer(layer);
+                }
+
                 let mut connection = NacosGrpcConnection::new(
                     tonic_builder,
                     self.server_request_handler_map,

@@ -108,12 +108,12 @@ where
         debug!("{} sync to {} quit!", id, store.name());
     }
 
-    pub(crate) fn get(&self, key: &String) -> Option<CacheRef<V>> {
+    pub(crate) fn get(&self, key: &String) -> Option<CacheRef<'_, V>> {
         let value = self.inner.get(key);
         value.map(|dash_map_ref| CacheRef { dash_map_ref })
     }
 
-    pub(crate) fn get_mut(&self, key: &String) -> Option<CacheRefMut<V>> {
+    pub(crate) fn get_mut(&self, key: &String) -> Option<CacheRefMut<'_, V>> {
         let value = self.inner.get_mut(key);
         value.map(|dash_map_ref_mut| CacheRefMut {
             dash_map_ref_mut,
@@ -369,7 +369,7 @@ enum ChangeEvent {
 
 #[async_trait]
 pub(crate) trait Store<V>: Send {
-    fn name(&self) -> Cow<str>;
+    fn name(&self) -> Cow<'_, str>;
 
     fn load(&mut self) -> HashMap<String, V>;
 

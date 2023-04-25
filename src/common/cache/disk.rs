@@ -25,7 +25,7 @@ impl<V> Store<V> for DiskStore
 where
     V: de::DeserializeOwned,
 {
-    fn name(&self) -> Cow<str> {
+    fn name(&self) -> Cow<'_, str> {
         Cow::from("disk store")
     }
 

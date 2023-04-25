@@ -1,19 +1,27 @@
 use std::{
     pin::Pin,
+    sync::Arc,
     task::{Context, Poll},
 };
 
 use futures::{Future, StreamExt};
 use http::Uri;
 use tonic::transport::{Channel, Endpoint};
-use tower::Service;
+use tower::{layer::util::Stack, Service};
 use tracing::error;
 
-use crate::nacos_proto::v2::{
-    bi_request_stream_client::BiRequestStreamClient, request_client::RequestClient, Payload,
+use crate::{
+    common::remote::grpc::nacos_grpc_service::DynamicBiStreamingCallLayerWrapper,
+    nacos_proto::v2::{
+        bi_request_stream_client::BiRequestStreamClient, request_client::RequestClient, Payload,
+    },
 };
 
-use super::nacos_grpc_service::GrpcStream;
+use super::nacos_grpc_service::{
+    BiStreamingCallIdentityLayer, DynamicBiStreamingCallLayer, DynamicBiStreamingCallService,
+    DynamicUnaryCallLayer, DynamicUnaryCallLayerWrapper, DynamicUnaryCallService, GrpcStream,
+    UnaryCallIdentityLayer,
+};
 use super::{
     config::GrpcConfiguration,
     nacos_grpc_service::{Callback, NacosGrpcCall},
@@ -25,10 +33,17 @@ use crate::api::error::Error::TonicGrpcStatus;
 pub(crate) struct Tonic {
     request_client: RequestClient<Channel>,
     bi_client: BiRequestStreamClient<Channel>,
+    unary_call_layer: DynamicUnaryCallLayer,
+    bi_call_layer: DynamicBiStreamingCallLayer,
 }
 
 impl Tonic {
-    pub fn new(server: Uri, grpc_config: GrpcConfiguration) -> Self {
+    pub fn new(
+        server: Uri,
+        grpc_config: GrpcConfiguration,
+        unary_call_layer: DynamicUnaryCallLayer,
+        bi_call_layer: DynamicBiStreamingCallLayer,
+    ) -> Self {
         let mut endpoint = Endpoint::from(server);
 
         if let Some(origin) = grpc_config.origin {
@@ -85,17 +100,20 @@ impl Tonic {
         let channel = endpoint.connect_lazy();
 
         let request_client = RequestClient::new(channel.clone());
+
         let bi_client = BiRequestStreamClient::new(channel);
 
         Self {
             request_client,
             bi_client,
+            unary_call_layer,
+            bi_call_layer,
         }
     }
 }
 
 fn unary_request(
-    mut client: RequestClient<Channel>,
+    mut service: DynamicUnaryCallService,
     request: (Payload, Callback<Result<Payload, Error>>),
 ) -> GrpcCallTask {
     let task = async move {
@@ -107,11 +125,7 @@ fn unary_request(
                     .to_string(),
             ));
         }
-        let response = client.request(payload).await;
-        let response = match response {
-            Ok(ret) => Ok(ret.into_inner()),
-            Err(status) => Err(TonicGrpcStatus(status)),
-        };
+        let response = service.call(payload).await;
         let send_ret = cb.send(response).await;
         if let Err(e) = send_ret {
             error!(
@@ -129,7 +143,7 @@ fn unary_request(
 }
 
 fn bi_request(
-    mut client: BiRequestStreamClient<Channel>,
+    mut service: DynamicBiStreamingCallService,
     request: (
         GrpcStream<Payload>,
         Callback<Result<GrpcStream<Result<Payload, Error>>, Error>>,
@@ -143,21 +157,7 @@ fn bi_request(
                 "bi_request failed, callback can not invoke, receiver has been closed.".to_string(),
             ));
         }
-        let response = client.request_bi_stream(stream).await;
-
-        let response = match response {
-            Ok(response) => {
-                let response = response
-                    .into_inner()
-                    .map(|item| match item {
-                        Ok(payload) => Ok(payload),
-                        Err(status) => Err(TonicGrpcStatus(status)),
-                    })
-                    .boxed();
-                Ok(GrpcStream::new(response))
-            }
-            Err(status) => Err(TonicGrpcStatus(status)),
-        };
+        let response = service.call(stream).await;
 
         let send_ret = cb.send(response).await;
         if let Err(e) = send_ret {
@@ -178,13 +178,43 @@ fn bi_request(
 pub(crate) struct TonicBuilder<S> {
     grpc_config: GrpcConfiguration,
     server_list: S,
+    unary_call_layer: DynamicUnaryCallLayer,
+    bi_call_layer: DynamicBiStreamingCallLayer,
 }
 
-impl<S> TonicBuilder<S> {
+impl<S> TonicBuilder<S>
+where
+    S: Service<(), Response = Uri, Error = Error>,
+    S::Future: Send + 'static,
+{
     pub(crate) fn new(grpc_config: GrpcConfiguration, server_list: S) -> Self {
         Self {
             grpc_config,
             server_list,
+            unary_call_layer: Arc::new(UnaryCallIdentityLayer),
+            bi_call_layer: Arc::new(BiStreamingCallIdentityLayer),
+        }
+    }
+
+    pub(crate) fn unary_call_layer(self, layer: DynamicUnaryCallLayer) -> Self {
+        let stack = Arc::new(Stack::new(
+            DynamicUnaryCallLayerWrapper(layer),
+            DynamicUnaryCallLayerWrapper(self.unary_call_layer),
+        ));
+        Self {
+            unary_call_layer: stack,
+            ..self
+        }
+    }
+
+    pub(crate) fn bi_call_layer(self, layer: DynamicBiStreamingCallLayer) -> Self {
+        let stack = Arc::new(Stack::new(
+            DynamicBiStreamingCallLayerWrapper(layer),
+            DynamicBiStreamingCallLayerWrapper(self.bi_call_layer),
+        ));
+        Self {
+            bi_call_layer: stack,
+            ..self
         }
     }
 }
@@ -207,9 +237,12 @@ where
     fn call(&mut self, _: ()) -> Self::Future {
         let server_info_fut = self.server_list.call(());
         let grpc_config = self.grpc_config.clone();
+        let unary_call_layer = self.unary_call_layer.clone();
+        let bi_call_layer = self.bi_call_layer.clone();
+
         let tonic_fut = async move {
             let server_info = server_info_fut.await?;
-            let tonic = Tonic::new(server_info, grpc_config);
+            let tonic = Tonic::new(server_info, grpc_config, unary_call_layer, bi_call_layer);
             Ok(tonic)
         };
         Box::pin(tonic_fut)
@@ -231,11 +264,16 @@ impl Service<NacosGrpcCall> for Tonic {
         match call {
             NacosGrpcCall::RequestService(request) => {
                 let unary_request_client = self.request_client.clone();
-                unary_request(unary_request_client, request)
+                let unary_call_service = UnaryCallService::new(unary_request_client);
+                let dynamic_unary_call_service =
+                    self.unary_call_layer.layer(Box::new(unary_call_service));
+                unary_request(dynamic_unary_call_service, request)
             }
             NacosGrpcCall::BIRequestService(request) => {
                 let bi_request_client = self.bi_client.clone();
-                bi_request(bi_request_client, request)
+                let bi_call_service = BiStreamingCallService::new(bi_request_client);
+                let dynamic_bi_call_service = self.bi_call_layer.layer(Box::new(bi_call_service));
+                bi_request(dynamic_bi_call_service, request)
             }
         }
     }
@@ -262,5 +300,85 @@ impl Future for GrpcCallTask {
     ) -> std::task::Poll<Self::Output> {
         let pin = unsafe { Pin::new_unchecked(self.get_mut().inner.as_mut()) };
         pin.poll(cx)
+    }
+}
+
+pub(crate) struct UnaryCallService {
+    client: RequestClient<Channel>,
+}
+
+impl UnaryCallService {
+    pub(crate) fn new(client: RequestClient<Channel>) -> Self {
+        Self { client }
+    }
+}
+
+impl Service<Payload> for UnaryCallService {
+    type Response = Payload;
+
+    type Error = Error;
+
+    type Future =
+        Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send + 'static>>;
+
+    fn poll_ready(&mut self, _: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        Poll::Ready(Ok(()))
+    }
+
+    fn call(&mut self, req: Payload) -> Self::Future {
+        let mut client = self.client.clone();
+        let fut = async move {
+            let response = client.request(req).await;
+            match response {
+                Ok(ret) => Ok(ret.into_inner()),
+                Err(status) => Err(TonicGrpcStatus(status)),
+            }
+        };
+        Box::pin(fut)
+    }
+}
+
+pub(crate) struct BiStreamingCallService {
+    client: BiRequestStreamClient<Channel>,
+}
+
+impl BiStreamingCallService {
+    pub(crate) fn new(client: BiRequestStreamClient<Channel>) -> Self {
+        Self { client }
+    }
+}
+
+impl Service<GrpcStream<Payload>> for BiStreamingCallService {
+    type Response = GrpcStream<Result<Payload, Error>>;
+
+    type Error = Error;
+
+    type Future =
+        Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send + 'static>>;
+
+    fn poll_ready(&mut self, _: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        Poll::Ready(Ok(()))
+    }
+
+    fn call(&mut self, req: GrpcStream<Payload>) -> Self::Future {
+        let mut client = self.client.clone();
+
+        let fut = async move {
+            let response = client.request_bi_stream(req).await;
+            match response {
+                Ok(response) => {
+                    let response = response
+                        .into_inner()
+                        .map(|item| match item {
+                            Ok(payload) => Ok(payload),
+                            Err(status) => Err(TonicGrpcStatus(status)),
+                        })
+                        .boxed();
+                    Ok(GrpcStream::new(response))
+                }
+                Err(status) => Err(TonicGrpcStatus(status)),
+            }
+        };
+        Box::pin(fut)
     }
 }
