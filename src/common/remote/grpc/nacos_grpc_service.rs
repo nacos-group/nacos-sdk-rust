@@ -142,7 +142,7 @@ impl Layer<DynamicBiStreamingCallService> for BiStreamingCallIdentityLayer {
 }
 
 #[cfg(test)]
-pub mod unary_call_Layer_test {
+pub mod unary_call_layer_test {
     use std::{pin::Pin, sync::Arc, task::Poll};
 
     use futures::{future::poll_fn, Future};
