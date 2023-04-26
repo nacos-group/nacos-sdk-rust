@@ -133,6 +133,22 @@ impl NacosGrpcClientBuilder {
         Self { ..self }
     }
 
+    pub(crate) fn host(self, host: String) -> Self {
+        let grpc_config = self.grpc_config.with_host(host);
+        Self {
+            grpc_config,
+            ..self
+        }
+    }
+
+    pub(crate) fn port(self, port: u32) -> Self {
+        let grpc_config = self.grpc_config.with_port(port);
+        Self {
+            grpc_config,
+            ..self
+        }
+    }
+
     pub(crate) fn origin(self, uri: &str) -> Self {
         let grpc_config = self.grpc_config.with_origin(uri);
         Self {
@@ -386,8 +402,7 @@ pub mod tests {
             .with_max_level(LevelFilter::DEBUG)
             .init();
 
-        let grpc_client_builder =
-            NacosGrpcClientBuilder::new(vec!["http://127.0.0.1:9848".to_string()]);
+        let grpc_client_builder = NacosGrpcClientBuilder::new(vec!["127.0.0.1:8848".to_string()]);
         let grpc_client = grpc_client_builder.build();
 
         let health_check = HealthCheckRequest::default();

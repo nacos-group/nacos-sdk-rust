@@ -8,7 +8,7 @@ use futures::{Future, StreamExt};
 use http::Uri;
 use tonic::transport::{Channel, Endpoint};
 use tower::{layer::util::Stack, Service};
-use tracing::error;
+use tracing::{debug, error};
 
 use crate::{
     common::remote::grpc::nacos_grpc_service::DynamicBiStreamingCallLayerWrapper,
@@ -39,11 +39,30 @@ pub(crate) struct Tonic {
 
 impl Tonic {
     pub fn new(
-        server: Uri,
         grpc_config: GrpcConfiguration,
         unary_call_layer: DynamicUnaryCallLayer,
         bi_call_layer: DynamicBiStreamingCallLayer,
     ) -> Self {
+        let url_authority = if let Some(port) = grpc_config.port {
+            format!("{}:{}", grpc_config.host, port)
+        } else {
+            grpc_config.host
+        };
+
+        let scheme = if cfg!(feature = "tls") {
+            "https"
+        } else {
+            "http"
+        };
+
+        let server = Uri::builder()
+            .scheme(scheme)
+            .authority(url_authority)
+            .path_and_query("/")
+            .build()
+            .unwrap();
+
+        debug!("create new endpoint :{}", server);
         let mut endpoint = Endpoint::from(server);
 
         if let Some(origin) = grpc_config.origin {
@@ -184,7 +203,7 @@ pub(crate) struct TonicBuilder<S> {
 
 impl<S> TonicBuilder<S>
 where
-    S: Service<(), Response = Uri, Error = Error>,
+    S: Service<(), Response = (String, u32), Error = Error>,
     S::Future: Send + 'static,
 {
     pub(crate) fn new(grpc_config: GrpcConfiguration, server_list: S) -> Self {
@@ -221,7 +240,7 @@ where
 
 impl<S> Service<()> for TonicBuilder<S>
 where
-    S: Service<(), Response = Uri, Error = Error>,
+    S: Service<(), Response = (String, u32), Error = Error>,
     S::Future: Send + 'static,
 {
     type Response = Tonic;
@@ -236,13 +255,18 @@ where
 
     fn call(&mut self, _: ()) -> Self::Future {
         let server_info_fut = self.server_list.call(());
-        let grpc_config = self.grpc_config.clone();
+        let mut grpc_config = self.grpc_config.clone();
         let unary_call_layer = self.unary_call_layer.clone();
         let bi_call_layer = self.bi_call_layer.clone();
 
         let tonic_fut = async move {
-            let server_info = server_info_fut.await?;
-            let tonic = Tonic::new(server_info, grpc_config, unary_call_layer, bi_call_layer);
+            let (host, port) = server_info_fut.await?;
+            if grpc_config.port.is_none() {
+                grpc_config.port = Some(port + 1000);
+            }
+            grpc_config.host = host;
+
+            let tonic = Tonic::new(grpc_config, unary_call_layer, bi_call_layer);
             Ok(tonic)
         };
         Box::pin(tonic_fut)
