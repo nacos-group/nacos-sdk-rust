@@ -44,9 +44,9 @@ impl Tonic {
         bi_call_layer: DynamicBiStreamingCallLayer,
     ) -> Self {
         let url_authority = if let Some(port) = grpc_config.port {
-            format!("{}:{}", grpc_config.address, port)
+            format!("{}:{}", grpc_config.host, port)
         } else {
-            grpc_config.address
+            grpc_config.host
         };
 
         let scheme = if cfg!(feature = "tls") {
@@ -260,11 +260,11 @@ where
         let bi_call_layer = self.bi_call_layer.clone();
 
         let tonic_fut = async move {
-            let (address, port) = server_info_fut.await?;
+            let (host, port) = server_info_fut.await?;
             if grpc_config.port.is_none() {
                 grpc_config.port = Some(port + 1000);
             }
-            grpc_config.address = address;
+            grpc_config.host = host;
 
             let tonic = Tonic::new(grpc_config, unary_call_layer, bi_call_layer);
             Ok(tonic)

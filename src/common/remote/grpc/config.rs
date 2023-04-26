@@ -5,7 +5,7 @@ use tonic::transport::Uri;
 
 #[derive(Clone)]
 pub(crate) struct GrpcConfiguration {
-    pub(crate) address: String,
+    pub(crate) host: String,
     pub(crate) port: Option<u32>,
     pub(crate) origin: Option<Uri>,
     pub(crate) user_agent: Option<HeaderValue>,
@@ -24,8 +24,8 @@ pub(crate) struct GrpcConfiguration {
 }
 
 impl GrpcConfiguration {
-    pub(crate) fn with_address(mut self, address: String) -> Self {
-        self.address = address;
+    pub(crate) fn with_host(mut self, host: String) -> Self {
+        self.host = host;
         self
     }
 
@@ -129,7 +129,7 @@ impl GrpcConfiguration {
 impl Default for GrpcConfiguration {
     fn default() -> Self {
         Self {
-            address: "127.0.0.1".to_string(),
+            host: "127.0.0.1".to_string(),
             port: Default::default(),
             origin: Default::default(),
             user_agent: Default::default(),

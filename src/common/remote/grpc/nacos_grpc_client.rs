@@ -133,8 +133,8 @@ impl NacosGrpcClientBuilder {
         Self { ..self }
     }
 
-    pub(crate) fn address(self, address: String) -> Self {
-        let grpc_config = self.grpc_config.with_address(address);
+    pub(crate) fn host(self, host: String) -> Self {
+        let grpc_config = self.grpc_config.with_host(host);
         Self {
             grpc_config,
             ..self
