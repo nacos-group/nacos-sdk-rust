@@ -10,11 +10,17 @@ use std::{
 use tokio::{sync::Mutex, time::sleep};
 use tracing::{debug, error, info, instrument, warn, Instrument};
 
-use crate::common::{
-    executor,
-    remote::{
-        generate_request_id,
-        grpc::{message::GrpcResponseMessage, NacosGrpcClient},
+use crate::{
+    api::plugin::AuthPlugin,
+    common::{
+        executor,
+        remote::{
+            generate_request_id,
+            grpc::{
+                message::{GrpcRequestMessage, GrpcResponseMessage},
+                NacosGrpcClient,
+            },
+        },
     },
 };
 
@@ -30,6 +36,7 @@ pub(crate) struct ServiceInfoUpdater {
     namespace: String,
     task_map: Mutex<HashMap<String, ServiceInfoUpdateTask>>,
     client_id: String,
+    auth_plugin: Arc<dyn AuthPlugin>,
 }
 
 impl ServiceInfoUpdater {
@@ -38,6 +45,7 @@ impl ServiceInfoUpdater {
         nacos_grpc_client: Arc<NacosGrpcClient>,
         namespace: String,
         client_id: String,
+        auth_plugin: Arc<dyn AuthPlugin>,
     ) -> Self {
         Self {
             service_info_holder,
@@ -45,6 +53,7 @@ impl ServiceInfoUpdater {
             namespace,
             task_map: Mutex::new(HashMap::default()),
             client_id,
+            auth_plugin,
         }
     }
 
@@ -67,6 +76,7 @@ impl ServiceInfoUpdater {
                 cluster,
                 self.service_info_holder.clone(),
                 self.nacos_grpc_client.clone(),
+                self.auth_plugin.clone(),
             );
             update_task.start();
 
@@ -103,6 +113,7 @@ struct ServiceInfoUpdateTask {
     cluster: String,
     service_info_holder: Arc<ServiceInfoHolder>,
     nacos_grpc_client: Arc<NacosGrpcClient>,
+    auth_plugin: Arc<dyn AuthPlugin>,
 }
 
 impl ServiceInfoUpdateTask {
@@ -117,6 +128,7 @@ impl ServiceInfoUpdateTask {
         cluster: String,
         service_info_holder: Arc<ServiceInfoHolder>,
         nacos_grpc_client: Arc<NacosGrpcClient>,
+        auth_plugin: Arc<dyn AuthPlugin>,
     ) -> Self {
         Self {
             running: Arc::new(AtomicBool::new(false)),
@@ -126,6 +138,7 @@ impl ServiceInfoUpdateTask {
             cluster,
             service_info_holder,
             nacos_grpc_client,
+            auth_plugin,
         }
     }
 
@@ -143,6 +156,7 @@ impl ServiceInfoUpdateTask {
 
         let service_info_holder = self.service_info_holder.clone();
         let grpc_client = self.nacos_grpc_client.clone();
+        let auth_plugin = self.auth_plugin.clone();
 
         executor::spawn(async move {
             let mut delay_time = ServiceInfoUpdateTask::DEFAULT_DELAY;
@@ -211,6 +225,7 @@ impl ServiceInfoUpdateTask {
 
                 let mut request = request.clone();
                 request.request_id = Some(generate_request_id());
+                request.add_headers(auth_plugin.get_login_identity().contexts);
 
                 let ret = grpc_client
                     .unary_call_async::<ServiceQueryRequest, QueryServiceResponse>(request)
