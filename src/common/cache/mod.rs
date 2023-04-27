@@ -26,7 +26,6 @@ mod disk;
 pub(crate) struct Cache<V> {
     inner: Arc<DashMap<VersionKeyWrapper, V>>,
     sender: Option<Sender<ChangeEvent>>,
-    id: String,
 }
 
 impl<V> Cache<V>
@@ -43,12 +42,7 @@ where
             }
 
             let (sender, receiver) = channel::<ChangeEvent>(1024);
-            executor::spawn(Cache::sync_data(
-                id.clone(),
-                dash_map.clone(),
-                receiver,
-                store,
-            ));
+            executor::spawn(Cache::sync_data(id, dash_map.clone(), receiver, store));
 
             (dash_map, Some(sender))
         } else {
@@ -58,12 +52,7 @@ where
         Self {
             inner: dash_map,
             sender,
-            id,
         }
-    }
-
-    pub(crate) fn id(&self) -> String {
-        self.id.clone()
     }
 
     async fn sync_data(
@@ -368,7 +357,7 @@ enum ChangeEvent {
 }
 
 #[async_trait]
-pub(crate) trait Store<V>: Send {
+trait Store<V>: Send {
     fn name(&self) -> Cow<'_, str>;
 
     fn load(&mut self) -> HashMap<String, V>;

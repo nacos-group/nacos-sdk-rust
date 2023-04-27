@@ -1,6 +1,9 @@
 use std::{
     collections::HashMap,
-    sync::{atomic::AtomicBool, Arc},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
     time::Duration,
 };
 
@@ -9,25 +12,21 @@ use tokio::{
     time::{self, sleep},
 };
 use tonic::async_trait;
-use tracing::{debug, debug_span, instrument};
+use tracing::debug;
 
-use crate::api::{error::Result, plugin::AuthPlugin};
+use crate::api::error::Result;
 use crate::common::{executor, remote::grpc::NacosGrpcClient};
 
 pub(crate) mod automatic_request;
 
 pub(crate) struct RedoTaskExecutor {
     map: Arc<RwLock<HashMap<String, Arc<dyn RedoTask>>>>,
-    client_id: String,
 }
 
 impl RedoTaskExecutor {
-    pub(crate) fn new(auth_plugin: Arc<dyn AuthPlugin>, client_id: String) -> Self {
-        let _redo_task_executor_span =
-            debug_span!(parent: None, "redo_task_executor", client_id = client_id).entered();
+    pub(crate) fn new() -> Self {
         let executor = Self {
             map: Arc::new(RwLock::new(HashMap::new())),
-            client_id,
         };
         executor.start_schedule();
         executor
@@ -59,20 +58,17 @@ impl RedoTaskExecutor {
         });
     }
 
-    #[instrument(fields(client_id = &self.client_id), skip_all)]
     pub(crate) async fn add_task(&self, task: Arc<dyn RedoTask>) {
         let mut map = self.map.write().await;
         let task_key = task.task_key();
         map.insert(task_key, task);
     }
 
-    #[instrument(fields(client_id = &self.client_id), skip_all)]
     pub(crate) async fn remove_task(&self, task_key: &str) {
         let mut map = self.map.write().await;
         map.remove(task_key);
     }
 
-    #[instrument(fields(client_id = &self.client_id), skip_all)]
     pub(crate) async fn on_grpc_client_reconnect(&self) {
         let map = self.map.read().await;
         for (_, v) in map.iter() {
@@ -80,7 +76,6 @@ impl RedoTaskExecutor {
         }
     }
 
-    #[instrument(fields(client_id = &self.client_id), skip_all)]
     pub(crate) async fn on_grpc_client_disconnect(&self) {
         let map = self.map.read().await;
         for (_, v) in map.iter() {
@@ -137,17 +132,15 @@ impl RedoTask for NamingRedoTask {
     }
 
     fn frozen(&self) {
-        self.active
-            .store(false, std::sync::atomic::Ordering::Release)
+        self.active.store(false, Ordering::Release)
     }
 
     fn active(&self) {
-        self.active
-            .store(true, std::sync::atomic::Ordering::Release)
+        self.active.store(true, Ordering::Release)
     }
 
     fn is_active(&self) -> bool {
-        self.active.load(std::sync::atomic::Ordering::Acquire)
+        self.active.load(Ordering::Acquire)
     }
 
     async fn run(&self) {
@@ -157,9 +150,9 @@ impl RedoTask for NamingRedoTask {
                 self.grpc_client.clone(),
                 Box::new(move |ret| {
                     if ret.is_ok() {
-                        active.store(false, std::sync::atomic::Ordering::Release);
+                        active.store(false, Ordering::Release);
                     } else {
-                        active.store(true, std::sync::atomic::Ordering::Release);
+                        active.store(true, Ordering::Release);
                     }
                 }),
             )
