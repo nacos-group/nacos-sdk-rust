@@ -148,6 +148,7 @@ impl NacosNamingService {
             nacos_grpc_client.clone(),
             namespace.clone(),
             client_id.clone(),
+            auth_plugin.clone(),
         );
 
         Ok(NacosNamingService {
@@ -814,7 +815,10 @@ pub(crate) mod tests {
 
     use tracing::{info, metadata::LevelFilter};
 
-    use crate::api::{naming::NamingChangeEvent, plugin::NoopAuthPlugin};
+    use crate::api::{
+        naming::NamingChangeEvent,
+        plugin::{AuthContext, HttpLoginAuthPlugin, NoopAuthPlugin},
+    };
 
     use super::*;
 
@@ -1232,7 +1236,14 @@ pub(crate) mod tests {
         metadata.insert("netType".to_string(), "external".to_string());
         metadata.insert("version".to_string(), "2.0".to_string());
 
-        let naming_service = NacosNamingService::new(props, Arc::new(NoopAuthPlugin::default()))?;
+        let http_auth_plugin = HttpLoginAuthPlugin::default();
+        http_auth_plugin.set_server_list(vec!["127.0.0.1:8848".to_string()]);
+        let auth_context = AuthContext::default()
+            .add_param(crate::api::plugin::USERNAME, "nacos")
+            .add_param(crate::api::plugin::PASSWORD, "nacos");
+        http_auth_plugin.login(auth_context);
+
+        let naming_service = NacosNamingService::new(props, Arc::new(http_auth_plugin))?;
         let service_instance1 = ServiceInstance {
             ip: "127.0.0.1".to_string(),
             port: 9090,

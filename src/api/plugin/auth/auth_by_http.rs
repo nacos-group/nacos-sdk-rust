@@ -45,8 +45,8 @@ impl AuthPlugin for HttpLoginAuthPlugin {
             return;
         }
 
-        let username = auth_context.params.get(USERNAME).unwrap();
-        let password = auth_context.params.get(PASSWORD).unwrap();
+        let username = auth_context.params.get(USERNAME).unwrap().to_owned();
+        let password = auth_context.params.get(PASSWORD).unwrap().to_owned();
 
         let server_addr = {
             let mutex = self.server_list.read().unwrap();
@@ -66,7 +66,7 @@ impl AuthPlugin for HttpLoginAuthPlugin {
 
         tracing::debug!("Http login with username={username},password={password}");
 
-        let future = async {
+        let future = async move {
             let resp = reqwest::Client::new()
                 .post(login_url)
                 .query(&[(USERNAME, username), (PASSWORD, password)])
@@ -87,9 +87,14 @@ impl AuthPlugin for HttpLoginAuthPlugin {
             Some(resp_obj.unwrap())
         };
 
-        let login_response = futures::executor::block_on(future);
+        let login_response = futures::executor::block_on(crate::common::executor::spawn(future));
 
-        if let Some(login_response) = login_response {
+        if let Err(e) = login_response.as_ref() {
+            tracing::error!("Spawn Http login task failed. {e:?}");
+            return;
+        }
+
+        if let Ok(Some(login_response)) = login_response {
             let delay_sec = login_response.token_ttl / 10;
             let new_login_identity = LoginIdentityContext::default()
                 .add_context(ACCESS_TOKEN, login_response.access_token);
@@ -131,7 +136,7 @@ mod tests {
             .init();
 
         let http_auth_plugin = HttpLoginAuthPlugin::default();
-        http_auth_plugin.set_server_list(vec!["0.0.0.0:8848".to_string()]);
+        http_auth_plugin.set_server_list(vec!["127.0.0.1:8848".to_string()]);
 
         let auth_context = AuthContext::default()
             .add_param(crate::api::plugin::USERNAME, "nacos")

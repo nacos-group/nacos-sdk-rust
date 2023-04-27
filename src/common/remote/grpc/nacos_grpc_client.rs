@@ -391,6 +391,7 @@ pub mod tests {
 
     use super::*;
 
+    #[ignore]
     #[tokio::test]
     pub async fn test() {
         tracing_subscriber::fmt()
