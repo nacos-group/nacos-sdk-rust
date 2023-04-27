@@ -7,13 +7,13 @@ use tracing::debug_span;
 use tracing::info;
 use tracing::instrument;
 
-use crate::api::error::Error::ErrResult;
 use crate::api::error::Result;
 use crate::api::naming::InstanceChooser;
 use crate::api::naming::NamingEventListener;
 use crate::api::naming::{NamingService, ServiceInstance};
 use crate::api::plugin::AuthPlugin;
 use crate::api::props::ClientProps;
+use crate::api::{error::Error::ErrResult, plugin::AuthContext};
 
 use crate::common::event_bus;
 use crate::common::executor;
@@ -134,6 +134,23 @@ impl NacosNamingService {
                 });
             })
             .build();
+
+        let plugin = Arc::clone(&auth_plugin);
+        let auth_context = Arc::new(AuthContext::default().add_params(client_props.auth_context));
+        plugin.set_server_list(server_list.to_vec());
+        plugin.login((*auth_context).clone());
+
+        debug_span!("naming_auth_task").in_scope(|| {
+            crate::common::executor::schedule_at_fixed_delay(
+                move || {
+                    plugin.set_server_list(server_list.to_vec());
+                    plugin.login((*auth_context).clone());
+                    tracing::debug!("auth_plugin schedule at fixed delay");
+                    Ok(())
+                },
+                tokio::time::Duration::from_secs(30),
+            );
+        });
 
         let nacos_grpc_client = Arc::new(nacos_grpc_client);
 
@@ -816,7 +833,7 @@ pub(crate) mod tests {
     use tracing::{info, metadata::LevelFilter};
 
     use crate::api::{
-        naming::NamingChangeEvent,
+        naming::{NamingChangeEvent, NamingServiceBuilder},
         plugin::{AuthContext, HttpLoginAuthPlugin, NoopAuthPlugin},
     };
 
@@ -1170,13 +1187,18 @@ pub(crate) mod tests {
             .with_max_level(LevelFilter::DEBUG)
             .init();
 
-        let props = ClientProps::new().server_addr("127.0.0.1:8848");
+        let props = ClientProps::new()
+            .server_addr("127.0.0.1:8848")
+            .auth_username("nacos")
+            .auth_password("nacos");
 
         let mut metadata = HashMap::<String, String>::new();
         metadata.insert("netType".to_string(), "external".to_string());
         metadata.insert("version".to_string(), "2.0".to_string());
 
-        let naming_service = NacosNamingService::new(props, Arc::new(NoopAuthPlugin::default()))?;
+        let naming_service = NamingServiceBuilder::new(props)
+            .enable_auth_plugin_http()
+            .build()?;
         let service_instance1 = ServiceInstance {
             ip: "127.0.0.1".to_string(),
             port: 9090,
@@ -1205,6 +1227,7 @@ pub(crate) mod tests {
             instance_vec,
         );
         info!("response. {ret:?}");
+        ret?;
 
         let ten_millis = time::Duration::from_secs(10);
         thread::sleep(ten_millis);
