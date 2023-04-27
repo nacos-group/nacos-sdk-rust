@@ -19,25 +19,22 @@ impl PollingServerListService {
             panic!("server list must not empty");
         }
 
+        let regex = regex::RegexBuilder::new("^((.+?)[:]//)?(.+?)([:](\\d+))$")
+            .case_insensitive(true)
+            .build()
+            .expect("build server addr regex failed");
+
         let server_list: Vec<(String, u32)> = server_list
             .into_iter()
-            .map(|server| server.split(':').map(|data| data.to_string()).collect())
-            .filter(|vec: &Vec<String>| {
-                if vec.len() != 2 {
-                    return false;
-                }
-                vec.get(0).is_some() && vec.get(1).is_some()
-            })
-            .filter_map(|vec| {
-                let address = vec.get(0).unwrap().clone();
-                let port = vec.get(1).unwrap().clone();
-
-                let port = port.parse::<u32>();
-
-                if let Ok(port) = port {
-                    return Some((address, port));
-                }
-                None
+            .filter_map(|server| match regex.captures(&server) {
+                Some(caps) => match (caps.get(3), caps.get(5)) {
+                    (Some(addr), Some(port)) => match port.as_str().parse::<u32>() {
+                        Ok(port) => Some((addr.as_str().to_owned(), port)),
+                        Err(err) => panic!("{err:?}"),
+                    },
+                    _ => None,
+                },
+                None => None,
             })
             .collect();
         if server_list.is_empty() {
