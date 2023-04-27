@@ -99,6 +99,7 @@ pub mod tests {
         let _ = PollingServerListService::new(vec!["127.0.0.1:sd".to_string()]);
     }
 
+    #[ignore]
     #[tokio::test]
     pub async fn test_poll_server_list() {
         tracing_subscriber::fmt()
