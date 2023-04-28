@@ -16,25 +16,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt()
         // all spans/events with a level higher than TRACE (e.g, info, warn, etc.)
         // will be written to stdout.
-        .with_target(false)
-        .with_file(true)
-        .with_line_number(true)
-        .with_max_level(tracing::Level::INFO)
+        .with_max_level(tracing::Level::DEBUG)
         // sets this to be the default, global collector for this application.
         .init();
 
     let client_props = ClientProps::new()
-        .server_addr("127.0.0.1:8848")
+        .server_addr("0.0.0.0:8848")
         // .remote_grpc_port(9838)
         // Attention! "public" is "", it is recommended to customize the namespace with clear meaning.
         .namespace("")
         .app_name("simple_app")
-        .auth_username("nacos")
-        .auth_password("nacos");
+        // .auth_username("TODO")
+        // .auth_password("TODO")
+        ;
 
     // ----------  Config  -------------
     let config_service = ConfigServiceBuilder::new(client_props.clone())
-        .enable_auth_plugin_http()
+        // .enable_auth_plugin_http()
         .build()?;
     let config_resp = config_service.get_config("todo-data-id".to_string(), "LOVE".to_string());
     match config_resp {
@@ -54,7 +52,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // ----------  Naming  -------------
     let naming_service = NamingServiceBuilder::new(client_props)
-        .enable_auth_plugin_http()
+        // .enable_auth_plugin_http()
         .build()?;
 
     let listener = std::sync::Arc::new(SimpleInstanceChangeListener);
