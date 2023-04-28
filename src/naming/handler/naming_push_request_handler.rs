@@ -81,9 +81,9 @@ impl ServiceInfoHolder {
     }
 
     pub(crate) async fn process_service_info(&self, service_info: ServiceInfo) {
-        if self.is_empty_or_error_push(&service_info) {
-            return;
-        }
+        // if self.is_empty_or_error_push(&service_info) {
+        //     return;
+        // }
 
         let service_info = Arc::new(service_info);
 
