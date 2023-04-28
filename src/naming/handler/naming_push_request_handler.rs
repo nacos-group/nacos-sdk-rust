@@ -93,23 +93,25 @@ impl ServiceInfoHolder {
 
         let mut map = self.service_info_map.lock().await;
 
-        let old_service = map.get(&key);
+        // let old_service = map.get(&key);
 
-        let changed = Self::is_changed_service_info(old_service, &service_info);
+        // Note: There may be some network error when nacos server sends notification, so that local client can not receive the newest service info.
+        //       I suggest not check the change of service info, and push the event to subscribers simply.
+        // let changed = Self::is_changed_service_info(old_service, &service_info);
 
-        if changed {
-            info!(
-                "current ips:({}) service: {} -> {}",
-                service_info.ip_count(),
-                key,
-                service_info.hosts_to_json()
-            );
-            let event = Arc::new(InstancesChangeEvent::new(
-                self.client_id.clone(),
-                service_info.clone(),
-            ));
-            event_bus::post(event);
-        }
+        // if changed {
+        info!(
+            "current ips:({}) service: {} -> {}",
+            service_info.ip_count(),
+            key,
+            service_info.hosts_to_json()
+        );
+        let event = Arc::new(InstancesChangeEvent::new(
+            self.client_id.clone(),
+            service_info.clone(),
+        ));
+        event_bus::post(event);
+        // }
         map.insert(key, service_info);
     }
 
