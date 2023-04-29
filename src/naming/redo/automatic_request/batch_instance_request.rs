@@ -2,6 +2,7 @@ use std::sync::Arc;
 use tonic::async_trait;
 use tracing::debug;
 use tracing::error;
+use tracing::instrument;
 use tracing::Instrument;
 
 use crate::common::remote::grpc::NacosGrpcClient;
@@ -15,6 +16,7 @@ use crate::{
 
 #[async_trait]
 impl AutomaticRequest for BatchInstanceRequest {
+    #[instrument(skip_all)]
     async fn run(
         &self,
         grpc_client: Arc<NacosGrpcClient>,

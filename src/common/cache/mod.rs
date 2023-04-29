@@ -15,7 +15,7 @@ use dashmap::{
 };
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tonic::async_trait;
-use tracing::{debug, warn};
+use tracing::{debug, debug_span, warn, Instrument};
 
 use crate::common::cache::disk::DiskStore;
 
@@ -26,7 +26,6 @@ mod disk;
 pub(crate) struct Cache<V> {
     inner: Arc<DashMap<VersionKeyWrapper, V>>,
     sender: Option<Sender<ChangeEvent>>,
-    id: String,
 }
 
 impl<V> Cache<V>
@@ -34,6 +33,9 @@ where
     V: serde::Serialize + serde::de::DeserializeOwned + Send + Sync + 'static,
 {
     fn new(id: String, store: Option<Box<dyn Store<V>>>) -> Self {
+        let span = debug_span!("cache", id = id);
+        let _enter = span.enter();
+
         let (dash_map, sender) = if let Some(mut store) = store {
             let map = store.load();
             let dash_map: DashMap<VersionKeyWrapper, V> = DashMap::with_capacity(map.len());
@@ -43,12 +45,7 @@ where
             }
 
             let (sender, receiver) = channel::<ChangeEvent>(1024);
-            executor::spawn(Cache::sync_data(
-                id.clone(),
-                dash_map.clone(),
-                receiver,
-                store,
-            ));
+            executor::spawn(Cache::sync_data(dash_map.clone(), receiver, store).in_current_span());
 
             (dash_map, Some(sender))
         } else {
@@ -58,21 +55,15 @@ where
         Self {
             inner: dash_map,
             sender,
-            id,
         }
     }
 
-    pub(crate) fn id(&self) -> String {
-        self.id.clone()
-    }
-
     async fn sync_data(
-        id: String,
         cache: Arc<DashMap<VersionKeyWrapper, V>>,
         mut receiver: Receiver<ChangeEvent>,
         mut store: Box<dyn Store<V>>,
     ) {
-        debug!("{} sync to {} started!", id, store.name());
+        debug!("sync to {} started!", store.name());
 
         while let Some(event) = receiver.recv().await {
             match event {
@@ -105,7 +96,7 @@ where
                 }
             }
         }
-        debug!("{} sync to {} quit!", id, store.name());
+        debug!("sync to {} quit!", store.name());
     }
 
     pub(crate) fn get(&self, key: &String) -> Option<CacheRef<'_, V>> {
@@ -354,9 +345,7 @@ where
         }
     }
 
-    pub(crate) fn build(self) -> Cache<V> {
-        let id = format!("{}-{}", self.module, self.namespace);
-
+    pub(crate) fn build(self, id: String) -> Cache<V> {
         Cache::new(id, self.store)
     }
 }
@@ -368,7 +357,7 @@ enum ChangeEvent {
 }
 
 #[async_trait]
-pub(crate) trait Store<V>: Send {
+trait Store<V>: Send {
     fn name(&self) -> Cow<'_, str>;
 
     fn load(&mut self) -> HashMap<String, V>;
@@ -401,7 +390,7 @@ pub mod tests {
 
         let cache: Cache<String> = CacheBuilder::naming("test-naming".to_string())
             .disk_store()
-            .build();
+            .build("test-id".to_string());
         let key = String::from("key");
 
         {
@@ -480,7 +469,7 @@ pub mod tests {
 
         let cache: Cache<String> = CacheBuilder::naming("test-naming".to_string())
             .disk_store()
-            .build();
+            .build("test-id".to_string());
 
         let key = String::from("key1");
         let value = cache.get(&key);

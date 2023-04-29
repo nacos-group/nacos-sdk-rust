@@ -63,7 +63,7 @@ impl ConfigWorker {
                     client_id: client_id.clone(),
                 },
             ))
-            .build();
+            .build(client_id.clone());
 
         let remote_client = Arc::new(remote_client);
         // todo Event/Subscriber instead of mpsc Sender/Receiver

@@ -2,6 +2,7 @@ use std::sync::Arc;
 use tonic::async_trait;
 use tracing::debug;
 use tracing::error;
+use tracing::instrument;
 use tracing::Instrument;
 
 use crate::common::remote::generate_request_id;
@@ -13,6 +14,7 @@ use crate::naming::{message::request::InstanceRequest, redo::AutomaticRequest};
 
 #[async_trait]
 impl AutomaticRequest for InstanceRequest {
+    #[instrument(skip_all)]
     async fn run(&self, grpc_client: Arc<NacosGrpcClient>, call_back: CallBack) {
         let mut request = self.clone();
         request.request_id = Some(generate_request_id());

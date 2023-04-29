@@ -6,7 +6,7 @@ use tokio::{
     io::AsyncWriteExt,
 };
 use tonic::async_trait;
-use tracing::{debug, warn};
+use tracing::{debug, instrument, warn};
 
 use super::Store;
 
@@ -103,6 +103,7 @@ where
         default_map
     }
 
+    #[instrument(fields(key = key), skip_all)]
     async fn save(&mut self, key: &str, value: Vec<u8>) {
         let mut write_path = PathBuf::from(&self.disk_path);
         write_path.push(key);
@@ -143,6 +144,7 @@ where
         }
     }
 
+    #[instrument(fields(key = key), skip_all)]
     async fn remove(&mut self, key: &str) {
         let mut delete_path = PathBuf::from(&self.disk_path);
         delete_path.push(key);

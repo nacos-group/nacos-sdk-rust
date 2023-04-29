@@ -3,6 +3,8 @@ use std::sync::Arc;
 use tonic::async_trait;
 use tracing::debug;
 use tracing::error;
+use tracing::instrument;
+use tracing::Instrument;
 
 use crate::common::remote::generate_request_id;
 use crate::common::remote::grpc::message::GrpcMessageData;
@@ -14,12 +16,14 @@ use crate::naming::redo::CallBack;
 
 #[async_trait]
 impl AutomaticRequest for SubscribeServiceRequest {
+    #[instrument(skip_all)]
     async fn run(&self, grpc_client: Arc<NacosGrpcClient>, call_back: CallBack) {
         let mut request = self.clone();
         request.request_id = Some(generate_request_id());
         debug!("automatically execute subscribe service. {request:?}");
         let ret = grpc_client
             .send_request::<SubscribeServiceRequest, SubscribeServiceResponse>(request)
+            .in_current_span()
             .await;
         if let Err(e) = ret {
             error!("automatically execute subscribe service occur an error. {e:?}");
