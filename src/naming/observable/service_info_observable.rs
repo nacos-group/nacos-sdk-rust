@@ -5,7 +5,7 @@ use tokio::sync::{
     mpsc::{channel, Receiver, Sender},
     RwLock,
 };
-use tracing::{debug, info, warn};
+use tracing::{debug, debug_span, info, instrument, warn, Instrument, Span};
 
 use crate::{
     api::naming::{NamingChangeEvent, NamingEventListener, ServiceInstance},
@@ -17,11 +17,12 @@ use crate::{
 };
 
 pub(crate) fn create(
+    id: String,
     cache: Arc<Cache<ServiceInfo>>,
     push_empty_protection: bool,
 ) -> (ServiceInfoObserver, Arc<ServiceInfoEmitter>) {
-    let (sender, receiver) = channel::<ServiceInfo>(1024);
-    let service_info_observer = ServiceInfoObserver::new(receiver);
+    let (sender, receiver) = channel::<(ServiceInfo, Span)>(1024);
+    let service_info_observer = ServiceInfoObserver::new(id, receiver);
     let service_info_emitter = ServiceInfoEmitter::new(sender, cache, push_empty_protection);
     (service_info_observer, Arc::new(service_info_emitter))
 }
@@ -32,9 +33,12 @@ pub(crate) struct ServiceInfoObserver {
 }
 
 impl ServiceInfoObserver {
-    fn new(receiver: Receiver<ServiceInfo>) -> Self {
+    fn new(id: String, receiver: Receiver<(ServiceInfo, Span)>) -> Self {
         let registry: ListenerRegistry = Default::default();
-        executor::spawn(ServiceInfoObserver::observe(receiver, registry.clone()));
+        executor::spawn(
+            ServiceInfoObserver::observe(receiver, registry.clone())
+                .instrument(debug_span!("ServiceInfoObserver", id = id)),
+        );
         Self { registry }
     }
 }
@@ -62,9 +66,9 @@ impl ServiceInfoObserver {
 }
 
 impl ServiceInfoObserver {
-    async fn observe(mut receiver: Receiver<ServiceInfo>, registry: ListenerRegistry) {
+    async fn observe(mut receiver: Receiver<(ServiceInfo, Span)>, registry: ListenerRegistry) {
         debug!("service info observe task start!");
-        while let Some(service_info) = receiver.recv().await {
+        while let Some((service_info, span)) = receiver.recv().await {
             let grouped_name =
                 ServiceInfo::get_grouped_service_name(&service_info.name, &service_info.group_name);
             let key = ServiceInfo::get_key(&grouped_name, &service_info.clusters);
@@ -93,12 +97,15 @@ impl ServiceInfoObserver {
             for listener in listeners {
                 let naming_event = naming_event.clone();
                 let listener = listener.clone();
-                executor::spawn(async move { listener.event(naming_event) });
+                executor::spawn(
+                    async move { listener.event(naming_event) }.instrument(span.clone()),
+                );
             }
         }
         debug!("service info observe task quit!");
     }
 
+    #[instrument(fields(subscribe_key = key), skip_all)]
     pub(crate) async fn subscribe(&self, key: String, listener: Arc<dyn NamingEventListener>) {
         debug!("subscribe {key:?}");
         let mut map = self.registry.write().await;
@@ -119,6 +126,7 @@ impl ServiceInfoObserver {
         }
     }
 
+    #[instrument(fields(unsubscribe_key = key), skip_all)]
     pub(crate) async fn unsubscribe(&self, key: String, listener: Arc<dyn NamingEventListener>) {
         debug!("unsubscribe {key:?}");
 
@@ -143,14 +151,14 @@ impl ServiceInfoObserver {
 
 #[derive(Clone)]
 pub(crate) struct ServiceInfoEmitter {
-    sender: Sender<ServiceInfo>,
+    sender: Sender<(ServiceInfo, Span)>,
     cache: Arc<Cache<ServiceInfo>>,
     push_empty_protection: bool,
 }
 
 impl ServiceInfoEmitter {
     fn new(
-        sender: Sender<ServiceInfo>,
+        sender: Sender<(ServiceInfo, Span)>,
         cache: Arc<Cache<ServiceInfo>>,
         push_empty_protection: bool,
     ) -> Self {
@@ -161,10 +169,15 @@ impl ServiceInfoEmitter {
         }
     }
 
+    #[instrument(skip_all)]
     pub(crate) async fn emit(&self, service_info: ServiceInfo) {
-        let notify = self.process_service_info(service_info.clone()).await;
+        let notify = self
+            .process_service_info(service_info.clone())
+            .in_current_span()
+            .await;
+        let span = Span::current();
         if notify {
-            let send_ret = self.sender.send(service_info).await;
+            let send_ret = self.sender.send((service_info, span)).await;
             if let Err(e) = send_ret {
                 debug!("notify observer object failed: {e}");
             }

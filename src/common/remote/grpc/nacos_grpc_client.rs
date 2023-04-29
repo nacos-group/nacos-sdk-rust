@@ -1,9 +1,8 @@
 use std::{collections::HashMap, sync::Arc, time::Duration};
-use tokio::task::JoinHandle;
 use tower::layer::util::Stack;
+use tracing::{instrument, Instrument};
 
 use crate::api::error::Error;
-use crate::common::executor;
 use crate::common::remote::grpc::message::{request::NacosClientAbilities, GrpcMessageData};
 use crate::common::remote::grpc::message::{
     GrpcMessage, GrpcMessageBuilder, GrpcRequestMessage, GrpcResponseMessage,
@@ -28,6 +27,7 @@ pub(crate) struct NacosGrpcClient {
 }
 
 impl NacosGrpcClient {
+    #[instrument(skip_all)]
     pub(crate) async fn send_request<Request, Response>(
         &self,
         mut request: Request,
@@ -44,7 +44,11 @@ impl NacosGrpcClient {
             .build();
         let grpc_request = grpc_request.into_payload()?;
 
-        let grpc_response = self.send_request.send_request(grpc_request).await?;
+        let grpc_response = self
+            .send_request
+            .send_request(grpc_request)
+            .in_current_span()
+            .await?;
 
         let grpc_response = GrpcMessage::<Response>::from_payload(grpc_response)?;
         Ok(grpc_response.into_body())
@@ -330,47 +334,44 @@ impl NacosGrpcClientBuilder {
         }
     }
 
-    pub(crate) fn build(mut self) -> NacosGrpcClient {
+    pub(crate) fn build(mut self, id: String) -> NacosGrpcClient {
         self.server_request_handler_map.insert(
             ClientDetectionRequest::identity().to_string(),
-            Arc::new(ClientDetectionRequestHandler {
-                client_id: Default::default(),
-            }),
+            Arc::new(ClientDetectionRequestHandler),
         );
-        let join_handler: JoinHandle<Arc<dyn SendRequest + Send + Sync + 'static>> =
-            executor::spawn(async move {
-                let server_list = PollingServerListService::new(self.server_list);
-                let mut tonic_builder = TonicBuilder::new(self.grpc_config, server_list);
-                if let Some(layer) = self.unary_call_layer {
-                    tonic_builder = tonic_builder.unary_call_layer(layer);
-                }
 
-                if let Some(layer) = self.bi_call_layer {
-                    tonic_builder = tonic_builder.bi_call_layer(layer);
-                }
+        let send_request = {
+            let server_list = PollingServerListService::new(self.server_list);
+            let mut tonic_builder = TonicBuilder::new(self.grpc_config, server_list);
+            if let Some(layer) = self.unary_call_layer {
+                tonic_builder = tonic_builder.unary_call_layer(layer);
+            }
 
-                let mut connection = NacosGrpcConnection::new(
-                    tonic_builder,
-                    self.server_request_handler_map,
-                    self.client_version,
-                    self.namespace,
-                    self.labels,
-                    self.client_abilities,
-                );
+            if let Some(layer) = self.bi_call_layer {
+                tonic_builder = tonic_builder.bi_call_layer(layer);
+            }
 
-                if let Some(connected_listener) = self.connected_listener {
-                    connection = connection.connected_listener(connected_listener);
-                }
+            let mut connection = NacosGrpcConnection::new(
+                id.clone(),
+                tonic_builder,
+                self.server_request_handler_map,
+                self.client_version,
+                self.namespace,
+                self.labels,
+                self.client_abilities,
+            );
 
-                if let Some(disconnected_listener) = self.disconnected_listener {
-                    connection = connection.disconnected_listener(disconnected_listener);
-                }
+            if let Some(connected_listener) = self.connected_listener {
+                connection = connection.connected_listener(connected_listener);
+            }
 
-                let failover_connection = connection.into_failover_connection();
-                Arc::new(failover_connection) as Arc<dyn SendRequest + Send + Sync + 'static>
-            });
+            if let Some(disconnected_listener) = self.disconnected_listener {
+                connection = connection.disconnected_listener(disconnected_listener);
+            }
 
-        let send_request = futures::executor::block_on(join_handler).unwrap();
+            let failover_connection = connection.into_failover_connection(id);
+            Arc::new(failover_connection) as Arc<dyn SendRequest + Send + Sync + 'static>
+        };
         let app_name = self.app_name;
 
         NacosGrpcClient {
@@ -404,7 +405,7 @@ pub mod tests {
             .init();
 
         let grpc_client_builder = NacosGrpcClientBuilder::new(vec!["127.0.0.1:8848".to_string()]);
-        let grpc_client = grpc_client_builder.build();
+        let grpc_client = grpc_client_builder.build("test-client-id".to_string());
 
         let health_check = HealthCheckRequest::default();
 

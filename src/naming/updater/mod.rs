@@ -8,7 +8,7 @@ use std::{
 };
 
 use tokio::{sync::Mutex, time::sleep};
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info, instrument, warn, Instrument};
 
 use crate::common::{
     cache::Cache,
@@ -46,6 +46,7 @@ impl ServiceInfoUpdater {
         }
     }
 
+    #[instrument(fields(service_name = service_name, group_name = group_name, cluster = cluster), skip_all)]
     pub(crate) async fn schedule_update(
         &self,
         namespace: String,
@@ -73,6 +74,7 @@ impl ServiceInfoUpdater {
         }
     }
 
+    #[instrument(fields(service_name = service_name, group_name = group_name, cluster = cluster), skip_all)]
     pub(crate) async fn stop_update(
         &self,
         service_name: String,
@@ -220,6 +222,7 @@ impl ServiceInfoUpdateTask {
 
                 let ret = grpc_client
                     .send_request::<ServiceQueryRequest, QueryServiceResponse>(request)
+                    .in_current_span()
                     .await;
                 if let Err(e) = ret {
                     error!("{log_tag}:ServiceInfoUpdateTask occur an error: {e:?}");
@@ -246,14 +249,14 @@ impl ServiceInfoUpdateTask {
                     * (ServiceInfoUpdateTask::DEFAULT_UPDATE_CACHE_TIME_MULTIPLE as i64))
                     as u64;
 
-                service_info_emitter.emit(service_info).await;
+                service_info_emitter.emit(service_info).in_current_span().await;
 
                 failed_count = 0;
                 info!("{log_tag}:ServiceInfoUpdateTask finish");
             }
 
             warn!("{log_tag}:ServiceInfoUpdateTask is stopped");
-        });
+        }.in_current_span());
     }
 
     fn stop(&self) {

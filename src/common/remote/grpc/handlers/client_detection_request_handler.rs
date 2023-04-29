@@ -9,22 +9,13 @@ use crate::{
     nacos_proto::v2::Payload,
 };
 use tonic::async_trait;
-use tracing::{debug, debug_span, error};
+use tracing::{debug, error};
 
-pub(crate) struct ClientDetectionRequestHandler {
-    pub(crate) client_id: String,
-}
+pub(crate) struct ClientDetectionRequestHandler;
 
 #[async_trait]
 impl ServerRequestHandler for ClientDetectionRequestHandler {
     async fn request_reply(&self, request: Payload) -> Option<Payload> {
-        let _client_detection_request_handler_span = debug_span!(
-            parent: None,
-            "client_detection_request_handler",
-            client_id = self.client_id
-        )
-        .entered();
-
         let request_message = GrpcMessage::<ClientDetectionRequest>::from_payload(request);
         if let Err(e) = request_message {
             error!("convert payload to ClientDetectionRequest error. {e:?}");

@@ -5,13 +5,13 @@ use crate::common::remote::grpc::nacos_grpc_service::ServerRequestHandler;
 use crate::naming::observable::service_info_observable::ServiceInfoEmitter;
 
 use tonic::async_trait;
-use tracing::{error, info};
+use tracing::{error, info, Instrument};
 
 use crate::{
     nacos_proto::v2::Payload,
     naming::message::{request::NotifySubscriberRequest, response::NotifySubscriberResponse},
 };
-//ServiceInfoEmitter
+
 pub(crate) struct NamingPushRequestHandler {
     service_info_emitter: Arc<ServiceInfoEmitter>,
 }
@@ -38,7 +38,10 @@ impl ServerRequestHandler for NamingPushRequestHandler {
         info!("receive NotifySubscriberRequest from nacos server: {body:?}");
 
         let request_id = body.request_id;
-        self.service_info_emitter.emit(body.service_info).await;
+        self.service_info_emitter
+            .emit(body.service_info)
+            .in_current_span()
+            .await;
 
         let mut response = NotifySubscriberResponse::ok();
         response.request_id = request_id;

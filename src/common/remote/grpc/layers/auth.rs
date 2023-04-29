@@ -1,13 +1,21 @@
-use std::{pin::Pin, sync::Arc, task::Poll};
+use std::{collections::HashMap, pin::Pin, sync::Arc, task::Poll, time::Duration};
 
 use async_stream::stream;
 use futures::Future;
+use tokio::time::sleep;
 use tower::{Layer, Service};
+use tracing::{debug, debug_span, Instrument};
 
 use crate::{
-    api::{error::Error, plugin::AuthPlugin},
-    common::remote::grpc::nacos_grpc_service::{
-        DynamicBiStreamingCallService, DynamicUnaryCallService, GrpcStream,
+    api::{
+        error::Error,
+        plugin::{AuthContext, AuthPlugin},
+    },
+    common::{
+        executor,
+        remote::grpc::nacos_grpc_service::{
+            DynamicBiStreamingCallService, DynamicUnaryCallService, GrpcStream,
+        },
     },
     nacos_proto::v2::{Metadata, Payload},
 };
@@ -17,8 +25,35 @@ pub(crate) struct AuthLayer {
 }
 
 impl AuthLayer {
-    pub(crate) fn new(auth_plugin: Arc<dyn AuthPlugin>) -> Self {
+    pub(crate) fn new(
+        auth_plugin: Arc<dyn AuthPlugin>,
+        auth_params: HashMap<String, String>,
+        id: String,
+    ) -> Self {
+        AuthLayer::login_task(auth_plugin.clone(), auth_params, id);
         Self { auth_plugin }
+    }
+
+    fn login_task(
+        auth_plugin: Arc<dyn AuthPlugin>,
+        auth_params: HashMap<String, String>,
+        id: String,
+    ) {
+        let span = debug_span!("auth_task", id = id);
+        let _enter = span.enter();
+        let auth_context = AuthContext::default();
+        let auth_context = auth_context.add_params(auth_params);
+        auth_plugin.login(auth_context.clone());
+        executor::spawn(
+            async move {
+                loop {
+                    auth_plugin.login(auth_context.clone());
+                    debug!("auth_plugin schedule at fixed delay");
+                    sleep(Duration::from_secs(30)).await;
+                }
+            }
+            .in_current_span(),
+        );
     }
 }
 

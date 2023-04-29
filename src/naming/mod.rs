@@ -3,7 +3,6 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
 use tracing::debug;
-use tracing::debug_span;
 use tracing::info;
 use tracing::instrument;
 
@@ -76,11 +75,6 @@ fn generate_client_id(namespace: &str) -> String {
 
 impl NacosNamingService {
     pub(crate) fn new(client_props: ClientProps, auth_plugin: Arc<dyn AuthPlugin>) -> Result<Self> {
-        let client_id = generate_client_id(&client_props.namespace);
-
-        // create span
-        let _naming_init_span = debug_span!("naming_init", client_id).entered();
-
         let server_list = Arc::new(client_props.get_server_list()?);
 
         let mut namespace = client_props.namespace;
@@ -88,20 +82,35 @@ impl NacosNamingService {
             namespace = crate::api::constants::DEFAULT_NAMESPACE.to_owned();
         }
 
-        let redo_task_executor = Arc::new(RedoTaskExecutor::new());
+        // create client id
+        let client_id = generate_client_id(&namespace);
+
+        // create redo task executor
+        let redo_task_executor = Arc::new(RedoTaskExecutor::new(client_id.clone()));
         let redo_task_executor_on_connected = redo_task_executor.clone();
         let redo_task_executor_on_disconnected = redo_task_executor.clone();
 
-        let naming_cache: Cache<ServiceInfo> =
-            CacheBuilder::naming(namespace.clone()).disk_store().build();
+        // create naming cache
+        let naming_cache: Cache<ServiceInfo> = CacheBuilder::naming(namespace.clone())
+            .disk_store()
+            .build(client_id.clone());
         let naming_cache = Arc::new(naming_cache);
 
-        let (observer, emitter) =
-            observable::service_info_observable::create(naming_cache.clone(), true);
+        // create naming service info change observable
+        let (observer, emitter) = observable::service_info_observable::create(
+            client_id.clone(),
+            naming_cache.clone(),
+            true,
+        );
 
         let server_request_handler = NamingPushRequestHandler::new(emitter.clone());
 
-        let auth_layer = Arc::new(AuthLayer::new(auth_plugin));
+        auth_plugin.set_server_list(server_list.to_vec());
+        let auth_layer = Arc::new(AuthLayer::new(
+            auth_plugin,
+            client_props.auth_context,
+            client_id.clone(),
+        ));
 
         let nacos_grpc_client = NacosGrpcClientBuilder::new(server_list.to_vec())
             .namespace(namespace.clone())
@@ -139,7 +148,7 @@ impl NacosNamingService {
             })
             .unary_call_layer(auth_layer.clone())
             .bi_call_layer(auth_layer)
-            .build();
+            .build(client_id.clone());
 
         let nacos_grpc_client = Arc::new(nacos_grpc_client);
 
@@ -837,7 +846,7 @@ pub(crate) mod tests {
             .with_max_level(LevelFilter::DEBUG)
             .init();
 
-        let props = ClientProps::new().server_addr("http://127.0.0.1:9848");
+        let props = ClientProps::new().server_addr("127.0.0.1:8848");
 
         let mut metadata = HashMap::<String, String>::new();
         metadata.insert("netType".to_string(), "external".to_string());
@@ -920,7 +929,7 @@ pub(crate) mod tests {
             .with_max_level(LevelFilter::DEBUG)
             .init();
 
-        let props = ClientProps::new().server_addr("http://127.0.0.1:9848");
+        let props = ClientProps::new().server_addr("127.0.0.1:8848");
 
         let mut metadata = HashMap::<String, String>::new();
         metadata.insert("netType".to_string(), "external".to_string());
@@ -974,7 +983,7 @@ pub(crate) mod tests {
             .with_max_level(LevelFilter::DEBUG)
             .init();
 
-        let props = ClientProps::new().server_addr("http://127.0.0.1:9848");
+        let props = ClientProps::new().server_addr("127.0.0.1:8848");
 
         let mut metadata = HashMap::<String, String>::new();
         metadata.insert("netType".to_string(), "external".to_string());
@@ -1037,7 +1046,7 @@ pub(crate) mod tests {
             .with_max_level(LevelFilter::DEBUG)
             .init();
 
-        let props = ClientProps::new().server_addr("http://127.0.0.1:9848");
+        let props = ClientProps::new().server_addr("127.0.0.1:8848");
 
         let mut metadata = HashMap::<String, String>::new();
         metadata.insert("netType".to_string(), "external".to_string());
@@ -1101,7 +1110,7 @@ pub(crate) mod tests {
             .with_max_level(LevelFilter::DEBUG)
             .init();
 
-        let props = ClientProps::new().server_addr("http://127.0.0.1:9848");
+        let props = ClientProps::new().server_addr("127.0.0.1:8848");
 
         let mut metadata = HashMap::<String, String>::new();
         metadata.insert("netType".to_string(), "external".to_string());
