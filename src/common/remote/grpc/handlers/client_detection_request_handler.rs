@@ -40,3 +40,43 @@ impl ServerRequestHandler for ClientDetectionRequestHandler {
         Some(payload)
     }
 }
+
+#[cfg(test)]
+pub mod tests {
+    use super::*;
+    use crate::nacos_proto::v2::Payload;
+
+    #[tokio::test]
+    pub async fn test_request_reply_when_convert_payload_error() {
+        let request = Payload::default();
+        let handler = ClientDetectionRequestHandler;
+        let reply = handler.request_reply(request).await;
+
+        assert!(reply.is_none())
+    }
+
+    #[tokio::test]
+    pub async fn test_request_reply() {
+        let mut request = ClientDetectionRequest::default();
+        request.request_id = Some("test-request-id".to_string());
+        let request_message = GrpcMessageBuilder::new(request).build();
+        let payload = request_message.into_payload().unwrap();
+
+        let handler = ClientDetectionRequestHandler;
+        let reply = handler.request_reply(payload).await;
+
+        assert!(reply.is_some());
+
+        let reply = reply.unwrap();
+
+        let response = GrpcMessage::<ClientDetectionResponse>::from_payload(reply);
+
+        assert!(response.is_ok());
+
+        let response = response.unwrap();
+
+        let response = response.into_body();
+
+        assert_eq!(response.request_id.unwrap(), "test-request-id".to_string());
+    }
+}
