@@ -1,5 +1,13 @@
 # 变更日志 | Change log
 
+### 0.2.6
+
+- 修复 `ServiceInfoUpdateTask` 丢失 auth header
+
+---
+
+- fix lose auth headers in ServiceInfoUpdateTask
+
 ### 0.2.5
 
 - 优化重连机制
