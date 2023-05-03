@@ -17,17 +17,21 @@ use crate::{
     },
 };
 
-use super::nacos_grpc_service::{
-    BiStreamingCallIdentityLayer, DynamicBiStreamingCallLayer, DynamicBiStreamingCallService,
-    DynamicUnaryCallLayer, DynamicUnaryCallLayerWrapper, DynamicUnaryCallService, GrpcStream,
-    UnaryCallIdentityLayer,
-};
 use super::{
     config::GrpcConfiguration,
     nacos_grpc_service::{Callback, NacosGrpcCall},
 };
+use super::{
+    nacos_grpc_service::{
+        BiStreamingCallIdentityLayer, DynamicBiStreamingCallLayer, DynamicBiStreamingCallService,
+        DynamicUnaryCallLayer, DynamicUnaryCallLayerWrapper, DynamicUnaryCallService, GrpcStream,
+        UnaryCallIdentityLayer,
+    },
+    server_address::ServerAddress,
+};
 use crate::api::error::Error;
 use crate::api::error::Error::TonicGrpcStatus;
+use crate::api::error::Error::NoAvailableServer;
 
 #[derive(Clone)]
 pub(crate) struct Tonic {
@@ -35,7 +39,8 @@ pub(crate) struct Tonic {
     bi_client: BiRequestStreamClient<Channel>,
     unary_call_layer: DynamicUnaryCallLayer,
     bi_call_layer: DynamicBiStreamingCallLayer,
-    current_server: Uri,
+    endpoint_uri: Uri,
+    server_address: Arc<dyn ServerAddress>,
 }
 
 impl Tonic {
@@ -43,6 +48,7 @@ impl Tonic {
         grpc_config: GrpcConfiguration,
         unary_call_layer: DynamicUnaryCallLayer,
         bi_call_layer: DynamicBiStreamingCallLayer,
+        server_address: Arc<dyn ServerAddress>,
     ) -> Self {
         let url_authority = if let Some(port) = grpc_config.port {
             format!("{}:{}", grpc_config.host, port)
@@ -56,15 +62,15 @@ impl Tonic {
             "http"
         };
 
-        let server = Uri::builder()
+        let endpoint_uri = Uri::builder()
             .scheme(scheme)
             .authority(url_authority)
             .path_and_query("/")
             .build()
             .unwrap();
 
-        debug!("create new endpoint :{}", server);
-        let mut endpoint = Endpoint::from(server.clone());
+        debug!("create new endpoint :{}", endpoint_uri);
+        let mut endpoint = Endpoint::from(endpoint_uri.clone());
 
         if let Some(origin) = grpc_config.origin {
             endpoint = endpoint.origin(origin);
@@ -128,7 +134,8 @@ impl Tonic {
             bi_client,
             unary_call_layer,
             bi_call_layer,
-            current_server: server,
+            endpoint_uri,
+            server_address,
         }
     }
 }
@@ -207,7 +214,7 @@ pub(crate) struct TonicBuilder<S> {
 
 impl<S> TonicBuilder<S>
 where
-    S: Service<(), Response = (String, u32), Error = Error>,
+    S: Service<(), Response = Arc<dyn ServerAddress>, Error = Error>,
     S::Future: Send + 'static,
 {
     pub(crate) fn new(grpc_config: GrpcConfiguration, server_list: S) -> Self {
@@ -244,7 +251,7 @@ where
 
 impl<S> Service<()> for TonicBuilder<S>
 where
-    S: Service<(), Response = (String, u32), Error = Error>,
+    S: Service<(), Response = Arc<dyn ServerAddress>, Error = Error>,
     S::Future: Send + 'static,
 {
     type Response = Tonic;
@@ -269,13 +276,14 @@ where
         let bi_call_layer = self.bi_call_layer.clone();
 
         let tonic_fut = async move {
-            let (host, port) = server_info_fut.await?;
-            if grpc_config.port.is_none() {
-                grpc_config.port = Some(port + 1000);
-            }
-            grpc_config.host = host;
+            let server_address = server_info_fut.await?;
 
-            let tonic = Tonic::new(grpc_config, unary_call_layer, bi_call_layer);
+            if grpc_config.port.is_none() {
+                grpc_config.port = Some(server_address.port() + 1000);
+            }
+            grpc_config.host = server_address.host();
+
+            let tonic = Tonic::new(grpc_config, unary_call_layer, bi_call_layer, server_address);
             Ok(tonic)
         }
         .in_current_span();
@@ -291,13 +299,19 @@ impl Service<NacosGrpcCall> for Tonic {
     type Future = GrpcCallTask;
 
     fn poll_ready(&mut self, _: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        Poll::Ready(Ok(()))
+        if !self.server_address.is_available() {
+            error!("the server address {}:{} is not available", self.server_address.host(), self.server_address.port());
+            Poll::Ready(Err(NoAvailableServer))
+        } else {
+            Poll::Ready(Ok(()))
+        }
+       
     }
 
     fn call(&mut self, call: NacosGrpcCall) -> Self::Future {
         match call {
             NacosGrpcCall::RequestService(request) => {
-                let span = debug_span!("tonic_unary", server = self.current_server.to_string());
+                let span = debug_span!("tonic_unary", server = self.endpoint_uri.to_string());
                 let _enter = span.enter();
                 let unary_request_client = self.request_client.clone();
                 let unary_call_service = UnaryCallService::new(unary_request_client);
@@ -306,7 +320,7 @@ impl Service<NacosGrpcCall> for Tonic {
                 unary_request(dynamic_unary_call_service, request)
             }
             NacosGrpcCall::BIRequestService(request) => {
-                let span = debug_span!("tonic_bi_stream", server = self.current_server.to_string());
+                let span = debug_span!("tonic_bi_stream", server = self.endpoint_uri.to_string());
                 let _enter = span.enter();
                 let bi_request_client = self.bi_client.clone();
                 let bi_call_service = BiStreamingCallService::new(bi_request_client);

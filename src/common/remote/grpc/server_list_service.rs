@@ -1,5 +1,6 @@
 use std::{
     pin::Pin,
+    sync::Arc,
     task::{Context, Poll},
 };
 
@@ -7,6 +8,8 @@ use crate::api::error::Error;
 use crate::api::error::Error::NoAvailableServer;
 use futures::Future;
 use tower::Service;
+
+use super::server_address::ServerAddress;
 
 pub(crate) struct PollingServerListService {
     server_list: Vec<(String, u32)>,
@@ -52,7 +55,7 @@ impl PollingServerListService {
 }
 
 impl Service<()> for PollingServerListService {
-    type Response = (String, u32);
+    type Response = Arc<dyn ServerAddress>;
 
     type Error = Error;
 
@@ -70,12 +73,35 @@ impl Service<()> for PollingServerListService {
 
     fn call(&mut self, _: ()) -> Self::Future {
         let server_list = self.server_list.get(self.index);
-        let server_list = if let Some(server_list) = server_list {
-            Ok(server_list.clone())
+        let server_list = if let Some((host, port)) = server_list {
+            let server_address = PollingServerAddress {
+                host: host.clone(),
+                port: *port,
+            };
+            Ok(Arc::new(server_address) as Arc<dyn ServerAddress>)
         } else {
             Err(NoAvailableServer)
         };
         Box::pin(async move { server_list })
+    }
+}
+
+struct PollingServerAddress {
+    host: String,
+    port: u32,
+}
+
+impl ServerAddress for PollingServerAddress {
+    fn host(&self) -> String {
+        self.host.clone()
+    }
+
+    fn port(&self) -> u32 {
+        self.port
+    }
+
+    fn is_available(&self) -> bool {
+        true
     }
 }
 
@@ -119,30 +145,30 @@ pub mod tests {
 
         let _ = poll_fn(|cx| service.poll_ready(cx)).await;
         let server1 = service.call(()).await.unwrap();
-        debug!("ip:{}, port:{}", server1.0, server1.1);
+        debug!("ip:{}, port:{}", server1.host(), server1.port());
 
         let _ = poll_fn(|cx| service.poll_ready(cx)).await;
         let server2 = service.call(()).await.unwrap();
-        debug!("ip:{}, port:{}", server2.0, server2.1);
+        debug!("ip:{}, port:{}", server2.host(), server2.port());
 
         let _ = poll_fn(|cx| service.poll_ready(cx)).await;
         let server3 = service.call(()).await.unwrap();
-        debug!("ip:{}, port:{}", server3.0, server3.1);
+        debug!("ip:{}, port:{}", server3.host(), server3.port());
 
         let _ = poll_fn(|cx| service.poll_ready(cx)).await;
         let server4 = service.call(()).await.unwrap();
-        debug!("ip:{}, port:{}", server4.0, server4.1);
+        debug!("ip:{}, port:{}", server4.host(), server4.port());
 
         let _ = poll_fn(|cx| service.poll_ready(cx)).await;
         let server5 = service.call(()).await.unwrap();
-        debug!("ip:{}, port:{}", server5.0, server5.1);
+        debug!("ip:{}, port:{}", server5.host(), server5.port());
 
         let _ = poll_fn(|cx| service.poll_ready(cx)).await;
         let server6 = service.call(()).await.unwrap();
-        debug!("ip:{}, port:{}", server6.0, server6.1);
+        debug!("ip:{}, port:{}", server6.host(), server6.port());
 
         let _ = poll_fn(|cx| service.poll_ready(cx)).await;
         let server7 = service.call(()).await.unwrap();
-        debug!("ip:{}, port:{}", server7.0, server7.1);
+        debug!("ip:{}, port:{}", server7.host(), server7.port());
     }
 }
