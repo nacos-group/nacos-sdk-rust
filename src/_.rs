@@ -1,3 +1,4 @@
+#[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Metadata {
     #[prost(string, tag = "3")]
@@ -5,11 +6,10 @@ pub struct Metadata {
     #[prost(string, tag = "8")]
     pub client_ip: ::prost::alloc::string::String,
     #[prost(map = "string, string", tag = "7")]
-    pub headers: ::std::collections::HashMap<
-        ::prost::alloc::string::String,
-        ::prost::alloc::string::String,
-    >,
+    pub headers:
+        ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
 }
+#[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Payload {
     #[prost(message, optional, tag = "2")]
@@ -17,141 +17,214 @@ pub struct Payload {
     #[prost(message, optional, tag = "3")]
     pub body: ::core::option::Option<::prost_types::Any>,
 }
-const METHOD_REQUEST_REQUEST: ::grpcio::Method<Payload, Payload> = ::grpcio::Method {
-    ty: ::grpcio::MethodType::Unary,
-    name: "/Request/request",
-    req_mar: ::grpcio::Marshaller {
-        ser: ::grpcio::pr_ser,
-        de: ::grpcio::pr_de,
-    },
-    resp_mar: ::grpcio::Marshaller {
-        ser: ::grpcio::pr_ser,
-        de: ::grpcio::pr_de,
-    },
-};
-#[derive(Clone)]
-pub struct RequestClient {
-    client: ::grpcio::Client,
-}
-impl RequestClient {
-    pub fn new(channel: ::grpcio::Channel) -> Self {
-        RequestClient {
-            client: ::grpcio::Client::new(channel),
+/// Generated client implementations.
+pub mod request_client {
+    #![allow(unused_variables, dead_code, missing_docs, clippy::let_unit_value)]
+    use tonic::codegen::http::Uri;
+    use tonic::codegen::*;
+    #[derive(Debug, Clone)]
+    pub struct RequestClient<T> {
+        inner: tonic::client::Grpc<T>,
+    }
+    impl RequestClient<tonic::transport::Channel> {
+        /// Attempt to create a new client by connecting to a given endpoint.
+        pub async fn connect<D>(dst: D) -> Result<Self, tonic::transport::Error>
+        where
+            D: TryInto<tonic::transport::Endpoint>,
+            D::Error: Into<StdError>,
+        {
+            let conn = tonic::transport::Endpoint::new(dst)?.connect().await?;
+            Ok(Self::new(conn))
         }
     }
-    pub fn request_opt(
-        &self,
-        req: &Payload,
-        opt: ::grpcio::CallOption,
-    ) -> ::grpcio::Result<Payload> {
-        self.client.unary_call(&METHOD_REQUEST_REQUEST, req, opt)
-    }
-    pub fn request(&self, req: &Payload) -> ::grpcio::Result<Payload> {
-        self.request_opt(req, ::grpcio::CallOption::default())
-    }
-    pub fn request_async_opt(
-        &self,
-        req: &Payload,
-        opt: ::grpcio::CallOption,
-    ) -> ::grpcio::Result<::grpcio::ClientUnaryReceiver<Payload>> {
-        self.client.unary_call_async(&METHOD_REQUEST_REQUEST, req, opt)
-    }
-    pub fn request_async(
-        &self,
-        req: &Payload,
-    ) -> ::grpcio::Result<::grpcio::ClientUnaryReceiver<Payload>> {
-        self.request_async_opt(req, ::grpcio::CallOption::default())
-    }
-    pub fn spawn<F>(&self, f: F)
+    impl<T> RequestClient<T>
     where
-        F: ::std::future::Future<Output = ()> + Send + 'static,
+        T: tonic::client::GrpcService<tonic::body::BoxBody>,
+        T::Error: Into<StdError>,
+        T::ResponseBody: Body<Data = Bytes> + Send + 'static,
+        <T::ResponseBody as Body>::Error: Into<StdError> + Send,
     {
-        self.client.spawn(f)
-    }
-}
-pub trait Request {
-    fn request(
-        &mut self,
-        ctx: ::grpcio::RpcContext,
-        _req: Payload,
-        sink: ::grpcio::UnarySink<Payload>,
-    ) {
-        grpcio::unimplemented_call!(ctx, sink)
-    }
-}
-pub fn create_request<S: Request + Send + Clone + 'static>(s: S) -> ::grpcio::Service {
-    let mut builder = ::grpcio::ServiceBuilder::new();
-    let mut instance = s;
-    builder = builder
-        .add_unary_handler(
-            &METHOD_REQUEST_REQUEST,
-            move |ctx, req, resp| instance.request(ctx, req, resp),
-        );
-    builder.build()
-}
-const METHOD_BI_REQUEST_STREAM_REQUEST_BI_STREAM: ::grpcio::Method<Payload, Payload> = ::grpcio::Method {
-    ty: ::grpcio::MethodType::Duplex,
-    name: "/BiRequestStream/requestBiStream",
-    req_mar: ::grpcio::Marshaller {
-        ser: ::grpcio::pr_ser,
-        de: ::grpcio::pr_de,
-    },
-    resp_mar: ::grpcio::Marshaller {
-        ser: ::grpcio::pr_ser,
-        de: ::grpcio::pr_de,
-    },
-};
-#[derive(Clone)]
-pub struct BiRequestStreamClient {
-    client: ::grpcio::Client,
-}
-impl BiRequestStreamClient {
-    pub fn new(channel: ::grpcio::Channel) -> Self {
-        BiRequestStreamClient {
-            client: ::grpcio::Client::new(channel),
+        pub fn new(inner: T) -> Self {
+            let inner = tonic::client::Grpc::new(inner);
+            Self { inner }
+        }
+        pub fn with_origin(inner: T, origin: Uri) -> Self {
+            let inner = tonic::client::Grpc::with_origin(inner, origin);
+            Self { inner }
+        }
+        pub fn with_interceptor<F>(
+            inner: T,
+            interceptor: F,
+        ) -> RequestClient<InterceptedService<T, F>>
+        where
+            F: tonic::service::Interceptor,
+            T::ResponseBody: Default,
+            T: tonic::codegen::Service<
+                http::Request<tonic::body::BoxBody>,
+                Response = http::Response<
+                    <T as tonic::client::GrpcService<tonic::body::BoxBody>>::ResponseBody,
+                >,
+            >,
+            <T as tonic::codegen::Service<http::Request<tonic::body::BoxBody>>>::Error:
+                Into<StdError> + Send + Sync,
+        {
+            RequestClient::new(InterceptedService::new(inner, interceptor))
+        }
+        /// Compress requests with the given encoding.
+        ///
+        /// This requires the server to support it otherwise it might respond with an
+        /// error.
+        #[must_use]
+        pub fn send_compressed(mut self, encoding: CompressionEncoding) -> Self {
+            self.inner = self.inner.send_compressed(encoding);
+            self
+        }
+        /// Enable decompressing responses.
+        #[must_use]
+        pub fn accept_compressed(mut self, encoding: CompressionEncoding) -> Self {
+            self.inner = self.inner.accept_compressed(encoding);
+            self
+        }
+        /// Limits the maximum size of a decoded message.
+        ///
+        /// Default: `4MB`
+        #[must_use]
+        pub fn max_decoding_message_size(mut self, limit: usize) -> Self {
+            self.inner = self.inner.max_decoding_message_size(limit);
+            self
+        }
+        /// Limits the maximum size of an encoded message.
+        ///
+        /// Default: `usize::MAX`
+        #[must_use]
+        pub fn max_encoding_message_size(mut self, limit: usize) -> Self {
+            self.inner = self.inner.max_encoding_message_size(limit);
+            self
+        }
+        /// Sends a commonRequest
+        pub async fn request(
+            &mut self,
+            request: impl tonic::IntoRequest<super::Payload>,
+        ) -> std::result::Result<tonic::Response<super::Payload>, tonic::Status> {
+            self.inner.ready().await.map_err(|e| {
+                tonic::Status::new(
+                    tonic::Code::Unknown,
+                    format!("Service was not ready: {}", e.into()),
+                )
+            })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static("/Request/request");
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(GrpcMethod::new("Request", "request"));
+            self.inner.unary(req, path, codec).await
         }
     }
-    pub fn request_bi_stream_opt(
-        &self,
-        opt: ::grpcio::CallOption,
-    ) -> ::grpcio::Result<
-        (::grpcio::ClientDuplexSender<Payload>, ::grpcio::ClientDuplexReceiver<Payload>),
-    > {
-        self.client.duplex_streaming(&METHOD_BI_REQUEST_STREAM_REQUEST_BI_STREAM, opt)
+}
+/// Generated client implementations.
+pub mod bi_request_stream_client {
+    #![allow(unused_variables, dead_code, missing_docs, clippy::let_unit_value)]
+    use tonic::codegen::http::Uri;
+    use tonic::codegen::*;
+    #[derive(Debug, Clone)]
+    pub struct BiRequestStreamClient<T> {
+        inner: tonic::client::Grpc<T>,
     }
-    pub fn request_bi_stream(
-        &self,
-    ) -> ::grpcio::Result<
-        (::grpcio::ClientDuplexSender<Payload>, ::grpcio::ClientDuplexReceiver<Payload>),
-    > {
-        self.request_bi_stream_opt(::grpcio::CallOption::default())
+    impl BiRequestStreamClient<tonic::transport::Channel> {
+        /// Attempt to create a new client by connecting to a given endpoint.
+        pub async fn connect<D>(dst: D) -> Result<Self, tonic::transport::Error>
+        where
+            D: TryInto<tonic::transport::Endpoint>,
+            D::Error: Into<StdError>,
+        {
+            let conn = tonic::transport::Endpoint::new(dst)?.connect().await?;
+            Ok(Self::new(conn))
+        }
     }
-    pub fn spawn<F>(&self, f: F)
+    impl<T> BiRequestStreamClient<T>
     where
-        F: ::std::future::Future<Output = ()> + Send + 'static,
+        T: tonic::client::GrpcService<tonic::body::BoxBody>,
+        T::Error: Into<StdError>,
+        T::ResponseBody: Body<Data = Bytes> + Send + 'static,
+        <T::ResponseBody as Body>::Error: Into<StdError> + Send,
     {
-        self.client.spawn(f)
+        pub fn new(inner: T) -> Self {
+            let inner = tonic::client::Grpc::new(inner);
+            Self { inner }
+        }
+        pub fn with_origin(inner: T, origin: Uri) -> Self {
+            let inner = tonic::client::Grpc::with_origin(inner, origin);
+            Self { inner }
+        }
+        pub fn with_interceptor<F>(
+            inner: T,
+            interceptor: F,
+        ) -> BiRequestStreamClient<InterceptedService<T, F>>
+        where
+            F: tonic::service::Interceptor,
+            T::ResponseBody: Default,
+            T: tonic::codegen::Service<
+                http::Request<tonic::body::BoxBody>,
+                Response = http::Response<
+                    <T as tonic::client::GrpcService<tonic::body::BoxBody>>::ResponseBody,
+                >,
+            >,
+            <T as tonic::codegen::Service<http::Request<tonic::body::BoxBody>>>::Error:
+                Into<StdError> + Send + Sync,
+        {
+            BiRequestStreamClient::new(InterceptedService::new(inner, interceptor))
+        }
+        /// Compress requests with the given encoding.
+        ///
+        /// This requires the server to support it otherwise it might respond with an
+        /// error.
+        #[must_use]
+        pub fn send_compressed(mut self, encoding: CompressionEncoding) -> Self {
+            self.inner = self.inner.send_compressed(encoding);
+            self
+        }
+        /// Enable decompressing responses.
+        #[must_use]
+        pub fn accept_compressed(mut self, encoding: CompressionEncoding) -> Self {
+            self.inner = self.inner.accept_compressed(encoding);
+            self
+        }
+        /// Limits the maximum size of a decoded message.
+        ///
+        /// Default: `4MB`
+        #[must_use]
+        pub fn max_decoding_message_size(mut self, limit: usize) -> Self {
+            self.inner = self.inner.max_decoding_message_size(limit);
+            self
+        }
+        /// Limits the maximum size of an encoded message.
+        ///
+        /// Default: `usize::MAX`
+        #[must_use]
+        pub fn max_encoding_message_size(mut self, limit: usize) -> Self {
+            self.inner = self.inner.max_encoding_message_size(limit);
+            self
+        }
+        /// Sends a biStreamRequest
+        pub async fn request_bi_stream(
+            &mut self,
+            request: impl tonic::IntoStreamingRequest<Message = super::Payload>,
+        ) -> std::result::Result<
+            tonic::Response<tonic::codec::Streaming<super::Payload>>,
+            tonic::Status,
+        > {
+            self.inner.ready().await.map_err(|e| {
+                tonic::Status::new(
+                    tonic::Code::Unknown,
+                    format!("Service was not ready: {}", e.into()),
+                )
+            })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static("/BiRequestStream/requestBiStream");
+            let mut req = request.into_streaming_request();
+            req.extensions_mut()
+                .insert(GrpcMethod::new("BiRequestStream", "requestBiStream"));
+            self.inner.streaming(req, path, codec).await
+        }
     }
-}
-pub trait BiRequestStream {
-    fn request_bi_stream(
-        &mut self,
-        ctx: ::grpcio::RpcContext,
-        _stream: ::grpcio::RequestStream<Payload>,
-        sink: ::grpcio::DuplexSink<Payload>,
-    ) {
-        grpcio::unimplemented_call!(ctx, sink)
-    }
-}
-pub fn create_bi_request_stream<S: BiRequestStream + Send + Clone + 'static>(
-    s: S,
-) -> ::grpcio::Service {
-    let mut builder = ::grpcio::ServiceBuilder::new();
-    let mut instance = s;
-    builder = builder
-        .add_duplex_streaming_handler(
-            &METHOD_BI_REQUEST_STREAM_REQUEST_BI_STREAM,
-            move |ctx, req, resp| instance.request_bi_stream(ctx, req, resp),
-        );
-    builder.build()
 }

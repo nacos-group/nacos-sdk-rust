@@ -6,8 +6,6 @@ use nacos_sdk::api::naming::{
     NamingChangeEvent, NamingEventListener, NamingService, NamingServiceBuilder, ServiceInstance,
 };
 use nacos_sdk::api::props::ClientProps;
-use std::time::Duration;
-use tokio::time::sleep;
 
 /// enable https auth run with command:
 /// cargo run --example simple_app --features default,tls
@@ -73,7 +71,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Some(constants::DEFAULT_GROUP.to_string()),
         vec![service_instance1],
     );
-    sleep(Duration::from_millis(111)).await;
+    tokio::time::sleep(tokio::time::Duration::from_millis(666)).await;
 
     let instances_ret = naming_service.get_all_instances(
         "test-service".to_string(),
@@ -86,7 +84,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Err(err) => tracing::error!("naming get_all_instances error {:?}", err),
     }
 
-    sleep(Duration::from_secs(300)).await;
+    tokio::time::sleep(tokio::time::Duration::from_secs(300)).await;
 
     Ok(())
 }

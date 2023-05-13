@@ -14,15 +14,16 @@
 // limitations under the License.
 //
 
-// This test helps to keep files generated and used by grpcio(proto) update to date.
+// This test helps to keep files generated and used by tonic_build(proto) update to date.
 // If the generated files has been changed, please commit they.
 #[test]
 #[ignore]
 fn build_proto() {
-    grpcio_compiler::prost_codegen::compile_protos(
-        &["./proto/nacos_grpc_service.proto"],
-        &["./proto"],
-        "src",
-    )
-    .unwrap();
+    tonic_build::configure()
+        .build_client(true)
+        .build_server(false)
+        .build_transport(true)
+        .out_dir("src")
+        .compile(&["./proto/nacos_grpc_service.proto"], &["./proto"])
+        .unwrap();
 }

@@ -1,5 +1,9 @@
 # 变更日志 | Change log
 
+### 0.3.0
+- Refactor: tonic instead of tikv/grpc-rs
+- TODO
+
 ### 0.2.6
 
 - 修复 `ServiceInfoUpdateTask` 丢失 auth header

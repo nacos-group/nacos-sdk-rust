@@ -12,9 +12,9 @@ Cargo.lock
 # IDE
 .idea
 .vscode
+.history
+.DS_Store
 
 # Customize
 ### google.protobuf.rs build by prost-build, exclude it because no content.
 **/google.protobuf.rs
-.DS_Store
-.history

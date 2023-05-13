@@ -3,7 +3,7 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
 use tracing::debug;
-use tracing::debug_span;
+use tracing::info;
 use tracing::instrument;
 
 use crate::api::error::Error::ErrResult;
@@ -11,10 +11,13 @@ use crate::api::error::Result;
 use crate::api::naming::InstanceChooser;
 use crate::api::naming::NamingEventListener;
 use crate::api::naming::{NamingService, ServiceInstance};
-use crate::api::plugin::{AuthContext, AuthPlugin};
+use crate::api::plugin::AuthPlugin;
 use crate::api::props::ClientProps;
 
-use crate::common::event_bus;
+use crate::common::cache::Cache;
+use crate::common::cache::CacheBuilder;
+use crate::common::executor;
+use crate::common::remote::grpc::layers::auth::AuthLayer;
 use crate::common::remote::grpc::message::GrpcRequestMessage;
 use crate::common::remote::grpc::message::GrpcResponseMessage;
 use crate::common::remote::grpc::NacosGrpcClient;
@@ -31,46 +34,40 @@ use crate::naming::message::response::ServiceListResponse;
 use self::chooser::RandomWeightChooser;
 use self::dto::ServiceInfo;
 use self::handler::NamingPushRequestHandler;
-use self::handler::ServiceInfoHolder;
 use self::message::request::NotifySubscriberRequest;
 use self::message::request::SubscribeServiceRequest;
 use self::message::response::SubscribeServiceResponse;
+use self::observable::service_info_observable::ServiceInfoObserver;
 use self::redo::AutomaticRequest;
 use self::redo::NamingRedoTask;
 use self::redo::RedoTask;
 use self::redo::RedoTaskExecutor;
-use self::subscribers::InstancesChangeEventSubscriber;
-use self::subscribers::RedoTaskDisconnectEventSubscriber;
-use self::subscribers::RedoTaskReconnectEventSubscriber;
 use self::updater::ServiceInfoUpdater;
 
 mod chooser;
 mod dto;
-mod events;
 mod handler;
 mod message;
+mod observable;
 mod redo;
-mod subscribers;
 mod updater;
 
 pub(crate) struct NacosNamingService {
     nacos_grpc_client: Arc<NacosGrpcClient>,
-    auth_plugin: Arc<dyn AuthPlugin>,
     namespace: String,
     redo_task_executor: Arc<RedoTaskExecutor>,
-    instances_change_event_subscriber: Arc<InstancesChangeEventSubscriber>,
-    service_info_holder: Arc<ServiceInfoHolder>,
-    service_info_updater: Arc<ServiceInfoUpdater>,
+    service_info_updater: ServiceInfoUpdater,
     client_id: String,
+    naming_cache: Arc<Cache<ServiceInfo>>,
+    observer: ServiceInfoObserver,
 }
 
 const MODULE_NAME: &str = "naming";
 static SEQ: AtomicU64 = AtomicU64::new(1);
 
-fn generate_client_id(server_addr: &str, namespace: &str) -> String {
-    // module_name + server_addr + namespace + [seq]
+fn generate_client_id(namespace: &str) -> String {
     let client_id = format!(
-        "{MODULE_NAME}:{server_addr}:{namespace}:{}",
+        "{MODULE_NAME}:{namespace}:{}",
         SEQ.fetch_add(1, Ordering::SeqCst)
     );
     client_id
@@ -78,11 +75,6 @@ fn generate_client_id(server_addr: &str, namespace: &str) -> String {
 
 impl NacosNamingService {
     pub(crate) fn new(client_props: ClientProps, auth_plugin: Arc<dyn AuthPlugin>) -> Result<Self> {
-        let client_id = generate_client_id(&client_props.server_addr, &client_props.namespace);
-
-        // create span
-        let _naming_init_span = debug_span!("naming_init", client_id).entered();
-
         let server_list = Arc::new(client_props.get_server_list()?);
 
         let mut namespace = client_props.namespace;
@@ -90,18 +82,45 @@ impl NacosNamingService {
             namespace = crate::api::constants::DEFAULT_NAMESPACE.to_owned();
         }
 
-        let service_info_holder = Arc::new(ServiceInfoHolder::new(client_id.clone()));
+        // create client id
+        let client_id = generate_client_id(&namespace);
 
-        let nacos_grpc_client = NacosGrpcClientBuilder::new(client_id.clone())
-            .address(client_props.server_addr.clone())
-            .grpc_port(client_props.grpc_port)
+        // create redo task executor
+        let redo_task_executor = Arc::new(RedoTaskExecutor::new(client_id.clone()));
+        let redo_task_executor_on_connected = redo_task_executor.clone();
+        let redo_task_executor_on_disconnected = redo_task_executor.clone();
+
+        // create naming cache
+        let naming_cache: Cache<ServiceInfo> = CacheBuilder::naming(namespace.clone())
+            .disk_store()
+            .build(client_id.clone());
+        let naming_cache = Arc::new(naming_cache);
+
+        // create naming service info change observable
+        let (observer, emitter) = observable::service_info_observable::create(
+            client_id.clone(),
+            naming_cache.clone(),
+            true,
+        );
+
+        let server_request_handler = NamingPushRequestHandler::new(emitter.clone());
+
+        auth_plugin.set_server_list(server_list.to_vec());
+        let auth_layer = Arc::new(AuthLayer::new(
+            auth_plugin,
+            client_props.auth_context,
+            client_id.clone(),
+        ));
+
+        let nacos_grpc_client = NacosGrpcClientBuilder::new(server_list.to_vec())
+            .port(client_props.grpc_port)
             .namespace(namespace.clone())
-            .app_name(client_props.app_name)
             .client_version(client_props.client_version)
             .support_remote_connection(true)
             .support_config_remote_metrics(true)
             .support_naming_delta_push(false)
             .support_naming_remote_metric(false)
+            .add_labels(client_props.labels)
             .add_label(
                 crate::api::constants::common_remote::LABEL_SOURCE.to_owned(),
                 crate::api::constants::common_remote::LABEL_SOURCE_SDK.to_owned(),
@@ -110,82 +129,51 @@ impl NacosNamingService {
                 crate::api::constants::common_remote::LABEL_MODULE.to_owned(),
                 crate::api::constants::common_remote::LABEL_MODULE_NAMING.to_owned(),
             )
-            .add_labels(client_props.labels)
-            .register_bi_call_handler::<NotifySubscriberRequest>(Arc::new(
-                NamingPushRequestHandler::new(service_info_holder.clone(), client_id.clone()),
+            .app_name(client_props.app_name)
+            .register_server_request_handler::<NotifySubscriberRequest>(Arc::new(
+                server_request_handler,
             ))
-            .build()?;
+            .connected_listener(move |connection_id| {
+                info!("connection {} connected.", connection_id);
+                let redo = redo_task_executor_on_connected.clone();
+                executor::spawn(async move {
+                    redo.on_grpc_client_reconnect().await;
+                });
+            })
+            .disconnected_listener(move |connection_id| {
+                info!("connection {} disconnected.", connection_id);
+                let redo = redo_task_executor_on_disconnected.clone();
+                executor::spawn(async move {
+                    redo.on_grpc_client_disconnect().await;
+                });
+            })
+            .unary_call_layer(auth_layer.clone())
+            .bi_call_layer(auth_layer)
+            .build(client_id.clone());
 
-        let plugin = Arc::clone(&auth_plugin);
-        let auth_context = Arc::new(AuthContext::default().add_params(client_props.auth_context));
-        plugin.set_server_list(server_list.to_vec());
-        plugin.login((*auth_context).clone());
+        let nacos_grpc_client = Arc::new(nacos_grpc_client);
 
-        debug_span!("naming_auth_task").in_scope(|| {
-            crate::common::executor::schedule_at_fixed_delay(
-                move || {
-                    plugin.set_server_list(server_list.to_vec());
-                    plugin.login((*auth_context).clone());
-                    tracing::debug!("auth_plugin schedule at fixed delay");
-                    Ok(())
-                },
-                tokio::time::Duration::from_secs(30),
-            );
-        });
-
-        let redo_task_executor = Arc::new(RedoTaskExecutor::new(
-            nacos_grpc_client.clone(),
-            auth_plugin.clone(),
-            client_id.clone(),
-        ));
-        // redo grpc event subscriber
-        event_bus::register(Arc::new(RedoTaskDisconnectEventSubscriber {
-            redo_task_executor: redo_task_executor.clone(),
-            scope: client_id.clone(),
-        }));
-
-        event_bus::register(Arc::new(RedoTaskReconnectEventSubscriber {
-            redo_task_executor: redo_task_executor.clone(),
-            scope: client_id.clone(),
-        }));
-
-        // instance change event subscriber
-        let instances_change_event_subscriber =
-            Arc::new(InstancesChangeEventSubscriber::new(client_id.clone()));
-        event_bus::register(instances_change_event_subscriber.clone());
-
-        // create service info updater
-
-        let service_info_updater = Arc::new(ServiceInfoUpdater::new(
-            service_info_holder.clone(),
-            nacos_grpc_client.clone(),
-            namespace.clone(),
-            client_id.clone(),
-            auth_plugin.clone(),
-        ));
+        // // create service info updater
+        let service_info_updater =
+            ServiceInfoUpdater::new(emitter, naming_cache.clone(), nacos_grpc_client.clone());
 
         Ok(NacosNamingService {
             redo_task_executor,
             nacos_grpc_client,
-            auth_plugin,
             namespace,
-            instances_change_event_subscriber,
-            service_info_holder,
             service_info_updater,
             client_id,
+            naming_cache,
+            observer,
         })
     }
 
-    async fn request_to_server<R, P>(&self, mut request: R) -> Result<P>
+    async fn request_to_server<R, P>(&self, request: R) -> Result<P>
     where
         R: GrpcRequestMessage + 'static,
         P: GrpcResponseMessage + 'static,
     {
-        let nacos_grpc_client = self.nacos_grpc_client.clone();
-
-        request.add_headers(self.auth_plugin.get_login_identity().contexts);
-
-        nacos_grpc_client.unary_call_async::<R, P>(request).await
+        self.nacos_grpc_client.send_request::<R, P>(request).await
     }
 }
 
@@ -209,7 +197,10 @@ impl NacosNamingService {
 
         // automatic request
         let auto_request: Arc<dyn AutomaticRequest> = Arc::new(request.clone());
-        let redo_task = Arc::new(NamingRedoTask::new(auto_request));
+        let redo_task = Arc::new(NamingRedoTask::new(
+            self.nacos_grpc_client.clone(),
+            auto_request,
+        ));
 
         // active redo task
         redo_task.active();
@@ -251,7 +242,7 @@ impl NacosNamingService {
 
         // automatic request
         let auto_request: Arc<dyn AutomaticRequest> = Arc::new(request.clone());
-        let redo_task = NamingRedoTask::new(auto_request);
+        let redo_task = NamingRedoTask::new(self.nacos_grpc_client.clone(), auto_request);
 
         let body = self
             .request_to_server::<InstanceRequest, InstanceResponse>(request)
@@ -287,7 +278,7 @@ impl NacosNamingService {
 
         // automatic request
         let auto_request: Arc<dyn AutomaticRequest> = Arc::new(request.clone());
-        let redo_task = NamingRedoTask::new(auto_request);
+        let redo_task = NamingRedoTask::new(self.nacos_grpc_client.clone(), auto_request);
         let redo_task = Arc::new(redo_task);
 
         // active redo task
@@ -319,10 +310,14 @@ impl NacosNamingService {
 
         let service_info;
         if subscribe {
-            let cache_service_info = self
-                .service_info_holder
-                .get_service_info(&group_name, &service_name, &cluster_str)
-                .await;
+            let cache_service_info = {
+                let grouped_name =
+                    ServiceInfo::get_grouped_service_name(&service_name, &group_name);
+                let key = ServiceInfo::get_key(&grouped_name, &cluster_str);
+                let ret = self.naming_cache.get(&key).map(|data| data.clone());
+                ret
+            };
+
             if cache_service_info.is_none() {
                 let subscribe_service_info = self
                     .subscribe_async(service_name, Some(group_name), clusters, None)
@@ -469,14 +464,19 @@ impl NacosNamingService {
 
         // add updater task
         self.service_info_updater
-            .schedule_update(service_name.clone(), group_name.clone(), clusters.clone())
+            .schedule_update(
+                self.namespace.clone(),
+                service_name.clone(),
+                group_name.clone(),
+                clusters.clone(),
+            )
             .await;
 
         // add event listener
         if let Some(event_listener) = event_listener {
-            self.instances_change_event_subscriber
-                .add_listener(&group_name, &service_name, &clusters, event_listener)
-                .await;
+            let grouped_name = ServiceInfo::get_grouped_service_name(&service_name, &group_name);
+            let key = ServiceInfo::get_key(&grouped_name, &clusters);
+            self.observer.subscribe(key, event_listener).await;
         }
 
         let request = SubscribeServiceRequest::new(
@@ -489,7 +489,7 @@ impl NacosNamingService {
 
         // automatic request
         let auto_request: Arc<dyn AutomaticRequest> = Arc::new(request.clone());
-        let redo_task = NamingRedoTask::new(auto_request);
+        let redo_task = NamingRedoTask::new(self.nacos_grpc_client.clone(), auto_request);
 
         let redo_task = Arc::new(redo_task);
         // active redo task
@@ -534,9 +534,10 @@ impl NacosNamingService {
 
         // remove event listener
         if let Some(event_listener) = event_listener {
-            self.instances_change_event_subscriber
-                .remove_listener(&group_name, &service_name, &clusters, event_listener)
-                .await;
+            let grouped_name = ServiceInfo::get_grouped_service_name(&service_name, &group_name);
+            let key = ServiceInfo::get_key(&grouped_name, &clusters);
+
+            self.observer.unsubscribe(key, event_listener).await;
         }
 
         let request = SubscribeServiceRequest::new(
@@ -549,7 +550,7 @@ impl NacosNamingService {
 
         // automatic request
         let auto_request: Arc<dyn AutomaticRequest> = Arc::new(request.clone());
-        let redo_task = NamingRedoTask::new(auto_request);
+        let redo_task = NamingRedoTask::new(self.nacos_grpc_client.clone(), auto_request);
 
         let response = self
             .request_to_server::<SubscribeServiceRequest, SubscribeServiceResponse>(request)
@@ -572,17 +573,6 @@ impl NacosNamingService {
 
 #[cfg(not(feature = "async"))]
 impl NamingService for NacosNamingService {
-    #[instrument(fields(client_id = &self.client_id, group = group_name, service_name = service_name), skip_all)]
-    fn register_service(
-        &self,
-        service_name: String,
-        group_name: Option<String>,
-        service_instance: ServiceInstance,
-    ) -> Result<()> {
-        let future = self.register_instance_async(service_name, group_name, service_instance);
-        futures::executor::block_on(future)
-    }
-
     #[instrument(fields(client_id = &self.client_id, group = group_name, service_name = service_name), skip_all)]
     fn deregister_instance(
         &self,
@@ -615,20 +605,6 @@ impl NamingService for NacosNamingService {
         subscribe: bool,
     ) -> Result<Vec<ServiceInstance>> {
         let future = self.get_all_instances_async(service_name, group_name, clusters, subscribe);
-        futures::executor::block_on(future)
-    }
-
-    #[instrument(fields(client_id = &self.client_id, group = group_name, service_name = service_name), skip_all)]
-    fn select_instance(
-        &self,
-        service_name: String,
-        group_name: Option<String>,
-        clusters: Vec<String>,
-        subscribe: bool,
-        healthy: bool,
-    ) -> Result<Vec<ServiceInstance>> {
-        let future =
-            self.select_instances_async(service_name, group_name, clusters, subscribe, healthy);
         futures::executor::block_on(future)
     }
 
@@ -829,7 +805,7 @@ pub(crate) mod tests {
 
     use crate::api::{
         naming::NamingChangeEvent,
-        plugin::{HttpLoginAuthPlugin, NoopAuthPlugin},
+        plugin::{AuthContext, HttpLoginAuthPlugin, NoopAuthPlugin},
     };
 
     use super::*;
@@ -1250,13 +1226,10 @@ pub(crate) mod tests {
 
         let http_auth_plugin = HttpLoginAuthPlugin::default();
         http_auth_plugin.set_server_list(vec!["127.0.0.1:8848".to_string()]);
-
         let auth_context = AuthContext::default()
-            .add_param(crate::api::plugin::USERNAME, "test")
-            .add_param(crate::api::plugin::PASSWORD, "123456");
-
-        http_auth_plugin.login(auth_context.clone());
-        // let login_identity_1 = http_auth_plugin.get_login_identity();
+            .add_param(crate::api::plugin::USERNAME, "nacos")
+            .add_param(crate::api::plugin::PASSWORD, "nacos");
+        http_auth_plugin.login(auth_context);
 
         let naming_service = NacosNamingService::new(props, Arc::new(http_auth_plugin))?;
         let service_instance1 = ServiceInstance {

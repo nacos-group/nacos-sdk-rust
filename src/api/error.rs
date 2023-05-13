@@ -14,6 +14,8 @@
 // limitations under the License.
 //
 
+use tower::BoxError;
+
 /// Nacos Sdk Rust Result.
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -45,8 +47,17 @@ pub enum Error {
     #[error("remote client unhealthy failed: {0}")]
     ClientUnhealthy(String),
 
-    #[error("grpcio conn failed: {0}")]
-    GrpcioJoin(#[from] grpcio::Error),
+    #[error("tonic grpc transport error: {0}")]
+    TonicGrpcTransport(#[from] tonic::transport::Error),
+
+    #[error("tonic grpc status error: {0}")]
+    TonicGrpcStatus(#[from] tonic::Status),
+
+    #[error("grpc request error: {0}")]
+    GrpcBufferRequest(#[from] BoxError),
+
+    #[error("no available server")]
+    NoAvailableServer,
 
     #[error("Wrong server address: {0}")]
     WrongServerAddress(String),

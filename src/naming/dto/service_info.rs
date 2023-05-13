@@ -1,9 +1,6 @@
 use serde::{Deserialize, Serialize};
-use std::time::SystemTime;
 use tracing::error;
 
-use crate::api::error::Error::ErrResult;
-use crate::api::error::Result;
 use crate::api::naming::ServiceInstance;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -31,43 +28,6 @@ pub struct ServiceInfo {
 
 const SERVICE_INFO_SEPARATOR: &str = "@@";
 impl ServiceInfo {
-    pub(crate) fn new(key: String) -> Result<Self> {
-        let max_index = 2;
-        let cluster_index = 2;
-        let service_name_index = 1;
-        let group_index = 0;
-
-        let keys: Vec<_> = key.split(SERVICE_INFO_SEPARATOR).collect();
-
-        if key.len() > max_index {
-            Ok(ServiceInfo {
-                group_name: keys[group_index].to_owned(),
-                name: keys[service_name_index].to_owned(),
-                clusters: keys[cluster_index].to_owned(),
-                ..Default::default()
-            })
-        } else if keys.len() == max_index {
-            Ok(ServiceInfo {
-                group_name: keys[group_index].to_owned(),
-                name: keys[service_name_index].to_owned(),
-                ..Default::default()
-            })
-        } else {
-            Err(ErrResult("group name must not be null!".to_string()))
-        }
-    }
-
-    pub fn expired(&self) -> bool {
-        let now = SystemTime::now();
-        let now = now.elapsed();
-        if now.is_err() {
-            return true;
-        }
-        let now = now.unwrap().as_millis();
-
-        now - self.last_ref_time as u128 > self.cache_millis as u128
-    }
-
     pub fn ip_count(&self) -> i32 {
         if self.hosts.is_none() {
             return 0;

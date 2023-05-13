@@ -14,6 +14,7 @@
 // limitations under the License.
 //
 
+#![deny(rust_2018_idioms, clippy::disallowed_methods, clippy::disallowed_types)]
 #![cfg_attr(docsrs, feature(doc_cfg))]
 #![cfg_attr(docsrs, allow(unused_attributes))]
 
@@ -27,7 +28,7 @@
 //! - If you need async API, which can be enabled via `features = ["async"]`
 //! ```toml
 //! [dependencies]
-//! nacos-sdk = { version = "0.2", features = ["default"] }
+//! nacos-sdk = { version = "0.3", features = ["default"] }
 //! ```
 //!
 //! ## General Configurations and Initialization
@@ -71,10 +72,10 @@ mod config;
 mod naming;
 
 #[allow(dead_code)]
+#[path = ""]
 mod nacos_proto {
-    pub mod v2 {
-        include!("_.rs");
-    }
+    #[path = "_.rs"]
+    pub mod v2;
 }
 
 #[cfg(test)]

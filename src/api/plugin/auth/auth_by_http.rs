@@ -1,7 +1,7 @@
 use rand::Rng;
 use std::ops::{Add, Deref};
 use std::sync::RwLock;
-use std::time::{Duration, Instant};
+use tokio::time::{Duration, Instant};
 
 use crate::api::plugin::{AuthContext, AuthPlugin, LoginIdentityContext};
 
@@ -84,6 +84,7 @@ impl AuthPlugin for HttpLoginAuthPlugin {
 
             let resp_obj = serde_json::from_str::<HttpLoginResponse>(&resp_text);
             if resp_obj.is_err() {
+                tracing::error!("Http login error with resp_text={resp_text}");
                 sender.send(None).expect("send response failed");
                 return;
             }

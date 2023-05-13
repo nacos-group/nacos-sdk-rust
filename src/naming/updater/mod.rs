@@ -10,56 +10,46 @@ use std::{
 use tokio::{sync::Mutex, time::sleep};
 use tracing::{debug, error, info, instrument, warn, Instrument};
 
-use crate::{
-    api::plugin::AuthPlugin,
-    common::{
-        executor,
-        remote::{
-            generate_request_id,
-            grpc::{
-                message::{GrpcRequestMessage, GrpcResponseMessage},
-                NacosGrpcClient,
-            },
-        },
+use crate::common::{
+    cache::Cache,
+    executor,
+    remote::{
+        generate_request_id,
+        grpc::{message::GrpcResponseMessage, NacosGrpcClient},
     },
 };
 
 use super::{
     dto::ServiceInfo,
-    handler::ServiceInfoHolder,
     message::{request::ServiceQueryRequest, response::QueryServiceResponse},
+    observable::service_info_observable::ServiceInfoEmitter,
 };
 
 pub(crate) struct ServiceInfoUpdater {
-    service_info_holder: Arc<ServiceInfoHolder>,
+    service_info_emitter: Arc<ServiceInfoEmitter>,
+    cache: Arc<Cache<ServiceInfo>>,
     nacos_grpc_client: Arc<NacosGrpcClient>,
-    namespace: String,
     task_map: Mutex<HashMap<String, ServiceInfoUpdateTask>>,
-    client_id: String,
-    auth_plugin: Arc<dyn AuthPlugin>,
 }
 
 impl ServiceInfoUpdater {
     pub(crate) fn new(
-        service_info_holder: Arc<ServiceInfoHolder>,
+        service_info_emitter: Arc<ServiceInfoEmitter>,
+        cache: Arc<Cache<ServiceInfo>>,
         nacos_grpc_client: Arc<NacosGrpcClient>,
-        namespace: String,
-        client_id: String,
-        auth_plugin: Arc<dyn AuthPlugin>,
     ) -> Self {
         Self {
-            service_info_holder,
+            service_info_emitter,
+            cache,
             nacos_grpc_client,
-            namespace,
             task_map: Mutex::new(HashMap::default()),
-            client_id,
-            auth_plugin,
         }
     }
 
-    #[instrument(skip_all)]
+    #[instrument(fields(service_name = service_name, group_name = group_name, cluster = cluster), skip_all)]
     pub(crate) async fn schedule_update(
         &self,
+        namespace: String,
         service_name: String,
         group_name: String,
         cluster: String,
@@ -71,12 +61,12 @@ impl ServiceInfoUpdater {
         if !is_exist {
             let update_task = ServiceInfoUpdateTask::new(
                 service_name,
-                self.namespace.clone(),
+                namespace,
                 group_name,
                 cluster,
-                self.service_info_holder.clone(),
+                self.cache.clone(),
                 self.nacos_grpc_client.clone(),
-                self.auth_plugin.clone(),
+                self.service_info_emitter.clone(),
             );
             update_task.start();
 
@@ -84,7 +74,7 @@ impl ServiceInfoUpdater {
         }
     }
 
-    #[instrument(fields(client_id = &self.client_id), skip_all)]
+    #[instrument(fields(service_name = service_name, group_name = group_name, cluster = cluster), skip_all)]
     pub(crate) async fn stop_update(
         &self,
         service_name: String,
@@ -111,9 +101,9 @@ struct ServiceInfoUpdateTask {
     namespace: String,
     group_name: String,
     cluster: String,
-    service_info_holder: Arc<ServiceInfoHolder>,
+    cache: Arc<Cache<ServiceInfo>>,
     nacos_grpc_client: Arc<NacosGrpcClient>,
-    auth_plugin: Arc<dyn AuthPlugin>,
+    service_info_emitter: Arc<ServiceInfoEmitter>,
 }
 
 impl ServiceInfoUpdateTask {
@@ -126,9 +116,9 @@ impl ServiceInfoUpdateTask {
         namespace: String,
         group_name: String,
         cluster: String,
-        service_info_holder: Arc<ServiceInfoHolder>,
+        cache: Arc<Cache<ServiceInfo>>,
         nacos_grpc_client: Arc<NacosGrpcClient>,
-        auth_plugin: Arc<dyn AuthPlugin>,
+        service_info_emitter: Arc<ServiceInfoEmitter>,
     ) -> Self {
         Self {
             running: Arc::new(AtomicBool::new(false)),
@@ -136,9 +126,9 @@ impl ServiceInfoUpdateTask {
             namespace,
             group_name,
             cluster,
-            service_info_holder,
+            cache,
             nacos_grpc_client,
-            auth_plugin,
+            service_info_emitter,
         }
     }
 
@@ -154,9 +144,9 @@ impl ServiceInfoUpdateTask {
         let namespace = self.namespace.clone();
         let service_name = self.service_name.clone();
 
-        let service_info_holder = self.service_info_holder.clone();
+        let cache = self.cache.clone();
         let grpc_client = self.nacos_grpc_client.clone();
-        let auth_plugin = self.auth_plugin.clone();
+        let service_info_emitter = self.service_info_emitter.clone();
 
         executor::spawn(async move {
             let mut delay_time = ServiceInfoUpdateTask::DEFAULT_DELAY;
@@ -198,13 +188,17 @@ impl ServiceInfoUpdateTask {
 
                 info!("{log_tag}:ServiceInfoUpdateTask refreshing");
 
-                let service_info = service_info_holder
-                    .get_service_info(
-                        request.group_name.as_deref().unwrap_or_default(),
-                        request.service_name.as_deref().unwrap_or_default(),
-                        &request.cluster,
-                    )
-                    .await;
+                let service_info = {
+                    let group_name = request.group_name.as_deref().unwrap_or_default();
+                    let service_name = request.service_name.as_deref().unwrap_or_default();
+                    let cluster = &request.cluster;
+
+                    let grouped_name =
+                        ServiceInfo::get_grouped_service_name(service_name, group_name);
+                    let key = ServiceInfo::get_key(&grouped_name, cluster);
+                    let ret = cache.get(&key).map(|data| data.clone());
+                    ret
+                };
 
                 let mut need_query_service_info = true;
 
@@ -225,10 +219,10 @@ impl ServiceInfoUpdateTask {
 
                 let mut request = request.clone();
                 request.request_id = Some(generate_request_id());
-                request.add_headers(auth_plugin.get_login_identity().contexts);
 
                 let ret = grpc_client
-                    .unary_call_async::<ServiceQueryRequest, QueryServiceResponse>(request)
+                    .send_request::<ServiceQueryRequest, QueryServiceResponse>(request)
+                    .in_current_span()
                     .await;
                 if let Err(e) = ret {
                     error!("{log_tag}:ServiceInfoUpdateTask occur an error: {e:?}");
@@ -255,7 +249,7 @@ impl ServiceInfoUpdateTask {
                     * (ServiceInfoUpdateTask::DEFAULT_UPDATE_CACHE_TIME_MULTIPLE as i64))
                     as u64;
 
-                service_info_holder.process_service_info(service_info).await;
+                service_info_emitter.emit(service_info).in_current_span().await;
 
                 failed_count = 0;
                 info!("{log_tag}:ServiceInfoUpdateTask finish");
