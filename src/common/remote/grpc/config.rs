@@ -29,8 +29,8 @@ impl GrpcConfiguration {
         self
     }
 
-    pub(crate) fn with_port(mut self, port: u32) -> Self {
-        self.port = Some(port);
+    pub(crate) fn with_port(mut self, port: Option<u32>) -> Self {
+        self.port = port;
         self
     }
 

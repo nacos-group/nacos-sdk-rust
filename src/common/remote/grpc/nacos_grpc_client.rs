@@ -145,7 +145,7 @@ impl NacosGrpcClientBuilder {
         }
     }
 
-    pub(crate) fn port(self, port: u32) -> Self {
+    pub(crate) fn port(self, port: Option<u32>) -> Self {
         let grpc_config = self.grpc_config.with_port(port);
         Self {
             grpc_config,

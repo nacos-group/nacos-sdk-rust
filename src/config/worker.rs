@@ -41,6 +41,7 @@ impl ConfigWorker {
         let notify_change_tx_clone = notify_change_tx.clone();
 
         let remote_client = NacosGrpcClientBuilder::new(client_props.get_server_list()?)
+            .port(client_props.grpc_port)
             .namespace(client_props.namespace.clone())
             .app_name(client_props.app_name.clone())
             .client_version(client_props.client_version.clone())

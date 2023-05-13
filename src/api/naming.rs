@@ -145,7 +145,6 @@ pub trait NamingEventListener: Send + Sync + 'static {
 #[doc(alias("naming", "sdk", "api"))]
 #[cfg(not(feature = "async"))]
 pub trait NamingService {
-
     fn register_instance(
         &self,
         service_name: String,
