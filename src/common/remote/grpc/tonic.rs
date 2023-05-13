@@ -5,7 +5,7 @@ use std::{
 };
 
 use futures::{Future, StreamExt};
-use tonic::transport::{Uri, Channel, Endpoint};
+use tonic::transport::{Channel, Endpoint, Uri};
 use tower::{layer::util::Stack, Service};
 use tracing::{debug, debug_span, error, Instrument};
 
