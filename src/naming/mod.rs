@@ -113,6 +113,7 @@ impl NacosNamingService {
         ));
 
         let nacos_grpc_client = NacosGrpcClientBuilder::new(server_list.to_vec())
+            .port(client_props.grpc_port)
             .namespace(namespace.clone())
             .client_version(client_props.client_version)
             .support_remote_connection(true)
@@ -572,7 +573,6 @@ impl NacosNamingService {
 
 #[cfg(not(feature = "async"))]
 impl NamingService for NacosNamingService {
-
     #[instrument(fields(client_id = &self.client_id, group = group_name, service_name = service_name), skip_all)]
     fn deregister_instance(
         &self,
