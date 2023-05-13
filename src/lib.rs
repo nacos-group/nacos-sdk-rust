@@ -72,10 +72,10 @@ mod config;
 mod naming;
 
 #[allow(dead_code)]
+#[path = ""]
 mod nacos_proto {
-    pub mod v2 {
-        tonic::include_proto!("_");
-    }
+    #[path = "_.rs"]
+    pub mod v2;
 }
 
 #[cfg(test)]
