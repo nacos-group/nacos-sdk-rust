@@ -572,16 +572,6 @@ impl NacosNamingService {
 
 #[cfg(not(feature = "async"))]
 impl NamingService for NacosNamingService {
-    #[instrument(fields(client_id = &self.client_id, group = group_name, service_name = service_name), skip_all)]
-    fn register_service(
-        &self,
-        service_name: String,
-        group_name: Option<String>,
-        service_instance: ServiceInstance,
-    ) -> Result<()> {
-        let future = self.register_instance_async(service_name, group_name, service_instance);
-        futures::executor::block_on(future)
-    }
 
     #[instrument(fields(client_id = &self.client_id, group = group_name, service_name = service_name), skip_all)]
     fn deregister_instance(
@@ -615,20 +605,6 @@ impl NamingService for NacosNamingService {
         subscribe: bool,
     ) -> Result<Vec<ServiceInstance>> {
         let future = self.get_all_instances_async(service_name, group_name, clusters, subscribe);
-        futures::executor::block_on(future)
-    }
-
-    #[instrument(fields(client_id = &self.client_id, group = group_name, service_name = service_name), skip_all)]
-    fn select_instance(
-        &self,
-        service_name: String,
-        group_name: Option<String>,
-        clusters: Vec<String>,
-        subscribe: bool,
-        healthy: bool,
-    ) -> Result<Vec<ServiceInstance>> {
-        let future =
-            self.select_instances_async(service_name, group_name, clusters, subscribe, healthy);
         futures::executor::block_on(future)
     }
 
