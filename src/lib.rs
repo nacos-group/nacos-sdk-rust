@@ -28,7 +28,7 @@
 //! - If you need async API, which can be enabled via `features = ["async"]`
 //! ```toml
 //! [dependencies]
-//! nacos-sdk = { version = "0.2", features = ["default"] }
+//! nacos-sdk = { version = "0.3", features = ["default"] }
 //! ```
 //!
 //! ## General Configurations and Initialization

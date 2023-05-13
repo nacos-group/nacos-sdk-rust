@@ -30,8 +30,8 @@ use super::{
     server_address::ServerAddress,
 };
 use crate::api::error::Error;
-use crate::api::error::Error::TonicGrpcStatus;
 use crate::api::error::Error::NoAvailableServer;
+use crate::api::error::Error::TonicGrpcStatus;
 
 #[derive(Clone)]
 pub(crate) struct Tonic {
@@ -300,12 +300,15 @@ impl Service<NacosGrpcCall> for Tonic {
 
     fn poll_ready(&mut self, _: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         if !self.server_address.is_available() {
-            error!("the server address {}:{} is not available", self.server_address.host(), self.server_address.port());
+            error!(
+                "the server address {}:{} is not available",
+                self.server_address.host(),
+                self.server_address.port()
+            );
             Poll::Ready(Err(NoAvailableServer))
         } else {
             Poll::Ready(Ok(()))
         }
-       
     }
 
     fn call(&mut self, call: NacosGrpcCall) -> Self::Future {
