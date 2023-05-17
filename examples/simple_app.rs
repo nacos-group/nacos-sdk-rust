@@ -24,13 +24,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Attention! "public" is "", it is recommended to customize the namespace with clear meaning.
         .namespace("")
         .app_name("simple_app")
-        // .auth_username("TODO")
-        // .auth_password("TODO")
+        .auth_username("nacos") // TODO You can choose not to enable auth
+        .auth_password("nacos") // TODO You can choose not to enable auth
         ;
 
     // ----------  Config  -------------
     let config_service = ConfigServiceBuilder::new(client_props.clone())
-        // .enable_auth_plugin_http()
+        .enable_auth_plugin_http() // TODO You can choose not to enable auth
         .build()?;
     let config_resp = config_service.get_config("todo-data-id".to_string(), "LOVE".to_string());
     match config_resp {
@@ -50,7 +50,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // ----------  Naming  -------------
     let naming_service = NamingServiceBuilder::new(client_props)
-        // .enable_auth_plugin_http()
+        .enable_auth_plugin_http() // TODO You can choose not to enable auth
         .build()?;
 
     let listener = std::sync::Arc::new(SimpleInstanceChangeListener);
