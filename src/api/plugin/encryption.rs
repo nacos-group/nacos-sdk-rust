@@ -8,6 +8,7 @@ pub const DEFAULT_CIPHER_PREFIX: &str = "cipher-";
 pub const DEFAULT_CIPHER_SPLIT: &str = "-";
 
 /// EncryptionPlugin for Config.
+#[async_trait::async_trait]
 pub trait EncryptionPlugin: Send + Sync {
     /**
      * Whether need to do cipher.
@@ -42,7 +43,7 @@ pub trait EncryptionPlugin: Send + Sync {
      * @param content   content unencrypted
      * @return encrypt value
      */
-    fn encrypt(&self, secret_key: &str, content: &str) -> String;
+    async fn encrypt(&self, secret_key: &str, content: &str) -> String;
 
     /**
      * Decrypt interface.
@@ -51,14 +52,14 @@ pub trait EncryptionPlugin: Send + Sync {
      * @param content   encrypted
      * @return decrypt value
      */
-    fn decrypt(&self, secret_key: &str, content: &str) -> String;
+    async fn decrypt(&self, secret_key: &str, content: &str) -> String;
 
     /**
      * Generate secret key. It only be known by you.
      *
      * @return Secret key
      */
-    fn generate_secret_key(&self) -> String;
+    async fn generate_secret_key(&self) -> String;
 
     /**
      * Algorithm name. e.g. AES,AES128,AES256,DES,3DES,...
@@ -73,7 +74,7 @@ pub trait EncryptionPlugin: Send + Sync {
      * @param secretKey secretKey
      * @return encrypted secretKey
      */
-    fn encrypt_secret_key(&self, secret_key: &str) -> String;
+    async fn encrypt_secret_key(&self, secret_key: &str) -> String;
 
     /**
      * Decrypt secret Key.
@@ -81,7 +82,7 @@ pub trait EncryptionPlugin: Send + Sync {
      * @param secret_key secretKey
      * @return decrypted secretKey
      */
-    fn decrypt_secret_key(&self, secret_key: &str) -> String;
+    async fn decrypt_secret_key(&self, secret_key: &str) -> String;
 }
 
 /// ConfigEncryptionFilter handle with [`EncryptionPlugin`]
@@ -95,8 +96,13 @@ impl ConfigEncryptionFilter {
     }
 }
 
+#[async_trait::async_trait]
 impl ConfigFilter for ConfigEncryptionFilter {
-    fn filter(&self, config_req: Option<&mut ConfigReq>, config_resp: Option<&mut ConfigResp>) {
+    async fn filter(
+        &self,
+        config_req: Option<&mut ConfigReq>,
+        config_resp: Option<&mut ConfigResp>,
+    ) {
         // Publish configuration, encrypt
         if let Some(config_req) = config_req {
             for plugin in &self.encryption_plugins {
@@ -104,9 +110,9 @@ impl ConfigFilter for ConfigEncryptionFilter {
                     continue;
                 }
 
-                let secret_key = plugin.generate_secret_key();
-                let encrypted_content = plugin.encrypt(&secret_key, &config_req.content);
-                let encrypted_secret_key = plugin.encrypt_secret_key(&secret_key);
+                let secret_key = plugin.generate_secret_key().await;
+                let encrypted_content = plugin.encrypt(&secret_key, &config_req.content).await;
+                let encrypted_secret_key = plugin.encrypt_secret_key(&secret_key).await;
 
                 // set encrypted data.
                 config_req.encrypted_data_key = encrypted_secret_key;
@@ -127,9 +133,11 @@ impl ConfigFilter for ConfigEncryptionFilter {
                     let encrypted_secret_key = &config_resp.encrypted_data_key;
                     let encrypted_content = &config_resp.content;
 
-                    let decrypted_secret_key = plugin.decrypt_secret_key(encrypted_secret_key);
-                    let decrypted_content =
-                        plugin.decrypt(&decrypted_secret_key, encrypted_content);
+                    let decrypted_secret_key =
+                        plugin.decrypt_secret_key(encrypted_secret_key).await;
+                    let decrypted_content = plugin
+                        .decrypt(&decrypted_secret_key, encrypted_content)
+                        .await;
 
                     // set decrypted data.
                     config_resp.content = decrypted_content;
@@ -148,16 +156,17 @@ mod tests {
 
     struct TestEncryptionPlugin;
 
+    #[async_trait::async_trait]
     impl EncryptionPlugin for TestEncryptionPlugin {
-        fn encrypt(&self, secret_key: &str, content: &str) -> String {
+        async fn encrypt(&self, secret_key: &str, content: &str) -> String {
             secret_key.to_owned() + content
         }
 
-        fn decrypt(&self, secret_key: &str, content: &str) -> String {
+        async fn decrypt(&self, secret_key: &str, content: &str) -> String {
             content.replace(secret_key, "")
         }
 
-        fn generate_secret_key(&self) -> String {
+        async fn generate_secret_key(&self) -> String {
             "secret-key".to_string()
         }
 
@@ -165,17 +174,17 @@ mod tests {
             "TEST".to_string()
         }
 
-        fn encrypt_secret_key(&self, secret_key: &str) -> String {
+        async fn encrypt_secret_key(&self, secret_key: &str) -> String {
             "crypt_".to_owned() + secret_key
         }
 
-        fn decrypt_secret_key(&self, secret_key: &str) -> String {
+        async fn decrypt_secret_key(&self, secret_key: &str) -> String {
             secret_key.replace("crypt_", "")
         }
     }
 
-    #[test]
-    fn test_config_encryption_filters_empty() {
+    #[tokio::test]
+    async fn test_config_encryption_filters_empty() {
         let config_encryption_filter = ConfigEncryptionFilter::new(vec![]);
 
         let (data_id, group, namespace, content, encrypted_data_key) = (
@@ -193,7 +202,9 @@ mod tests {
             content.clone(),
             encrypted_data_key.clone(),
         );
-        config_encryption_filter.filter(Some(&mut config_req), None);
+        config_encryption_filter
+            .filter(Some(&mut config_req), None)
+            .await;
 
         assert_eq!(config_req.content, encrypted_data_key + content.as_str());
 
@@ -204,13 +215,15 @@ mod tests {
             config_req.content.clone(),
             config_req.encrypted_data_key.clone(),
         );
-        config_encryption_filter.filter(None, Some(&mut config_resp));
+        config_encryption_filter
+            .filter(None, Some(&mut config_resp))
+            .await;
 
         assert_eq!(config_resp.content, content);
     }
 
-    #[test]
-    fn test_config_encryption_filters() {
+    #[tokio::test]
+    async fn test_config_encryption_filters() {
         let config_encryption_filter =
             ConfigEncryptionFilter::new(vec![Box::new(TestEncryptionPlugin {})]);
 
@@ -229,7 +242,9 @@ mod tests {
             content.clone(),
             encrypted_data_key.clone(),
         );
-        config_encryption_filter.filter(Some(&mut config_req), None);
+        config_encryption_filter
+            .filter(Some(&mut config_req), None)
+            .await;
 
         let mut config_resp = ConfigResp::new(
             config_req.data_id.clone(),
@@ -238,13 +253,15 @@ mod tests {
             config_req.content.clone(),
             config_req.encrypted_data_key.clone(),
         );
-        config_encryption_filter.filter(None, Some(&mut config_resp));
+        config_encryption_filter
+            .filter(None, Some(&mut config_resp))
+            .await;
 
         assert_eq!(config_resp.content, content);
     }
 
-    #[test]
-    fn test_config_encryption_filters_not_need_cipher() {
+    #[tokio::test]
+    async fn test_config_encryption_filters_not_need_cipher() {
         let config_encryption_filter =
             ConfigEncryptionFilter::new(vec![Box::new(TestEncryptionPlugin {})]);
 
@@ -263,7 +280,9 @@ mod tests {
             content.clone(),
             encrypted_data_key.clone(),
         );
-        config_encryption_filter.filter(Some(&mut config_req), None);
+        config_encryption_filter
+            .filter(Some(&mut config_req), None)
+            .await;
 
         let mut config_resp = ConfigResp::new(
             config_req.data_id.clone(),
@@ -272,7 +291,9 @@ mod tests {
             config_req.content.clone(),
             config_req.encrypted_data_key.clone(),
         );
-        config_encryption_filter.filter(None, Some(&mut config_resp));
+        config_encryption_filter
+            .filter(None, Some(&mut config_resp))
+            .await;
 
         assert_eq!(config_resp.content, content);
     }

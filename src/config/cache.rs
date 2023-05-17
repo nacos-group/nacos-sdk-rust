@@ -79,7 +79,7 @@ impl CacheData {
     }
 
     /// Notify listener. when last-md5 not equals the-newest-md5
-    pub fn notify_listener(&mut self) {
+    pub async fn notify_listener(&mut self) {
         tracing::info!(
             "notify_listener, dataId={},group={},namespace={},md5={}",
             self.data_id,
@@ -88,7 +88,7 @@ impl CacheData {
             self.md5
         );
 
-        let config_resp = self.get_config_resp_after_filter();
+        let config_resp = self.get_config_resp_after_filter().await;
 
         if let Ok(mut mutex) = self.listeners.lock() {
             for listen_wrap in mutex.iter_mut() {
@@ -107,7 +107,7 @@ impl CacheData {
     }
 
     /// inner method, will invoke config_filter
-    fn get_config_resp_after_filter(&self) -> ConfigResponse {
+    async fn get_config_resp_after_filter(&self) -> ConfigResponse {
         let mut conf_resp = ConfigResp::new(
             self.data_id.clone(),
             self.group.clone(),
@@ -116,7 +116,7 @@ impl CacheData {
             self.encrypted_data_key.clone(),
         );
         for config_filter in self.config_filters.iter() {
-            config_filter.filter(None, Some(&mut conf_resp));
+            config_filter.filter(None, Some(&mut conf_resp)).await;
         }
 
         ConfigResponse::new(

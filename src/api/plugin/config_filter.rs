@@ -1,10 +1,15 @@
 /// ConfigFilter
+#[async_trait::async_trait]
 pub trait ConfigFilter: Send + Sync {
     /// Filter the config_req or config_resp. You can modify their values as needed.
     ///
     /// [`ConfigReq`] and [`ConfigResp`] will not be [`None`] at the same time.
     /// Only one of [`ConfigReq`] and [`ConfigResp`] is [`Some`].
-    fn filter(&self, config_req: Option<&mut ConfigReq>, config_resp: Option<&mut ConfigResp>);
+    async fn filter(
+        &self,
+        config_req: Option<&mut ConfigReq>,
+        config_resp: Option<&mut ConfigResp>,
+    );
 }
 
 /// ConfigReq for [`ConfigFilter`]
@@ -88,8 +93,13 @@ mod tests {
         }
     }
 
+    #[async_trait::async_trait]
     impl ConfigFilter for TestConfigEncryptionFilter {
-        fn filter(&self, config_req: Option<&mut ConfigReq>, config_resp: Option<&mut ConfigResp>) {
+        async fn filter(
+            &self,
+            config_req: Option<&mut ConfigReq>,
+            config_resp: Option<&mut ConfigResp>,
+        ) {
             if let Some(config_req) = config_req {
                 if !config_req.encrypted_data_key.is_empty() {
                     config_req.content =
@@ -106,8 +116,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_config_filter() {
+    #[tokio::test]
+    async fn test_config_filter() {
         let config_filter = TestConfigEncryptionFilter {};
 
         let (data_id, group, namespace, content, encrypted_data_key) = (
@@ -125,7 +135,7 @@ mod tests {
             content.clone(),
             encrypted_data_key.clone(),
         );
-        config_filter.filter(Some(&mut config_req), None);
+        config_filter.filter(Some(&mut config_req), None).await;
 
         assert_eq!(config_req.content, encrypted_data_key + content.as_str());
 
@@ -136,7 +146,7 @@ mod tests {
             config_req.content.clone(),
             config_req.encrypted_data_key.clone(),
         );
-        config_filter.filter(None, Some(&mut config_resp));
+        config_filter.filter(None, Some(&mut config_resp)).await;
 
         assert_eq!(config_resp.content, content);
     }

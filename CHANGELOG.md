@@ -3,6 +3,8 @@
 ### 0.3.0
 - Refactor: tonic instead of tikv/grpc-rs
 - Change: Break Change api of auth plugin, support async fn
+- Change: Break Change api of config-filter plugin, support async fn
+- Change: Break Change api of config-encryption plugin, support async fn
 - TODO
 
 ### 0.2.6

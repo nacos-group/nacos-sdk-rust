@@ -122,7 +122,7 @@ impl ConfigWorker {
             config_resp.encrypted_data_key.unwrap_or_default(),
         );
         for config_filter in self.config_filters.iter() {
-            config_filter.filter(None, Some(&mut conf_resp));
+            config_filter.filter(None, Some(&mut conf_resp)).await;
         }
 
         Ok(ConfigResponse::new(
@@ -147,7 +147,7 @@ impl ConfigWorker {
 
         let mut conf_req = ConfigReq::new(data_id, group, namespace, content, "".to_string());
         for config_filter in self.config_filters.iter() {
-            config_filter.filter(Some(&mut conf_req), None);
+            config_filter.filter(Some(&mut conf_req), None).await;
         }
 
         Self::publish_config_inner_async(
@@ -178,7 +178,7 @@ impl ConfigWorker {
 
         let mut conf_req = ConfigReq::new(data_id, group, namespace, content, "".to_string());
         for config_filter in self.config_filters.iter() {
-            config_filter.filter(Some(&mut conf_req), None);
+            config_filter.filter(Some(&mut conf_req), None).await;
         }
 
         Self::publish_config_inner_async(
@@ -209,7 +209,7 @@ impl ConfigWorker {
 
         let mut conf_req = ConfigReq::new(data_id, group, namespace, content, "".to_string());
         for config_filter in self.config_filters.iter() {
-            config_filter.filter(Some(&mut conf_req), None);
+            config_filter.filter(Some(&mut conf_req), None).await;
         }
 
         Self::publish_config_inner_async(
@@ -241,7 +241,7 @@ impl ConfigWorker {
 
         let mut conf_req = ConfigReq::new(data_id, group, namespace, content, "".to_string());
         for config_filter in self.config_filters.iter() {
-            config_filter.filter(Some(&mut conf_req), None);
+            config_filter.filter(Some(&mut conf_req), None).await;
         }
 
         Self::publish_config_inner_async(
@@ -295,7 +295,7 @@ impl ConfigWorker {
             .in_current_span()
             .await;
             if let Ok(config_resp) = config_resp {
-                Self::fill_data_and_notify(&mut cache_data, config_resp);
+                Self::fill_data_and_notify(&mut cache_data, config_resp).await;
             }
             let req = ConfigBatchListenRequest::new(true).add_config_listen_context(
                 ConfigListenContext::new(
@@ -404,7 +404,7 @@ impl ConfigWorker {
         }
     }
 
-    fn fill_data_and_notify(cache_data: &mut CacheData, config_resp: ConfigQueryResponse) {
+    async fn fill_data_and_notify(cache_data: &mut CacheData, config_resp: ConfigQueryResponse) {
         cache_data.content_type = config_resp.content_type.unwrap();
         cache_data.content = config_resp.content.unwrap();
         cache_data.md5 = config_resp.md5.unwrap();
@@ -416,7 +416,7 @@ impl ConfigWorker {
             cache_data.initializing = false;
         } else {
             // check md5 and then notify
-            cache_data.notify_listener();
+            cache_data.notify_listener().await;
         }
     }
 
@@ -452,7 +452,7 @@ impl ConfigWorker {
                         .in_current_span()
                         .await;
                         if let Ok(config_resp) = config_resp {
-                            Self::fill_data_and_notify(data, config_resp);
+                            Self::fill_data_and_notify(data, config_resp).await;
                         }
                     }
                 }
