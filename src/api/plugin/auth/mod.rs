@@ -7,12 +7,10 @@ use std::collections::HashMap;
 
 /// Auth plugin in Client.
 /// This api may change in the future, please forgive me if you customize the implementation.
+#[async_trait::async_trait]
 pub trait AuthPlugin: Send + Sync {
-    /// Please hold the server_list. If the server changes, this method will be called again.
-    fn set_server_list(&self, server_list: Vec<String>);
-
     /// Login with [`AuthContext`], Note that this method will be scheduled continuously.
-    fn login(&self, auth_context: AuthContext);
+    async fn login(&self, server_list: Vec<String>, auth_context: AuthContext);
 
     /// Get the [`LoginIdentityContext`].
     fn get_login_identity(&self) -> LoginIdentityContext;
@@ -62,14 +60,10 @@ pub(crate) struct NoopAuthPlugin {
     login_identity: LoginIdentityContext,
 }
 
+#[async_trait::async_trait]
 impl AuthPlugin for NoopAuthPlugin {
     #[allow(unused_variables)]
-    fn set_server_list(&self, server_list: Vec<String>) {
-        // noop
-    }
-
-    #[allow(unused_variables)]
-    fn login(&self, auth_context: AuthContext) {
+    async fn login(&self, server_list: Vec<String>, auth_context: AuthContext) {
         // noop
     }
 

@@ -27,27 +27,29 @@ pub(crate) struct AuthLayer {
 impl AuthLayer {
     pub(crate) fn new(
         auth_plugin: Arc<dyn AuthPlugin>,
+        server_list: Vec<String>,
         auth_params: HashMap<String, String>,
         id: String,
     ) -> Self {
-        AuthLayer::login_task(auth_plugin.clone(), auth_params, id);
+        AuthLayer::login_task(auth_plugin.clone(), server_list, auth_params, id);
         Self { auth_plugin }
     }
 
     fn login_task(
         auth_plugin: Arc<dyn AuthPlugin>,
+        server_list: Vec<String>,
         auth_params: HashMap<String, String>,
         id: String,
     ) {
-        let span = debug_span!("auth_task", id = id);
-        let _enter = span.enter();
-        let auth_context = AuthContext::default();
-        let auth_context = auth_context.add_params(auth_params);
-        auth_plugin.login(auth_context.clone());
+        let _span_enter = debug_span!("auth_task", id = id).entered();
+        let auth_context = AuthContext::default().add_params(auth_params);
+        // auth_plugin.login(server_list.clone(), auth_context.clone());
         executor::spawn(
             async move {
                 loop {
-                    auth_plugin.login(auth_context.clone());
+                    auth_plugin
+                        .login(server_list.clone(), auth_context.clone())
+                        .await;
                     debug!("auth_plugin schedule at fixed delay");
                     sleep(Duration::from_secs(30)).await;
                 }

@@ -33,8 +33,7 @@ where
     V: serde::Serialize + serde::de::DeserializeOwned + Send + Sync + 'static,
 {
     fn new(id: String, store: Option<Box<dyn Store<V>>>) -> Self {
-        let span = debug_span!("cache", id = id);
-        let _enter = span.enter();
+        let _span_enter = debug_span!("cache", id = id).entered();
 
         let (dash_map, sender) = if let Some(mut store) = store {
             let map = store.load();

@@ -18,7 +18,7 @@
 
 [package]
 name = "nacos-sdk"
-version = "0.3.0-alpha"
+version = "0.3.0-beta"
 edition = "2021"
 authors = ["nacos-group", "CheirshCai <785427346@qq.com>", "onewe <2583021406@qq.com>"]
 license = "Apache-2.0"
@@ -43,7 +43,7 @@ config = []
 naming = []
 tls = ["reqwest/default-tls"]
 auth-by-http = ["reqwest"]
-async = ["async-trait"]
+async = []
 
 [dependencies]
 nacos-macro = { version = "0.1.0", path = "nacos-macro" }
@@ -63,9 +63,8 @@ rand = "0.8.5"
 
 # now only for feature="auth-by-http"
 reqwest = { version = "0.11", default-features = false, features = [], optional = true }
-# for feature="async"
-async-trait = { version = "0.1", optional = true }
 
+async-trait = "0.1"
 async-stream = "0.3.5"
 tonic = "0.9"
 tower = { version = "0.4.13", features = ["filter", "log"] }

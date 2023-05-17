@@ -475,8 +475,8 @@ where
         &mut self,
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Result<(), Self::Error>> {
-        let span = debug_span!(parent: None, "grpc_connection", id = self.id.clone());
-        let _enter = span.enter();
+        let _span_enter =
+            debug_span!(parent: None, "grpc_connection", id = self.id.clone()).entered();
 
         loop {
             match self.state {
@@ -603,8 +603,7 @@ where
             "None".to_string()
         };
 
-        let span = debug_span!("grpc_connection", conn_id = conn_id);
-        let _enter = span.enter();
+        let _span_enter = debug_span!("grpc_connection", conn_id = conn_id).entered();
 
         if !self.health.load(Ordering::Acquire) {
             self.state = State::Idle;

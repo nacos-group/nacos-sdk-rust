@@ -35,8 +35,7 @@ impl RedoTaskExecutor {
     }
 
     fn start_schedule(&self) {
-        let span = debug_span!("RedoTaskExecutor-task", id = self.id);
-        let _enter = span.enter();
+        let _span_enter = debug_span!("RedoTaskExecutor-task", id = self.id).entered();
         debug!("start schedule automatic request task.");
         let map = self.map.clone();
         executor::spawn(

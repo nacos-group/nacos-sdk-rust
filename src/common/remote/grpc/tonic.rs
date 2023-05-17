@@ -260,14 +260,12 @@ where
     type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
 
     fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        let span = debug_span!("tonic_builder");
-        let _enter = span.enter();
+        let _span_enter = debug_span!("tonic_builder").entered();
         self.server_list.poll_ready(cx)
     }
 
     fn call(&mut self, _: ()) -> Self::Future {
-        let span = debug_span!("tonic_builder");
-        let _enter = span.enter();
+        let _span_enter = debug_span!("tonic_builder").entered();
 
         let server_info_fut = self.server_list.call(());
         let mut grpc_config = self.grpc_config.clone();
@@ -313,8 +311,8 @@ impl Service<NacosGrpcCall> for Tonic {
     fn call(&mut self, call: NacosGrpcCall) -> Self::Future {
         match call {
             NacosGrpcCall::RequestService(request) => {
-                let span = debug_span!("tonic_unary", server = self.endpoint_uri.to_string());
-                let _enter = span.enter();
+                let _span_enter =
+                    debug_span!("tonic_unary", server = self.endpoint_uri.to_string()).entered();
                 let unary_request_client = self.request_client.clone();
                 let unary_call_service = UnaryCallService::new(unary_request_client);
                 let dynamic_unary_call_service =
@@ -322,8 +320,9 @@ impl Service<NacosGrpcCall> for Tonic {
                 unary_request(dynamic_unary_call_service, request)
             }
             NacosGrpcCall::BIRequestService(request) => {
-                let span = debug_span!("tonic_bi_stream", server = self.endpoint_uri.to_string());
-                let _enter = span.enter();
+                let _span_enter =
+                    debug_span!("tonic_bi_stream", server = self.endpoint_uri.to_string())
+                        .entered();
                 let bi_request_client = self.bi_client.clone();
                 let bi_call_service = BiStreamingCallService::new(bi_request_client);
                 let dynamic_bi_call_service = self.bi_call_layer.layer(Box::new(bi_call_service));
