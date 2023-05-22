@@ -2,46 +2,29 @@ use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
-use tracing::debug;
-use tracing::info;
-use tracing::instrument;
+use tracing::{debug, info, instrument};
 
 use crate::api::error::Error::ErrResult;
 use crate::api::error::Result;
-use crate::api::naming::InstanceChooser;
-use crate::api::naming::NamingEventListener;
-use crate::api::naming::{NamingService, ServiceInstance};
+use crate::api::naming::{InstanceChooser, NamingEventListener, NamingService, ServiceInstance};
 use crate::api::plugin::AuthPlugin;
 use crate::api::props::ClientProps;
 
-use crate::common::cache::Cache;
-use crate::common::cache::CacheBuilder;
+use crate::common::cache::{Cache, CacheBuilder};
 use crate::common::executor;
 use crate::common::remote::grpc::layers::auth::AuthLayer;
 use crate::common::remote::grpc::message::GrpcRequestMessage;
 use crate::common::remote::grpc::message::GrpcResponseMessage;
 use crate::common::remote::grpc::NacosGrpcClient;
 use crate::common::remote::grpc::NacosGrpcClientBuilder;
-use crate::naming::message::request::BatchInstanceRequest;
-use crate::naming::message::request::InstanceRequest;
-use crate::naming::message::request::ServiceListRequest;
-use crate::naming::message::request::ServiceQueryRequest;
-use crate::naming::message::response::BatchInstanceResponse;
-use crate::naming::message::response::InstanceResponse;
-use crate::naming::message::response::QueryServiceResponse;
-use crate::naming::message::response::ServiceListResponse;
+use crate::naming::message::request::*;
+use crate::naming::message::response::*;
 
 use self::chooser::RandomWeightChooser;
 use self::dto::ServiceInfo;
 use self::handler::NamingPushRequestHandler;
-use self::message::request::NotifySubscriberRequest;
-use self::message::request::SubscribeServiceRequest;
-use self::message::response::SubscribeServiceResponse;
 use self::observable::service_info_observable::ServiceInfoObserver;
-use self::redo::AutomaticRequest;
-use self::redo::NamingRedoTask;
-use self::redo::RedoTask;
-use self::redo::RedoTaskExecutor;
+use self::redo::{AutomaticRequest, NamingRedoTask, RedoTask, RedoTaskExecutor};
 use self::updater::ServiceInfoUpdater;
 
 mod chooser;
@@ -65,9 +48,9 @@ pub(crate) struct NacosNamingService {
 const MODULE_NAME: &str = "naming";
 static SEQ: AtomicU64 = AtomicU64::new(1);
 
-fn generate_client_id(namespace: &str) -> String {
+fn generate_client_id(server_addr: &str, namespace: &str) -> String {
     let client_id = format!(
-        "{MODULE_NAME}:{namespace}:{}",
+        "{MODULE_NAME}:{server_addr}:{namespace}:{}",
         SEQ.fetch_add(1, Ordering::SeqCst)
     );
     client_id
@@ -83,7 +66,7 @@ impl NacosNamingService {
         }
 
         // create client id
-        let client_id = generate_client_id(&namespace);
+        let client_id = generate_client_id(&client_props.server_addr, &namespace);
 
         // create redo task executor
         let redo_task_executor = Arc::new(RedoTaskExecutor::new(client_id.clone()));
