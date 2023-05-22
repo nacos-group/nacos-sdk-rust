@@ -7,6 +7,7 @@ use std::{
 use crate::api::error::Error;
 use crate::api::error::Error::NoAvailableServer;
 use futures::Future;
+use rand::Rng;
 use tower::Service;
 
 use super::server_address::ServerAddress;
@@ -48,8 +49,9 @@ impl PollingServerListService {
         }
 
         Self {
+            // random index for load balance the server list
+            index: rand::thread_rng().gen_range(0..server_list.len()),
             server_list,
-            index: 0,
         }
     }
 }
@@ -72,8 +74,8 @@ impl Service<()> for PollingServerListService {
     }
 
     fn call(&mut self, _: ()) -> Self::Future {
-        let server_list = self.server_list.get(self.index);
-        let server_list = if let Some((host, port)) = server_list {
+        let server_addr = self.server_list.get(self.index);
+        let server_addr = if let Some((host, port)) = server_addr {
             let server_address = PollingServerAddress {
                 host: host.clone(),
                 port: *port,
@@ -82,7 +84,7 @@ impl Service<()> for PollingServerListService {
         } else {
             Err(NoAvailableServer)
         };
-        Box::pin(async move { server_list })
+        Box::pin(async move { server_addr })
     }
 }
 
