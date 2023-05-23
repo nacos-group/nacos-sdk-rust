@@ -1,6 +1,5 @@
 use rand::Rng;
 use std::ops::Add;
-use tokio::sync::RwLock;
 use tokio::time::{Duration, Instant};
 
 use crate::api::plugin::{AuthContext, AuthPlugin, LoginIdentityContext};
@@ -16,15 +15,15 @@ pub(crate) const TOKEN_TTL: &str = "tokenTtl";
 
 /// Http login AuthPlugin.
 pub struct HttpLoginAuthPlugin {
-    login_identity: RwLock<LoginIdentityContext>,
-    next_login_refresh: RwLock<Instant>,
+    login_identity: LoginIdentityContext,
+    next_login_refresh: Instant,
 }
 
 impl Default for HttpLoginAuthPlugin {
     fn default() -> Self {
         Self {
-            login_identity: RwLock::new(LoginIdentityContext::default()),
-            next_login_refresh: RwLock::new(Instant::now()),
+            login_identity: LoginIdentityContext::default(),
+            next_login_refresh: Instant::now(),
         }
     }
 }
@@ -33,7 +32,7 @@ impl Default for HttpLoginAuthPlugin {
 impl AuthPlugin for HttpLoginAuthPlugin {
     async fn login(&self, server_list: Vec<String>, auth_context: AuthContext) {
         let now_instant = Instant::now();
-        if now_instant.le(&(*self.next_login_refresh.read().await)) {
+        if now_instant.le(&self.next_login_refresh) {
             tracing::debug!("Http login return because now_instant lte next_login_refresh.");
             return;
         }
@@ -90,14 +89,17 @@ impl AuthPlugin for HttpLoginAuthPlugin {
             let new_login_identity = LoginIdentityContext::default()
                 .add_context(ACCESS_TOKEN, login_response.access_token);
 
-            *self.next_login_refresh.write().await =
-                Instant::now().add(Duration::from_secs(delay_sec));
-            *self.login_identity.write().await = new_login_identity;
+            unsafe {
+                #[warn(clippy::cast_ref_to_mut)]
+                let mut_self = &mut *(self as *const Self as *mut Self);
+                mut_self.next_login_refresh = Instant::now().add(Duration::from_secs(delay_sec));
+                mut_self.login_identity = new_login_identity;
+            }
         }
     }
 
     fn get_login_identity(&self) -> LoginIdentityContext {
-        futures::executor::block_on(async { self.login_identity.read().await }).to_owned()
+        self.login_identity.to_owned()
     }
 }
 
