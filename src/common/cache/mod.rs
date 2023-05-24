@@ -370,112 +370,119 @@ trait Store<V>: Send {
 pub mod tests {
     use std::{thread::sleep, time::Duration};
 
-    use tracing::metadata::LevelFilter;
-
-    use crate::common::cache::Cache;
+    use crate::{common::cache::Cache, test_config};
 
     use super::CacheBuilder;
 
+    fn setup() {
+        test_config::setup_log();
+    }
+
+    fn teardown() {}
+
+    fn run_test<T, F>(test: F) -> T
+    where
+        F: FnOnce() -> T,
+    {
+        setup();
+        let ret = test();
+        teardown();
+        ret
+    }
+
     #[test]
     pub fn test_cache() {
-        tracing_subscriber::fmt()
-            .with_thread_names(true)
-            .with_file(true)
-            .with_level(true)
-            .with_line_number(true)
-            .with_thread_ids(true)
-            .with_max_level(LevelFilter::DEBUG)
-            .init();
+        run_test(|| {
+            let cache: Cache<String> = CacheBuilder::naming("test-naming".to_string())
+                .disk_store()
+                .build("test-id".to_string());
+            let key = String::from("key");
 
-        let cache: Cache<String> = CacheBuilder::naming("test-naming".to_string())
-            .disk_store()
-            .build("test-id".to_string());
-        let key = String::from("key");
+            {
+                let value = cache.get(&key);
+                assert!(value.is_none());
+            }
 
-        {
-            let value = cache.get(&key);
-            assert!(value.is_none());
-        }
+            {
+                let ret = cache.insert(key.clone(), String::from("value"));
+                assert!(ret.is_none());
+            }
 
-        {
-            let ret = cache.insert(key.clone(), String::from("value"));
-            assert!(ret.is_none());
-        }
+            {
+                let value = cache.get(&key);
+                assert!(value.is_some());
+                let value = value.unwrap();
+                assert!(value.eq("value"));
+            }
 
-        {
+            {
+                let value = cache.get_mut(&key);
+                assert!(value.is_some());
+                let mut value = value.unwrap();
+                *value = "modify".to_owned();
+            }
+
+            {
+                let value = cache.get(&key);
+                assert!(value.is_some());
+                let value = value.unwrap();
+                assert!(value.eq("modify"));
+            }
+
+            {
+                let ret = cache.remove(&key);
+                assert!(ret.is_some());
+                let ret = ret.unwrap();
+                assert!(ret.eq("modify"));
+            }
+
+            {
+                let ret = cache.get(&key);
+                assert!(ret.is_none());
+            }
+
+            {
+                let ret = cache.insert("key1".to_string(), "test".to_owned());
+                assert!(ret.is_none());
+                // sleep 1 second
+                sleep(Duration::from_secs(1));
+            }
+
+            let user_home = home::home_dir();
+
+            let mut disk_path = user_home.unwrap();
+            disk_path.push("nacos");
+            disk_path.push("naming");
+            disk_path.push("test-naming");
+            disk_path.push("key1");
+
+            let read_ret = std::fs::read(&disk_path);
+
+            assert!(read_ret.is_ok());
+
+            let ret = read_ret.unwrap();
+
+            let str = String::from_utf8(ret);
+            assert!(str.is_ok());
+
+            let str = str.unwrap();
+
+            assert!(str.eq("\"test\""));
+
+            // drop cache
+            drop(cache);
+
+            let cache: Cache<String> = CacheBuilder::naming("test-naming".to_string())
+                .disk_store()
+                .build("test-id".to_string());
+
+            let key = String::from("key1");
             let value = cache.get(&key);
             assert!(value.is_some());
             let value = value.unwrap();
-            assert!(value.eq("value"));
-        }
+            assert!(value.eq("test"));
 
-        {
-            let value = cache.get_mut(&key);
-            assert!(value.is_some());
-            let mut value = value.unwrap();
-            *value = "modify".to_owned();
-        }
-
-        {
-            let value = cache.get(&key);
-            assert!(value.is_some());
-            let value = value.unwrap();
-            assert!(value.eq("modify"));
-        }
-
-        {
-            let ret = cache.remove(&key);
-            assert!(ret.is_some());
-            let ret = ret.unwrap();
-            assert!(ret.eq("modify"));
-        }
-
-        {
-            let ret = cache.get(&key);
-            assert!(ret.is_none());
-        }
-
-        {
-            let ret = cache.insert("key1".to_string(), "test".to_owned());
-            assert!(ret.is_none());
-            // sleep 1 second
-            sleep(Duration::from_secs(1));
-        }
-
-        let user_home = home::home_dir();
-
-        let mut disk_path = user_home.unwrap();
-        disk_path.push("nacos");
-        disk_path.push("naming");
-        disk_path.push("test-naming");
-        disk_path.push("key1");
-
-        let read_ret = std::fs::read(&disk_path);
-
-        assert!(read_ret.is_ok());
-
-        let ret = read_ret.unwrap();
-
-        let str = String::from_utf8(ret);
-        assert!(str.is_ok());
-
-        let str = str.unwrap();
-
-        assert!(str.eq("\"test\""));
-
-        // drop cache
-        drop(cache);
-
-        let cache: Cache<String> = CacheBuilder::naming("test-naming".to_string())
-            .disk_store()
-            .build("test-id".to_string());
-
-        let key = String::from("key1");
-        let value = cache.get(&key);
-        assert!(value.is_some());
-        let value = value.unwrap();
-        assert!(value.eq("test"));
-
-        let _ = std::fs::remove_file(&disk_path).unwrap();
+            let _ = std::fs::remove_file(&disk_path).unwrap();
+        });
     }
 }

@@ -109,9 +109,12 @@ impl ServerAddress for PollingServerAddress {
 
 #[cfg(test)]
 pub mod tests {
+
     use futures::future::poll_fn;
     use tower::Service;
-    use tracing::{debug, metadata::LevelFilter};
+    use tracing::debug;
+
+    use crate::test_config;
 
     use super::PollingServerListService;
 
@@ -127,50 +130,59 @@ pub mod tests {
         let _ = PollingServerListService::new(vec!["127.0.0.1:sd".to_string()]);
     }
 
-    #[ignore]
+    fn setup() {
+        test_config::setup_log();
+    }
+
+    fn teardown() {}
+
+    fn run_test<T, F>(test: F) -> T
+    where
+        F: FnOnce() -> T,
+    {
+        setup();
+        let ret = test();
+        teardown();
+        ret
+    }
+
     #[tokio::test]
     pub async fn test_poll_server_list() {
-        tracing_subscriber::fmt()
-            .with_thread_names(true)
-            .with_file(true)
-            .with_level(true)
-            .with_line_number(true)
-            .with_thread_ids(true)
-            .with_max_level(LevelFilter::DEBUG)
-            .init();
+        run_test(|| async {
+            let mut service = PollingServerListService::new(vec![
+                "127.0.0.1:8848".to_string(),
+                "127.0.0.2:8848".to_string(),
+                "127.0.0.3:8848".to_string(),
+            ]);
 
-        let mut service = PollingServerListService::new(vec![
-            "127.0.0.1:8848".to_string(),
-            "127.0.0.2:8848".to_string(),
-            "127.0.0.3:8848".to_string(),
-        ]);
+            let _ = poll_fn(|cx| service.poll_ready(cx)).await;
+            let server1 = service.call(()).await.unwrap();
+            debug!("ip:{}, port:{}", server1.host(), server1.port());
 
-        let _ = poll_fn(|cx| service.poll_ready(cx)).await;
-        let server1 = service.call(()).await.unwrap();
-        debug!("ip:{}, port:{}", server1.host(), server1.port());
+            let _ = poll_fn(|cx| service.poll_ready(cx)).await;
+            let server2 = service.call(()).await.unwrap();
+            debug!("ip:{}, port:{}", server2.host(), server2.port());
 
-        let _ = poll_fn(|cx| service.poll_ready(cx)).await;
-        let server2 = service.call(()).await.unwrap();
-        debug!("ip:{}, port:{}", server2.host(), server2.port());
+            let _ = poll_fn(|cx| service.poll_ready(cx)).await;
+            let server3 = service.call(()).await.unwrap();
+            debug!("ip:{}, port:{}", server3.host(), server3.port());
 
-        let _ = poll_fn(|cx| service.poll_ready(cx)).await;
-        let server3 = service.call(()).await.unwrap();
-        debug!("ip:{}, port:{}", server3.host(), server3.port());
+            let _ = poll_fn(|cx| service.poll_ready(cx)).await;
+            let server4 = service.call(()).await.unwrap();
+            debug!("ip:{}, port:{}", server4.host(), server4.port());
 
-        let _ = poll_fn(|cx| service.poll_ready(cx)).await;
-        let server4 = service.call(()).await.unwrap();
-        debug!("ip:{}, port:{}", server4.host(), server4.port());
+            let _ = poll_fn(|cx| service.poll_ready(cx)).await;
+            let server5 = service.call(()).await.unwrap();
+            debug!("ip:{}, port:{}", server5.host(), server5.port());
 
-        let _ = poll_fn(|cx| service.poll_ready(cx)).await;
-        let server5 = service.call(()).await.unwrap();
-        debug!("ip:{}, port:{}", server5.host(), server5.port());
+            let _ = poll_fn(|cx| service.poll_ready(cx)).await;
+            let server6 = service.call(()).await.unwrap();
+            debug!("ip:{}, port:{}", server6.host(), server6.port());
 
-        let _ = poll_fn(|cx| service.poll_ready(cx)).await;
-        let server6 = service.call(()).await.unwrap();
-        debug!("ip:{}, port:{}", server6.host(), server6.port());
-
-        let _ = poll_fn(|cx| service.poll_ready(cx)).await;
-        let server7 = service.call(()).await.unwrap();
-        debug!("ip:{}, port:{}", server7.host(), server7.port());
+            let _ = poll_fn(|cx| service.poll_ready(cx)).await;
+            let server7 = service.call(()).await.unwrap();
+            debug!("ip:{}, port:{}", server7.host(), server7.port());
+        })
+        .await;
     }
 }

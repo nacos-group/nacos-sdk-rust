@@ -3,11 +3,16 @@ use std::sync::Arc;
 use std::task::{Context, Poll};
 
 use futures::{Future, Stream};
+
 use tokio::sync::oneshot::Sender;
 use tonic::async_trait;
 use tower::{Layer, Service};
 use want::Giver;
 
+#[cfg(test)]
+use mockall::*;
+
+use crate::api::error::Error::ErrResult;
 use crate::{api::error::Error, nacos_proto::v2::Payload};
 
 pub(crate) enum NacosGrpcCall {
@@ -60,7 +65,11 @@ impl<T> Callback<T> {
     pub(crate) async fn send(&mut self, data: T) -> Result<(), Error> {
         let sender = self.tx.take();
         if let Some(sender) = sender {
-            let _ = sender.send(data);
+            if sender.send(data).is_err() {
+                return Err(ErrResult(
+                    "callback send failed. the receiver has been dropped".to_string(),
+                ));
+            }
         }
         Ok(())
     }
@@ -80,8 +89,41 @@ pub(crate) type DynamicUnaryCallService = Box<
         > + Sync
         + Send,
 >;
+
+#[cfg(test)]
+mock! {
+    pub(crate) DynamicUnaryCallService {}
+
+    impl Service<Payload> for DynamicUnaryCallService {
+        type Response = Payload;
+
+        type Error = Error;
+
+        type Future =
+            Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send + 'static>>;
+
+        fn poll_ready<'a>(&mut self, cx: &mut Context<'a>) -> Poll<Result<(), <Self as Service<Payload>>::Error>>;
+
+        fn call(&mut self, req: Payload) -> <Self as Service<Payload>>::Future;
+    }
+}
+
 pub(crate) type DynamicUnaryCallLayer =
     Arc<dyn Layer<DynamicUnaryCallService, Service = DynamicUnaryCallService> + Sync + Send>;
+
+#[cfg(test)]
+mock! {
+
+    pub(crate) DynamicUnaryCallLayer{}
+
+    impl Layer<MockDynamicUnaryCallService> for DynamicUnaryCallLayer {
+        type Service = MockDynamicUnaryCallService;
+
+        fn layer(&self, inner: MockDynamicUnaryCallService) -> <Self as Layer<MockDynamicUnaryCallService>>::Service;
+    }
+
+
+}
 
 pub(crate) struct DynamicUnaryCallLayerWrapper(pub(crate) DynamicUnaryCallLayer);
 
@@ -118,9 +160,43 @@ pub(crate) type DynamicBiStreamingCallService = Box<
         + Send
         + 'static,
 >;
+
+#[cfg(test)]
+mock! {
+    pub(crate) DynamicBiStreamingCallService {}
+
+    impl Service<GrpcStream<Payload>> for DynamicBiStreamingCallService {
+        type Response = GrpcStream<Result<Payload, Error>>;
+
+        type Error = Error;
+
+        type Future =
+            Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send + 'static>>;
+
+        fn poll_ready<'a>(&mut self, cx: &mut Context<'a>) -> Poll<Result<(), <Self as Service<GrpcStream<Payload>>>::Error>>;
+
+        fn call(&mut self, req: GrpcStream<Payload>) -> <Self as Service<GrpcStream<Payload>>>::Future;
+
+    }
+
+}
+
 pub(crate) type DynamicBiStreamingCallLayer = Arc<
     dyn Layer<DynamicBiStreamingCallService, Service = DynamicBiStreamingCallService> + Sync + Send,
 >;
+
+#[cfg(test)]
+mock! {
+
+    pub(crate) DynamicBiStreamingCallLayer {}
+
+    impl Layer<MockDynamicBiStreamingCallService> for DynamicBiStreamingCallLayer {
+        type Service = MockDynamicBiStreamingCallService;
+
+        fn layer(&self, inner: MockDynamicBiStreamingCallService) -> <Self as Layer<MockDynamicBiStreamingCallService>>::Service;
+    }
+
+}
 
 pub(crate) struct DynamicBiStreamingCallLayerWrapper(pub(crate) DynamicBiStreamingCallLayer);
 
@@ -147,12 +223,13 @@ pub mod unary_call_layer_test {
 
     use futures::{future::poll_fn, Future};
     use tower::{layer::util::Stack, Layer, Service};
-    use tracing::{debug, metadata::LevelFilter};
+    use tracing::debug;
 
     use crate::{
         api::error::Error,
         common::remote::grpc::nacos_grpc_service::DynamicUnaryCallLayerWrapper,
         nacos_proto::v2::{Metadata, Payload},
+        test_config,
     };
 
     use super::{DynamicUnaryCallLayer, DynamicUnaryCallService, UnaryCallIdentityLayer};
@@ -333,62 +410,71 @@ pub mod unary_call_layer_test {
         }
     }
 
-    #[ignore]
+    fn setup() {
+        test_config::setup_log();
+    }
+
+    fn teardown() {}
+
+    fn run_test<T, F>(test: F) -> T
+    where
+        F: FnOnce() -> T,
+    {
+        setup();
+        let ret = test();
+        teardown();
+        ret
+    }
+
     #[tokio::test]
     pub async fn test() {
-        tracing_subscriber::fmt()
-            .with_thread_names(true)
-            .with_file(true)
-            .with_level(true)
-            .with_line_number(true)
-            .with_thread_ids(true)
-            .with_max_level(LevelFilter::DEBUG)
-            .init();
+        run_test(|| async {
+            let builder = UnaryCallLayerBuilder::new()
+                .add_layer(Arc::new(UnaryCallLayerA))
+                .add_layer(Arc::new(UnaryCallLayerB))
+                .add_layer(Arc::new(UnaryCallLayerC));
+            let layer = builder.build();
 
-        let builder = UnaryCallLayerBuilder::new()
-            .add_layer(Arc::new(UnaryCallLayerA))
-            .add_layer(Arc::new(UnaryCallLayerB))
-            .add_layer(Arc::new(UnaryCallLayerC));
-        let layer = builder.build();
+            let mut service = layer.layer(Box::new(RealDynamicUnaryCallService));
 
-        let mut service = layer.layer(Box::new(RealDynamicUnaryCallService));
+            let mut payload = Payload::default();
 
-        let mut payload = Payload::default();
+            let mut metadata = Metadata::default();
+            metadata
+                .headers
+                .insert("init".to_string(), "ok".to_string());
 
-        let mut metadata = Metadata::default();
-        metadata
-            .headers
-            .insert("init".to_string(), "ok".to_string());
+            payload.metadata = Some(metadata);
 
-        payload.metadata = Some(metadata);
+            let ready = poll_fn(|cx| service.poll_ready(cx)).await;
+            assert!(ready.is_ok());
 
-        let ready = poll_fn(|cx| service.poll_ready(cx)).await;
-        assert!(ready.is_ok());
+            let ret = service.call(payload).await;
 
-        let ret = service.call(payload).await;
+            assert!(ret.is_ok());
 
-        assert!(ret.is_ok());
+            let mut ret = ret.unwrap();
+            let metadata = ret.metadata.take();
 
-        let mut ret = ret.unwrap();
-        let metadata = ret.metadata.take();
+            assert!(metadata.is_some());
 
-        assert!(metadata.is_some());
+            let metadata = metadata.unwrap();
 
-        let metadata = metadata.unwrap();
+            let init = metadata.headers.get("init").unwrap();
+            assert!(init.eq("ok"));
 
-        let init = metadata.headers.get("init").unwrap();
-        assert!(init.eq("ok"));
+            let a = metadata.headers.get("DynamicUnaryCallServiceA").unwrap();
+            assert!(a.eq("ok"));
 
-        let a = metadata.headers.get("DynamicUnaryCallServiceA").unwrap();
-        assert!(a.eq("ok"));
+            let b = metadata.headers.get("DynamicUnaryCallServiceB").unwrap();
+            assert!(b.eq("ok"));
 
-        let b = metadata.headers.get("DynamicUnaryCallServiceB").unwrap();
-        assert!(b.eq("ok"));
+            let c = metadata.headers.get("DynamicUnaryCallServiceC").unwrap();
+            assert!(c.eq("ok"));
 
-        let c = metadata.headers.get("DynamicUnaryCallServiceC").unwrap();
-        assert!(c.eq("ok"));
-
-        let d = metadata.headers.get("RealDynamicUnaryCallService").unwrap();
-        assert!(d.eq("ok"));
+            let d = metadata.headers.get("RealDynamicUnaryCallService").unwrap();
+            assert!(d.eq("ok"));
+        })
+        .await;
     }
 }

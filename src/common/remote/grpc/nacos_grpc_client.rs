@@ -384,37 +384,60 @@ impl NacosGrpcClientBuilder {
 #[cfg(test)]
 pub mod tests {
 
-    use tracing::metadata::LevelFilter;
-
-    use crate::common::remote::grpc::message::{
-        request::HealthCheckRequest, response::HealthCheckResponse,
+    use crate::common::remote::grpc::{
+        message::{request::HealthCheckRequest, response::HealthCheckResponse},
+        nacos_grpc_connection::MockSendRequest,
     };
+
+    use mockall::predicate::*;
 
     use super::*;
 
-    #[ignore]
     #[tokio::test]
-    pub async fn test() {
-        tracing_subscriber::fmt()
-            .with_thread_names(true)
-            .with_file(true)
-            .with_level(true)
-            .with_line_number(true)
-            .with_thread_ids(true)
-            .with_max_level(LevelFilter::DEBUG)
-            .init();
+    pub async fn test_send_request() {
+        let mut health_check_request = HealthCheckRequest::default();
+        health_check_request.request_id = Some("test_health_check_id".to_string());
 
-        let grpc_client_builder = NacosGrpcClientBuilder::new(vec!["127.0.0.1:8848".to_string()]);
-        let grpc_client = grpc_client_builder.build("test-client-id".to_string());
+        let mut mock_send_request = MockSendRequest::new();
+        mock_send_request
+            .expect_send_request()
+            .with(function(|req: &crate::nacos_proto::v2::Payload| {
+                let app_name = &req
+                    .metadata
+                    .as_ref()
+                    .map(|data| data.headers.get(APP_FILED).unwrap().clone())
+                    .unwrap();
 
-        let health_check = HealthCheckRequest::default();
+                app_name.eq("test_app")
+            }))
+            .returning(|req| {
+                let request = GrpcMessage::<HealthCheckRequest>::from_payload(req).unwrap();
+                let request = request.into_body();
+                let req_id = request.request_id.unwrap();
 
-        let ret = grpc_client
-            .send_request::<HealthCheckRequest, HealthCheckResponse>(health_check)
+                let mut response = HealthCheckResponse::default();
+                response.request_id = Some(req_id);
+
+                let payload = GrpcMessageBuilder::new(response)
+                    .build()
+                    .into_payload()
+                    .unwrap();
+                Ok(payload)
+            });
+
+        let nacos_grpc_client = NacosGrpcClient {
+            app_name: "test_app".to_string(),
+            send_request: Arc::new(mock_send_request),
+        };
+
+        let response = nacos_grpc_client
+            .send_request::<HealthCheckRequest, HealthCheckResponse>(health_check_request)
             .await;
+        let response = response.unwrap();
 
-        println!("ret: {:?}", ret);
-
-        tokio::time::sleep(Duration::from_secs(60 * 30)).await;
+        assert_eq!(
+            "test_health_check_id".to_string(),
+            response.request_id.unwrap()
+        );
     }
 }
