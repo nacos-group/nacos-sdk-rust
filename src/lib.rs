@@ -112,3 +112,24 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod test_config {
+    use std::sync::Once;
+
+    use tracing::metadata::LevelFilter;
+
+    static LOGGER_INIT: Once = Once::new();
+    pub(crate) fn setup_log() {
+        LOGGER_INIT.call_once(|| {
+            tracing_subscriber::fmt()
+                .with_thread_names(true)
+                .with_file(true)
+                .with_level(true)
+                .with_line_number(true)
+                .with_thread_ids(true)
+                .with_max_level(LevelFilter::DEBUG)
+                .init()
+        });
+    }
+}

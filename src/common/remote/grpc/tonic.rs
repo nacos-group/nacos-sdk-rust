@@ -475,10 +475,9 @@ impl Service<GrpcStream<Payload>> for BiStreamingCallService {
 pub mod tonic_unary_call_tests {
     use std::sync::Once;
 
-    use crate::nacos_proto::v2::Metadata;
+    use crate::{nacos_proto::v2::Metadata, test_config};
     use mockall::*;
     use tokio::sync::oneshot;
-    use tracing::metadata::LevelFilter;
 
     use super::*;
 
@@ -499,19 +498,8 @@ pub mod tonic_unary_call_tests {
         }
     }
 
-    static INIT: Once = Once::new();
-
     fn setup() {
-        INIT.call_once(|| {
-            tracing_subscriber::fmt()
-                .with_thread_names(true)
-                .with_file(true)
-                .with_level(true)
-                .with_line_number(true)
-                .with_thread_ids(true)
-                .with_max_level(LevelFilter::DEBUG)
-                .init()
-        });
+        test_config::setup_log();
     }
 
     fn teardown() {}
@@ -733,14 +721,11 @@ pub mod tonic_unary_call_tests {
 #[cfg(test)]
 pub mod tonic_bi_call_tests {
 
-    use std::sync::Once;
-
-    use crate::nacos_proto::v2::Metadata;
+    use crate::{nacos_proto::v2::Metadata, test_config};
     use async_stream::stream;
     use futures_util::stream;
     use mockall::*;
     use tokio::sync::oneshot;
-    use tracing::metadata::LevelFilter;
 
     use super::*;
 
@@ -761,19 +746,8 @@ pub mod tonic_bi_call_tests {
         }
     }
 
-    static INIT: Once = Once::new();
-
     fn setup() {
-        INIT.call_once(|| {
-            tracing_subscriber::fmt()
-                .with_thread_names(true)
-                .with_file(true)
-                .with_level(true)
-                .with_line_number(true)
-                .with_thread_ids(true)
-                .with_max_level(LevelFilter::DEBUG)
-                .init()
-        });
+        test_config::setup_log();
     }
 
     fn teardown() {}

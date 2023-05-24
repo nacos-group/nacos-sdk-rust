@@ -109,11 +109,12 @@ impl ServerAddress for PollingServerAddress {
 
 #[cfg(test)]
 pub mod tests {
-    use std::sync::Once;
 
     use futures::future::poll_fn;
     use tower::Service;
-    use tracing::{debug, metadata::LevelFilter};
+    use tracing::debug;
+
+    use crate::test_config;
 
     use super::PollingServerListService;
 
@@ -129,19 +130,8 @@ pub mod tests {
         let _ = PollingServerListService::new(vec!["127.0.0.1:sd".to_string()]);
     }
 
-    static INIT: Once = Once::new();
-
     fn setup() {
-        INIT.call_once(|| {
-            tracing_subscriber::fmt()
-                .with_thread_names(true)
-                .with_file(true)
-                .with_level(true)
-                .with_line_number(true)
-                .with_thread_ids(true)
-                .with_max_level(LevelFilter::DEBUG)
-                .init()
-        });
+        test_config::setup_log();
     }
 
     fn teardown() {}

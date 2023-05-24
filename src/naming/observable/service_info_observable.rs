@@ -110,11 +110,7 @@ impl ServiceInfoObserver {
         debug!("subscribe {key:?}");
         let mut map = self.registry.write().await;
         let listeners = map.get_mut(&key);
-        if listeners.is_none() {
-            let listeners = vec![listener];
-            map.insert(key, listeners);
-        } else {
-            let listeners = listeners.unwrap();
+        if let Some(listeners) = listeners {
             let index = Self::index_of_listener(listeners, &listener);
             if let Some(index) = index {
                 debug!(
@@ -123,6 +119,9 @@ impl ServiceInfoObserver {
                 listeners.remove(index);
             }
             listeners.push(listener);
+        } else {
+            let listeners = vec![listener];
+            map.insert(key, listeners);
         }
     }
 

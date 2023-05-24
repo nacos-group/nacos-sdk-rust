@@ -233,6 +233,7 @@ pub mod unary_call_layer_test {
         api::error::Error,
         common::remote::grpc::nacos_grpc_service::DynamicUnaryCallLayerWrapper,
         nacos_proto::v2::{Metadata, Payload},
+        test_config,
     };
 
     use super::{DynamicUnaryCallLayer, DynamicUnaryCallService, UnaryCallIdentityLayer};
@@ -413,19 +414,8 @@ pub mod unary_call_layer_test {
         }
     }
 
-    static INIT: Once = Once::new();
-
     fn setup() {
-        INIT.call_once(|| {
-            tracing_subscriber::fmt()
-                .with_thread_names(true)
-                .with_file(true)
-                .with_level(true)
-                .with_line_number(true)
-                .with_thread_ids(true)
-                .with_max_level(LevelFilter::DEBUG)
-                .init()
-        });
+        test_config::setup_log();
     }
 
     fn teardown() {}
