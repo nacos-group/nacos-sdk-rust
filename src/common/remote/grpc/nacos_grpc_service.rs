@@ -9,9 +9,6 @@ use tonic::async_trait;
 use tower::{Layer, Service};
 use want::Giver;
 
-#[cfg(test)]
-use mockall::*;
-
 use crate::api::error::Error::ErrResult;
 use crate::{api::error::Error, nacos_proto::v2::Payload};
 
@@ -91,7 +88,7 @@ pub(crate) type DynamicUnaryCallService = Box<
 >;
 
 #[cfg(test)]
-mock! {
+mockall::mock! {
     pub(crate) DynamicUnaryCallService {}
 
     impl Service<Payload> for DynamicUnaryCallService {
@@ -112,7 +109,7 @@ pub(crate) type DynamicUnaryCallLayer =
     Arc<dyn Layer<DynamicUnaryCallService, Service = DynamicUnaryCallService> + Sync + Send>;
 
 #[cfg(test)]
-mock! {
+mockall::mock! {
 
     pub(crate) DynamicUnaryCallLayer{}
 
@@ -162,7 +159,7 @@ pub(crate) type DynamicBiStreamingCallService = Box<
 >;
 
 #[cfg(test)]
-mock! {
+mockall::mock! {
     pub(crate) DynamicBiStreamingCallService {}
 
     impl Service<GrpcStream<Payload>> for DynamicBiStreamingCallService {
@@ -186,7 +183,7 @@ pub(crate) type DynamicBiStreamingCallLayer = Arc<
 >;
 
 #[cfg(test)]
-mock! {
+mockall::mock! {
 
     pub(crate) DynamicBiStreamingCallLayer {}
 

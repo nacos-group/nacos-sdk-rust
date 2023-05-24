@@ -13,9 +13,6 @@ use tower::buffer::Buffer;
 use tower::{MakeService, Service};
 use tracing::{debug, debug_span, error, info, instrument, warn, Instrument};
 
-#[cfg(test)]
-use mockall::automock;
-
 use crate::api::error::Error::ErrResult;
 use crate::api::error::Error::GrpcBufferRequest;
 use crate::common::executor;
@@ -774,7 +771,7 @@ where
     }
 }
 
-#[cfg_attr(test, automock)]
+#[cfg_attr(test, mockall::automock)]
 #[async_trait]
 pub(crate) trait SendRequest: Send {
     async fn send_request(&self, request: Payload) -> Result<Payload, Error>;
