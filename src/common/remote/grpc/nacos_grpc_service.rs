@@ -219,15 +219,11 @@ impl Layer<DynamicBiStreamingCallService> for BiStreamingCallIdentityLayer {
 
 #[cfg(test)]
 pub mod unary_call_layer_test {
-    use std::{
-        pin::Pin,
-        sync::{Arc, Once},
-        task::Poll,
-    };
+    use std::{pin::Pin, sync::Arc, task::Poll};
 
     use futures::{future::poll_fn, Future};
     use tower::{layer::util::Stack, Layer, Service};
-    use tracing::{debug, metadata::LevelFilter};
+    use tracing::debug;
 
     use crate::{
         api::error::Error,
