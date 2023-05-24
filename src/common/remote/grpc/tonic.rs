@@ -473,7 +473,6 @@ impl Service<GrpcStream<Payload>> for BiStreamingCallService {
 
 #[cfg(test)]
 pub mod tonic_unary_call_tests {
-    use std::sync::Once;
 
     use crate::{nacos_proto::v2::Metadata, test_config};
     use mockall::*;
