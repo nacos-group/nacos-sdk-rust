@@ -5,10 +5,10 @@ use tokio::sync::{
     mpsc::{channel, Receiver, Sender},
     RwLock,
 };
-use tracing::{debug, debug_span, info, instrument, warn, Instrument, Span};
+use tracing::{debug_span, info, error, instrument, warn, Instrument, Span};
 
 use crate::{
-    api::naming::{NamingChangeEvent, NamingEventListener, ServiceInstance},
+    api::{naming::{NamingChangeEvent, NamingEventListener, ServiceInstance}},
     common::{
         cache::{Cache, CacheRef},
         executor,
@@ -67,7 +67,7 @@ impl ServiceInfoObserver {
 
 impl ServiceInfoObserver {
     async fn observe(mut receiver: Receiver<(ServiceInfo, Span)>, registry: ListenerRegistry) {
-        debug!("service info observe task start!");
+        info!("service info observe task start!");
         while let Some((service_info, span)) = receiver.recv().await {
             let grouped_name =
                 ServiceInfo::get_grouped_service_name(&service_info.name, &service_info.group_name);
@@ -76,12 +76,12 @@ impl ServiceInfoObserver {
             let map = registry.read().await;
             let listeners = map.get(&key);
             if listeners.is_none() {
-                debug!("the key {key:?} is not subscribed.");
+                warn!("the key {key:?} is not subscribed.");
                 continue;
             }
             let listeners = listeners.unwrap();
             if listeners.is_empty() {
-                debug!("the subscriber listener set of key {key:?} is empty.");
+                warn!("the subscriber listener set of key {key:?} is empty.");
                 continue;
             }
 
@@ -97,23 +97,24 @@ impl ServiceInfoObserver {
             for listener in listeners {
                 let naming_event = naming_event.clone();
                 let listener = listener.clone();
+                info!("notify listener: {key:?}, notify data: {naming_event:?}");
                 executor::spawn(
                     async move { listener.event(naming_event) }.instrument(span.clone()),
                 );
             }
         }
-        debug!("service info observe task quit!");
+        info!("service info observe task quit!");
     }
 
     #[instrument(fields(subscribe_key = key), skip_all)]
     pub(crate) async fn subscribe(&self, key: String, listener: Arc<dyn NamingEventListener>) {
-        debug!("subscribe {key:?}");
+        info!("subscribe {key:?}");
         let mut map = self.registry.write().await;
         let listeners = map.get_mut(&key);
         if let Some(listeners) = listeners {
             let index = Self::index_of_listener(listeners, &listener);
             if let Some(index) = index {
-                debug!(
+                warn!(
                     "listener has already exist, remove old listener and then add new listener."
                 );
                 listeners.remove(index);
@@ -127,7 +128,7 @@ impl ServiceInfoObserver {
 
     #[instrument(fields(unsubscribe_key = key), skip_all)]
     pub(crate) async fn unsubscribe(&self, key: String, listener: Arc<dyn NamingEventListener>) {
-        debug!("unsubscribe {key:?}");
+        info!("unsubscribe {key:?}");
 
         let mut map = self.registry.write().await;
         let listeners = map.get_mut(&key);
@@ -139,7 +140,7 @@ impl ServiceInfoObserver {
 
         let index = Self::index_of_listener(listeners, &listener);
         if index.is_none() {
-            debug!("listener {key:?} doesn't exist");
+            warn!("listener {key:?} doesn't exist");
             return;
         }
 
@@ -178,7 +179,7 @@ impl ServiceInfoEmitter {
         if notify {
             let send_ret = self.sender.send((service_info, span)).await;
             if let Err(e) = send_ret {
-                debug!("notify observer object failed: {e}");
+                error!("notify observer object failed: {e}");
             }
         }
     }
