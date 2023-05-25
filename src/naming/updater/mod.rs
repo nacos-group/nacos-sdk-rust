@@ -233,7 +233,7 @@ impl ServiceInfoUpdateTask {
                     continue;
                 }
                 let response = ret.unwrap();
-                debug!("{log_tag}:ServiceInfoUpdateTask query service info response: {response:?}");
+                info!("{log_tag}:ServiceInfoUpdateTask query service info response: {response:?}");
                 if !response.is_success() {
                     let result_code = response.result_code;
                     let error_code = response.error_code;
