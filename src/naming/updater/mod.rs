@@ -173,12 +173,13 @@ impl ServiceInfoUpdateTask {
                 request.cluster
             );
 
-            info!("{log_tag}:ServiceInfoUpdateTask started ");
+            info!("{log_tag}:ServiceInfoUpdateTask started");
 
             while running.load(Ordering::Acquire) {
                 let delay_time_millis = Duration::from_millis(
                     (delay_time << failed_count).min(ServiceInfoUpdateTask::DEFAULT_DELAY * 60),
                 );
+                info!("{log_tag}:ServiceInfoUpdateTask delay sleep {delay_time_millis:?}");
                 sleep(delay_time_millis).await;
 
                 if !running.load(Ordering::Acquire) {
@@ -213,7 +214,7 @@ impl ServiceInfoUpdateTask {
                 }
 
                 if !need_query_service_info {
-                    debug!("{log_tag}:ServiceInfoUpdateTask don't need to refresh service info");
+                    warn!("{log_tag}:ServiceInfoUpdateTask don't need to refresh service info");
                     continue;
                 }
 
