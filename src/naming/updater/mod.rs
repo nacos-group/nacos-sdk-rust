@@ -8,7 +8,7 @@ use std::{
 };
 
 use tokio::{sync::Mutex, time::sleep};
-use tracing::{debug, error, info, instrument, warn, Instrument};
+use tracing::{error, info, instrument, warn, Instrument};
 
 use crate::common::{
     cache::Cache,
