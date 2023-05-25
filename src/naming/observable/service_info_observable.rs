@@ -198,6 +198,7 @@ impl ServiceInfoEmitter {
 
     async fn process_service_info(&self, service_info: ServiceInfo) -> bool {
         if self.is_empty_or_error_push(&service_info) {
+            warn!("empty or error push: {service_info:?}");
             return false;
         }
 
