@@ -5,10 +5,10 @@ use tokio::sync::{
     mpsc::{channel, Receiver, Sender},
     RwLock,
 };
-use tracing::{debug_span, info, error, instrument, warn, Instrument, Span};
+use tracing::{debug_span, error, info, instrument, warn, Instrument, Span};
 
 use crate::{
-    api::{naming::{NamingChangeEvent, NamingEventListener, ServiceInstance}},
+    api::naming::{NamingChangeEvent, NamingEventListener, ServiceInstance},
     common::{
         cache::{Cache, CacheRef},
         executor,
@@ -114,9 +114,7 @@ impl ServiceInfoObserver {
         if let Some(listeners) = listeners {
             let index = Self::index_of_listener(listeners, &listener);
             if let Some(index) = index {
-                warn!(
-                    "listener has already exist, remove old listener and then add new listener."
-                );
+                warn!("listener has already exist, remove old listener and then add new listener.");
                 listeners.remove(index);
             }
             listeners.push(listener);
