@@ -34,6 +34,7 @@ use crate::api::error::Error::TonicGrpcStatus;
 
 #[derive(Clone)]
 pub(crate) struct Tonic {
+    channel: Channel,
     request_client: RequestClient<Channel>,
     bi_client: BiRequestStreamClient<Channel>,
     unary_call_layer: DynamicUnaryCallLayer,
@@ -126,9 +127,10 @@ impl Tonic {
 
         let request_client = RequestClient::new(channel.clone());
 
-        let bi_client = BiRequestStreamClient::new(channel);
+        let bi_client = BiRequestStreamClient::new(channel.clone());
 
         Self {
+            channel,
             request_client,
             bi_client,
             unary_call_layer,
@@ -312,16 +314,19 @@ impl Service<NacosGrpcCall> for Tonic {
 
     type Future = GrpcCallTask;
 
-    fn poll_ready(&mut self, _: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+    fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         if !self.server_address.is_available() {
             error!(
                 "the server address {}:{} is not available",
                 self.server_address.host(),
                 self.server_address.port()
             );
-            Poll::Ready(Err(NoAvailableServer))
-        } else {
-            Poll::Ready(Ok(()))
+            return Poll::Ready(Err(NoAvailableServer));
+        }
+        match self.channel.poll_ready(cx) {
+            Poll::Pending => Poll::Pending,
+            Poll::Ready(Ok(())) => Poll::Ready(Ok(())),
+            Poll::Ready(Err(e)) => Poll::Ready(Err(Error::TonicGrpcTransport(e))),
         }
     }
 
