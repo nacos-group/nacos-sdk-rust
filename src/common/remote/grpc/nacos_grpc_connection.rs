@@ -172,7 +172,7 @@ where
         .await?;
 
         // connection health check
-        for i in 1..4 {
+        for i in 0..4 {
             let health_check = NacosGrpcConnection::<M>::connection_health_check(&mut service)
                 .in_current_span()
                 .await;
