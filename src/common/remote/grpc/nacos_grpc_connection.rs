@@ -747,7 +747,10 @@ where
             if let Err(e) = response {
                 let _ =
                     svc_health.compare_exchange(true, false, Ordering::SeqCst, Ordering::Acquire);
-                error!("health check failed, send health check request failed, retry. {}", e);
+                error!(
+                    "health check failed, send health check request failed, retry. {}",
+                    e
+                );
                 sleep(Duration::from_secs(5)).await;
                 continue;
             }
