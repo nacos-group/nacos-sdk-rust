@@ -172,12 +172,12 @@ where
         .await?;
 
         // connection health check
-        for _ in [(); 10] {
+        for i in 0..4 {
             let health_check = NacosGrpcConnection::<M>::connection_health_check(&mut service)
                 .in_current_span()
                 .await;
             if health_check.is_err() {
-                sleep(Duration::from_millis(300)).await;
+                sleep(Duration::from_millis(300 << i)).await;
                 continue;
             }
             break;
@@ -192,6 +192,7 @@ where
         if let Err(e) = conn_id_send_ret {
             // maybe error? perhaps.
             error!("send connection id to bi stream task occur an error. please check connection state. {e}");
+            return Err(ErrResult("the bi stream task has already quit, because connection id sender send id occur an error".to_string()));
         }
 
         // set connection id
@@ -325,7 +326,7 @@ where
                     }
                 }
                 warn!("server stream closed!");
-                health.store(false, Ordering::Release);
+                let _ = health.compare_exchange(true, false, Ordering::SeqCst, Ordering::Acquire);
             }.instrument(span).await;
         }.in_current_span());
 
@@ -567,7 +568,18 @@ where
                     let ready = service.poll_ready(cx);
                     match ready {
                         Poll::Pending => return Poll::Pending,
-                        Poll::Ready(Ok(_)) => return Poll::Ready(Ok(())),
+                        Poll::Ready(Ok(_)) => {
+                            if !self.health.load(Ordering::Acquire) {
+                                self.retry_count += 1;
+                                let sleep_time = sleep_time(self.retry_count);
+                                error!("the connection {:?} is not in health, destroy connection and retry, this operate will be retry after {} sec, retry count:{}.", self.connection_id,  sleep_time,  self.retry_count);
+                                self.state = State::Retry(Box::new(sleep(Duration::from_secs(
+                                    sleep_time as u64,
+                                ))));
+                                continue;
+                            }
+                            return Poll::Ready(Ok(()));
+                        }
                         Poll::Ready(Err(e)) => {
                             self.health.store(false, Ordering::Release);
                             self.retry_count += 1;
@@ -604,14 +616,6 @@ where
         };
 
         let _span_enter = debug_span!("grpc_connection", conn_id = conn_id).entered();
-
-        if !self.health.load(Ordering::Acquire) {
-            self.state = State::Idle;
-            return ResponseFuture::new(Box::new(
-                async move { Err(ErrResult("the connection is not in health".to_string())) }
-                    .in_current_span(),
-            ));
-        }
 
         match self.state {
             State::Connected(ref mut service) => {
@@ -704,7 +708,9 @@ where
 
     #[instrument(fields(id = self.id), skip_all)]
     pub(crate) fn failover(&self) {
-        self.svc_health.store(false, Ordering::Release);
+        let _ = self
+            .svc_health
+            .compare_exchange(true, false, Ordering::SeqCst, Ordering::Acquire);
     }
 
     async fn health_check(
@@ -739,8 +745,12 @@ where
 
             let response = svc.call(health_check_request).in_current_span().await;
             if let Err(e) = response {
-                svc_health.store(false, Ordering::Release);
-                error!("health check failed, retry. {}", e);
+                let _ =
+                    svc_health.compare_exchange(true, false, Ordering::SeqCst, Ordering::Acquire);
+                error!(
+                    "health check failed, send health check request failed, retry. {}",
+                    e
+                );
                 sleep(Duration::from_secs(5)).await;
                 continue;
             }
@@ -748,8 +758,9 @@ where
             let response = response.unwrap();
             let response = GrpcMessage::<HealthCheckResponse>::from_payload(response);
             if let Err(e) = response {
-                svc_health.store(false, Ordering::Release);
-                error!("health check failed, grpc message can not convert to HealthCheckResponse, retry. {}", e);
+                let _ =
+                    svc_health.compare_exchange(true, false, Ordering::SeqCst, Ordering::Acquire);
+                error!("health check failed, error response, retry. {}", e);
                 sleep(Duration::from_secs(5)).await;
                 continue;
             }
