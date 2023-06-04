@@ -72,17 +72,24 @@ where
                     if !refresh_ret {
                         continue;
                     }
-                    let data = cache.get(&key);
-                    if let Some(data) = data {
-                        let value = {
+
+                    let value = {
+                        let data = cache.get(&key);
+                        if let Some(data) = data {
                             let value = data.value();
-                            serde_json::ser::to_vec(value)
-                        };
-                        if let Err(e) = value {
-                            warn!("cache data cannot serialize to bytes. {}", e);
-                            continue;
+                            let value = serde_json::ser::to_vec(value);
+                            if let Err(e) = value {
+                                warn!("cache data cannot serialize to bytes. {}", e);
+                                continue;
+                            }
+
+                            let value = value.unwrap();
+                            Some(value)
+                        } else {
+                            None
                         }
-                        let value = value.unwrap();
+                    };
+                    if let Some(value) = value {
                         store.save(key.as_str(), value).await;
                     }
                 }
