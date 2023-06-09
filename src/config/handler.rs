@@ -10,7 +10,6 @@ use tonic::async_trait;
 /// Handler for ConfigChangeNotify
 pub(crate) struct ConfigChangeNotifyHandler {
     pub(crate) notify_change_tx: Sender<String>,
-    pub(crate) client_id: String,
 }
 
 #[async_trait]

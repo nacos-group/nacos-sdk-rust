@@ -21,7 +21,6 @@ pub(crate) struct ConfigWorker {
     remote_client: Arc<NacosGrpcClient>,
     cache_data_map: Arc<Mutex<HashMap<String, CacheData>>>,
     config_filters: Arc<Vec<Box<dyn ConfigFilter>>>,
-    client_id: String,
 }
 
 impl ConfigWorker {
@@ -64,14 +63,11 @@ impl ConfigWorker {
             )
             .add_labels(client_props.labels.clone())
             .register_server_request_handler::<ConfigChangeNotifyRequest>(Arc::new(
-                ConfigChangeNotifyHandler {
-                    notify_change_tx,
-                    client_id: client_id.clone(),
-                },
+                ConfigChangeNotifyHandler { notify_change_tx },
             ))
             .unary_call_layer(auth_layer.clone())
             .bi_call_layer(auth_layer)
-            .build(client_id.clone());
+            .build(client_id);
 
         let remote_client = Arc::new(remote_client);
         // todo Event/Subscriber instead of mpsc Sender/Receiver
@@ -92,7 +88,6 @@ impl ConfigWorker {
             remote_client,
             cache_data_map,
             config_filters,
-            client_id,
         })
     }
 }
