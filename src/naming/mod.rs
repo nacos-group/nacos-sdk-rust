@@ -556,7 +556,7 @@ impl NacosNamingService {
 
 #[cfg(not(feature = "async"))]
 impl NamingService for NacosNamingService {
-    #[instrument(fields(client_id = &self.client_id, group = group_name, service_name = service_name), skip_all)]
+    #[instrument(fields(client_id = &self.client_id, group = group_name), skip_all)]
     fn deregister_instance(
         &self,
         service_name: String,
@@ -567,7 +567,7 @@ impl NamingService for NacosNamingService {
         futures::executor::block_on(future)
     }
 
-    #[instrument(fields(client_id = &self.client_id, group = group_name, service_name = service_name), skip_all)]
+    #[instrument(fields(client_id = &self.client_id, group = group_name), skip_all)]
     fn batch_register_instance(
         &self,
         service_name: String,
@@ -579,7 +579,7 @@ impl NamingService for NacosNamingService {
         futures::executor::block_on(future)
     }
 
-    #[instrument(fields(client_id = &self.client_id, group = group_name, service_name = service_name), skip_all)]
+    #[instrument(fields(client_id = &self.client_id, group = group_name), skip_all)]
     fn get_all_instances(
         &self,
         service_name: String,
@@ -591,7 +591,7 @@ impl NamingService for NacosNamingService {
         futures::executor::block_on(future)
     }
 
-    #[instrument(fields(client_id = &self.client_id, group = group_name, service_name = service_name), skip_all)]
+    #[instrument(fields(client_id = &self.client_id, group = group_name), skip_all)]
     fn select_one_healthy_instance(
         &self,
         service_name: String,
@@ -615,7 +615,7 @@ impl NamingService for NacosNamingService {
         futures::executor::block_on(future)
     }
 
-    #[instrument(fields(client_id = &self.client_id, group = group_name, service_name = service_name), skip_all)]
+    #[instrument(fields(client_id = &self.client_id, group = group_name), skip_all)]
     fn subscribe(
         &self,
         service_name: String,
@@ -628,7 +628,7 @@ impl NamingService for NacosNamingService {
         Ok(())
     }
 
-    #[instrument(fields(client_id = &self.client_id, group = group_name, service_name = service_name), skip_all)]
+    #[instrument(fields(client_id = &self.client_id, group = group_name), skip_all)]
     fn unsubscribe(
         &self,
         service_name: String,
@@ -641,7 +641,7 @@ impl NamingService for NacosNamingService {
         futures::executor::block_on(future)
     }
 
-    #[instrument(fields(client_id = &self.client_id, group = group_name, service_name = service_name), skip_all)]
+    #[instrument(fields(client_id = &self.client_id, group = group_name), skip_all)]
     fn register_instance(
         &self,
         service_name: String,
@@ -652,7 +652,7 @@ impl NamingService for NacosNamingService {
         futures::executor::block_on(future)
     }
 
-    #[instrument(fields(client_id = &self.client_id, group = group_name, service_name = service_name), skip_all)]
+    #[instrument(fields(client_id = &self.client_id, group = group_name), skip_all)]
     fn select_instances(
         &self,
         service_name: String,
@@ -670,7 +670,7 @@ impl NamingService for NacosNamingService {
 #[cfg(feature = "async")]
 #[async_trait::async_trait]
 impl NamingService for NacosNamingService {
-    #[instrument(fields(client_id = &self.client_id, group = group_name, service_name = service_name), skip_all)]
+    #[instrument(fields(client_id = &self.client_id, group = group_name), skip_all)]
     async fn deregister_instance(
         &self,
         service_name: String,
@@ -681,7 +681,7 @@ impl NamingService for NacosNamingService {
             .await
     }
 
-    #[instrument(fields(client_id = &self.client_id, group = group_name, service_name = service_name), skip_all)]
+    #[instrument(fields(client_id = &self.client_id, group = group_name), skip_all)]
     async fn batch_register_instance(
         &self,
         service_name: String,
@@ -692,7 +692,7 @@ impl NamingService for NacosNamingService {
             .await
     }
 
-    #[instrument(fields(client_id = &self.client_id, group = group_name, service_name = service_name), skip_all)]
+    #[instrument(fields(client_id = &self.client_id, group = group_name), skip_all)]
     async fn get_all_instances(
         &self,
         service_name: String,
@@ -704,7 +704,7 @@ impl NamingService for NacosNamingService {
             .await
     }
 
-    #[instrument(fields(client_id = &self.client_id, group = group_name, service_name = service_name), skip_all)]
+    #[instrument(fields(client_id = &self.client_id, group = group_name), skip_all)]
     async fn select_one_healthy_instance(
         &self,
         service_name: String,
@@ -727,7 +727,7 @@ impl NamingService for NacosNamingService {
             .await
     }
 
-    #[instrument(fields(client_id = &self.client_id, group = group_name, service_name = service_name), skip_all)]
+    #[instrument(fields(client_id = &self.client_id, group = group_name), skip_all)]
     async fn subscribe(
         &self,
         service_name: String,
@@ -741,7 +741,7 @@ impl NamingService for NacosNamingService {
         Ok(())
     }
 
-    #[instrument(fields(client_id = &self.client_id, group = group_name, service_name = service_name), skip_all)]
+    #[instrument(fields(client_id = &self.client_id, group = group_name), skip_all)]
     async fn unsubscribe(
         &self,
         service_name: String,
@@ -753,7 +753,7 @@ impl NamingService for NacosNamingService {
             .await
     }
 
-    #[instrument(fields(client_id = &self.client_id, group = group_name, service_name = service_name), skip_all)]
+    #[instrument(fields(client_id = &self.client_id, group = group_name), skip_all)]
     async fn register_instance(
         &self,
         service_name: String,
@@ -764,7 +764,7 @@ impl NamingService for NacosNamingService {
             .await
     }
 
-    #[instrument(fields(client_id = &self.client_id, group = group_name, service_name = service_name), skip_all)]
+    #[instrument(fields(client_id = &self.client_id, group = group_name), skip_all)]
     async fn select_instances(
         &self,
         service_name: String,

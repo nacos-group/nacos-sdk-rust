@@ -25,8 +25,6 @@ impl ServerRequestHandler for ConfigChangeNotifyHandler {
         }
         let server_req = request.unwrap().into_body();
 
-        let notify_change_tx_clone = self.notify_change_tx.clone();
-
         let server_req_id = server_req.request_id.unwrap_or_default();
         let req_namespace = server_req.namespace.unwrap_or_default();
         let req_data_id = server_req.data_id.unwrap();
@@ -34,7 +32,7 @@ impl ServerRequestHandler for ConfigChangeNotifyHandler {
         tracing::info!("receive config-change, dataId={req_data_id},group={req_group},namespace={req_namespace}");
         // notify config change
         let group_key = util::group_key(&req_data_id, &req_group, &req_namespace);
-        let _ = notify_change_tx_clone.send(group_key).await;
+        let _ = self.notify_change_tx.send(group_key).await;
 
         // bi send resp
         let response = ConfigChangeNotifyResponse::ok().request_id(server_req_id);

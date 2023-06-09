@@ -46,7 +46,7 @@ impl ServiceInfoUpdater {
         }
     }
 
-    #[instrument(fields(service_name = service_name, group_name = group_name, cluster = cluster), skip_all)]
+    #[instrument(fields(group_name = group_name, cluster = cluster), skip_all)]
     pub(crate) async fn schedule_update(
         &self,
         namespace: String,
@@ -74,7 +74,7 @@ impl ServiceInfoUpdater {
         }
     }
 
-    #[instrument(fields(service_name = service_name, group_name = group_name, cluster = cluster), skip_all)]
+    #[instrument(fields(group_name = group_name, cluster = cluster), skip_all)]
     pub(crate) async fn stop_update(
         &self,
         service_name: String,
