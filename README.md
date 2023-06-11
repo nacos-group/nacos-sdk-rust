@@ -6,6 +6,11 @@ Nacos client in Rust
 > 
 > Tip: nacos-sdk-nodejs 仓库暂未提供 2.x gRPC 交互模式，为了能升级它，故而通过 node addon 方式调用 nacos-sdk-rust
 
+> [nacos-sdk-rust-binding-py](https://github.com/opc-source/nacos-sdk-rust-binding-py.git) : nacos-sdk-rust binding for Python with PyO3.
+>
+> Tip: nacos-sdk-python 仓库暂未提供 2.x gRPC 交互模式，为了能升级它，故而通过 ffi 方式调用 nacos-sdk-rust
+
+
 # Proposal 
 
 https://github.com/alibaba/nacos/issues/8443#issuecomment-1248227587
