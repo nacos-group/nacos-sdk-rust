@@ -1,11 +1,16 @@
 # 变更日志 | Change log
 
 ### 0.3.0
+
+- 重构：gRPC 连接层使用 tonic 替代 tikv/grpc-rs ，让编译构建更舒适
+- 破坏性变更：api 插件 auth/config-filter/config-encryption 都改成 async 函数
+
+---
+
 - Refactor: tonic instead of tikv/grpc-rs
 - Change: Break Change api of auth plugin, support async fn
 - Change: Break Change api of config-filter plugin, support async fn
 - Change: Break Change api of config-encryption plugin, support async fn
-- TODO
 
 ### 0.2.6
 
