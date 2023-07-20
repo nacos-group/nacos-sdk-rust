@@ -289,8 +289,13 @@ impl ConfigWorker {
             )
             .in_current_span()
             .await;
-            if let Ok(config_resp) = config_resp {
-                Self::fill_data_and_notify(&mut cache_data, config_resp).await;
+            match config_resp {
+                Ok(config_resp) => {
+                    Self::fill_data_and_notify(&mut cache_data, config_resp).await;
+                }
+                Err(e) => {
+                    tracing::error!("get_config_inner_async, config_resp err={e:?}");
+                }
             }
             let req = ConfigBatchListenRequest::new(true).add_config_listen_context(
                 ConfigListenContext::new(
@@ -446,8 +451,13 @@ impl ConfigWorker {
                         )
                         .in_current_span()
                         .await;
-                        if let Ok(config_resp) = config_resp {
-                            Self::fill_data_and_notify(data, config_resp).await;
+                        match config_resp {
+                            Ok(config_resp) => {
+                                Self::fill_data_and_notify(data, config_resp).await;
+                            }
+                            Err(e) => {
+                                tracing::error!("get_config_inner_async, config_resp err={e:?}");
+                            }
                         }
                     }
                 }
