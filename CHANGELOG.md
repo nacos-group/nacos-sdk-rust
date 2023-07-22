@@ -1,5 +1,13 @@
 # 变更日志 | Change log
 
+### 0.3.1
+
+- Fix：异步登陆未完成，进行其它调用出现未登陆异常 `user not found`
+
+---
+
+- Fix: Asynchronous login not completed, there is an exception to `user not found` in when making other calls.
+
 ### 0.3.0
 
 - 重构：gRPC 连接层使用 tonic 替代 tikv/grpc-rs ，让编译构建更舒适
