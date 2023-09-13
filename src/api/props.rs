@@ -5,7 +5,7 @@ use std::collections::HashMap;
 pub struct ClientProps {
     /// server_addr like 127.0.0.1:8848
     pub(crate) server_addr: String,
-    /// grppc port
+    /// grpc port
     pub(crate) grpc_port: Option<u32>,
     pub(crate) namespace: String,
     /// app_name
