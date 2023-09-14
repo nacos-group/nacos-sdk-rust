@@ -24,11 +24,11 @@ enum Module {
 }
 
 impl ToString for Module {
-    fn to_string(&self) -> &str {
+    fn to_string(&self) -> String {
         match self {
-            Module::Config => "config",
-            Module::Naming => "naming",
-            Module::Internal => "internal",
+            Module::Config => "config".to_string(),
+            Module::Naming => "naming".to_string(),
+            Module::Internal => "internal".to_string(),
         }
     }
 }
