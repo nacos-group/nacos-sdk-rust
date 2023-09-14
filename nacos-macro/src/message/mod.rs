@@ -23,7 +23,7 @@ enum Module {
     Internal,
 }
 
-impl Module {
+impl ToString for Module {
     fn to_string(&self) -> &str {
         match self {
             Module::Config => "config",
