@@ -7,6 +7,8 @@ use nacos_sdk::api::naming::{
 };
 use nacos_sdk::api::props::ClientProps;
 
+const NACOS_ADDRESS: &str = "127.0.0.1:8848";
+
 /// enable https auth run with command:
 /// cargo run --example simple_app --features default,tls
 #[tokio::main]
@@ -19,7 +21,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .init();
 
     let client_props = ClientProps::new()
-        .server_addr("0.0.0.0:8848")
+        .server_addr(NACOS_ADDRESS)
         // .remote_grpc_port(9838)
         // Attention! "public" is "", it is recommended to customize the namespace with clear meaning.
         .namespace("")
@@ -84,7 +86,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Err(err) => tracing::error!("naming get_all_instances error {:?}", err),
     }
 
-    tokio::time::sleep(tokio::time::Duration::from_secs(300)).await;
+    tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
 
     Ok(())
 }
