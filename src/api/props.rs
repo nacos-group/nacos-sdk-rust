@@ -20,13 +20,12 @@ pub struct ClientProps {
 
 impl ClientProps {
     pub(crate) fn get_server_list(&self) -> crate::api::error::Result<Vec<String>> {
-        let hosts: Vec<&str> = self.server_addr.split(',').collect::<Vec<&str>>();
-        if hosts.is_empty() {
-            return Err(crate::api::error::Error::WrongServerAddress(
-                self.server_addr.clone(),
-            ));
+        if self.server_addr.trim().len() == 0 {
+            return Err(crate::api::error::Error::WrongServerAddress(String::from(
+                "Server address is empty",
+            )));
         }
-
+        let hosts: Vec<&str> = self.server_addr.trim().split(',').collect::<Vec<&str>>();
         let mut result = vec![];
         for host in hosts {
             result.push(host.to_string());
