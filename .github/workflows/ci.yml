@@ -20,7 +20,6 @@ jobs:
   lint:
     name: Lint
     runs-on: ubuntu-latest
-
     steps:
       - uses: actions/checkout@v3
       - name: cargo fmt
@@ -28,11 +27,27 @@ jobs:
       - name: cargo clippy
         run: cargo clippy -- -W warnings
 
+  regression-test:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Get latest nacos from docker hub"
+      - run: docker --version
+      - run: sudo docker pull nacos/nacos-server:latest
+      - run: sudo docker run --name nacos-quick -e MODE=standalone -p 8848:8848 -p 9848:9848 -d nacos/nacos-server:latest
+      - run: sudo apt install -y protobuf-compiler libprotobuf-dev
+      - name: Check out repository code
+        uses: actions/checkout@v3
+      - run: cargo --version --verbose
+      - run: rustc --version --verbose
+      - name: format check
+        run: cargo fmt --check
+      - name: unit test
+        run: cargo test --all-targets
+      - run: cargo run --example simple_app
 
   build:
     name: Build
     runs-on: ubuntu-latest
-
     steps:
       - uses: actions/checkout@v3
       - name: Build
