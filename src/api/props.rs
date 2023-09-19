@@ -3,7 +3,7 @@ use std::collections::HashMap;
 /// Configures settings for Client.
 #[derive(Debug, Clone)]
 pub struct ClientProps {
-    /// server_addr like 127.0.0.1:8848
+    /// server_addr e.g: 127.0.0.1:8848; 192.168.0.1
     pub(crate) server_addr: String,
     /// grpc port
     pub(crate) grpc_port: Option<u32>,
@@ -28,6 +28,15 @@ impl ClientProps {
         let hosts: Vec<&str> = self.server_addr.trim().split(',').collect::<Vec<&str>>();
         let mut result = vec![];
         for host in hosts {
+            let host_port = host.split(":").collect::<Vec<&str>>();
+            if host_port.len() == 1 {
+                result.push(format!(
+                    "{}:{}",
+                    host,
+                    crate::api::constants::DEFAULT_SERVER_PORT
+                ));
+                continue;
+            }
             result.push(host.to_string());
         }
 
@@ -107,5 +116,44 @@ impl ClientProps {
     pub fn auth_ext(mut self, key: impl Into<String>, val: impl Into<String>) -> Self {
         self.auth_context.insert(key.into(), val.into());
         self
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::api::error::Error;
+
+    #[test]
+    fn test_get_server_list() {
+        let client_props = ClientProps {
+            server_addr: "127.0.0.1:8848,192.168.0.1".to_string(),
+            grpc_port: Some(8888),
+            namespace: "test_namespace".to_string(),
+            app_name: "test_app".to_string(),
+            labels: HashMap::new(),
+            client_version: "test_version".to_string(),
+            auth_context: HashMap::new(),
+        };
+
+        let result = client_props.get_server_list();
+        assert!(result.is_ok());
+        match result {
+            Ok(ref vec) => {
+                assert!(vec.contains(&"127.0.0.1:8848".to_string()));
+                assert!(vec.contains(&"192.168.0.1:8848".to_string()));
+            }
+            Err(_) => {}
+        }
+        let client_props = client_props.server_addr(String::from("     "));
+        let result1 = client_props.get_server_list();
+        assert!(result1.is_err());
+        assert_eq!(
+            format!("{}", result1.err().unwrap()),
+            format!(
+                "{}",
+                Error::WrongServerAddress("Server address is empty".to_string())
+            )
+        );
     }
 }
