@@ -31,3 +31,15 @@ pub(crate) mod common_remote {
 
 /// env `NACOS_CLIENT_COMMON_THREAD_CORES` to set num when multi-cpus, default is num_cpus
 pub const ENV_NACOS_CLIENT_COMMON_THREAD_CORES: &str = "NACOS_CLIENT_COMMON_THREAD_CORES";
+
+pub const ENV_NACOS_CLIENT_COMMON_SERVER_ADDRESS: &str = "nacos.client.server.address";
+
+pub const ENV_NACOS_CLIENT_COMMON_SERVER_PORT: &str = "nacos.client.server.port";
+
+pub const ENV_NACOS_CLIENT_COMMON_NAMESPACE: &str = "nacos.client.namespace";
+
+pub const ENV_NACOS_CLIENT_COMMON_APP_NAME: &str = "nacos.client.app.name";
+
+pub const ENV_NACOS_CLIENT_AUTH_USER_NAME: &str = "nacos.client.username";
+
+pub const ENV_NACOS_CLIENT_AUTH_PASSWORD: &str = "nacos.client.password";

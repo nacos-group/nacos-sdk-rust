@@ -1,5 +1,8 @@
 use std::collections::HashMap;
 
+use crate::api::constants::DEFAULT_SERVER_ADDR;
+use crate::properties::{get_value, get_value_u32};
+
 /// Configures settings for Client.
 #[derive(Debug, Clone)]
 pub struct ClientProps {
@@ -33,7 +36,10 @@ impl ClientProps {
                 result.push(format!(
                     "{}:{}",
                     host,
-                    crate::api::constants::DEFAULT_SERVER_PORT
+                    get_value_u32(
+                        crate::api::constants::ENV_NACOS_CLIENT_COMMON_SERVER_PORT,
+                        crate::api::constants::DEFAULT_SERVER_PORT,
+                    )
                 ));
                 continue;
             }
@@ -52,9 +58,12 @@ impl ClientProps {
         let client_version = format!("Nacos-Rust-Client:{}", env_project_version);
 
         ClientProps {
-            server_addr: String::from(crate::api::constants::DEFAULT_SERVER_ADDR),
+            server_addr: get_value(
+                crate::api::constants::ENV_NACOS_CLIENT_COMMON_SERVER_ADDRESS,
+                DEFAULT_SERVER_ADDR,
+            ),
             /// public is "", Should define a more meaningful namespace
-            namespace: String::from(""),
+            namespace: get_value(crate::api::constants::ENV_NACOS_CLIENT_COMMON_NAMESPACE, ""),
             app_name: crate::api::constants::UNKNOWN.to_string(),
             labels: HashMap::default(),
             client_version,
@@ -65,7 +74,10 @@ impl ClientProps {
 
     /// Sets the server addr.
     pub fn server_addr(mut self, server_addr: impl Into<String>) -> Self {
-        self.server_addr = server_addr.into();
+        self.server_addr = get_value(
+            crate::api::constants::ENV_NACOS_CLIENT_COMMON_SERVER_ADDRESS,
+            server_addr.into(),
+        );
         self
     }
 
@@ -83,7 +95,10 @@ impl ClientProps {
 
     /// Sets the app_name.
     pub fn app_name(mut self, app_name: impl Into<String>) -> Self {
-        let name = app_name.into();
+        let name = get_value(
+            crate::api::constants::ENV_NACOS_CLIENT_COMMON_APP_NAME,
+            app_name.into(),
+        );
         self.app_name = name.clone();
         self.labels
             .insert(crate::api::constants::KEY_LABEL_APP_NAME.to_string(), name);
@@ -99,16 +114,26 @@ impl ClientProps {
     /// Add auth username.
     #[cfg(feature = "auth-by-http")]
     pub fn auth_username(mut self, username: impl Into<String>) -> Self {
-        self.auth_context
-            .insert(crate::api::plugin::USERNAME.into(), username.into());
+        self.auth_context.insert(
+            crate::api::plugin::USERNAME.into(),
+            get_value(
+                crate::api::constants::ENV_NACOS_CLIENT_AUTH_USER_NAME,
+                username.into(),
+            ),
+        );
         self
     }
 
     /// Add auth password.
     #[cfg(feature = "auth-by-http")]
     pub fn auth_password(mut self, password: impl Into<String>) -> Self {
-        self.auth_context
-            .insert(crate::api::plugin::PASSWORD.into(), password.into());
+        self.auth_context.insert(
+            crate::api::plugin::PASSWORD.into(),
+            get_value(
+                crate::api::constants::ENV_NACOS_CLIENT_AUTH_USER_NAME,
+                password.into(),
+            ),
+        );
         self
     }
 
@@ -121,8 +146,9 @@ impl ClientProps {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::api::error::Error;
+
+    use super::*;
 
     #[test]
     fn test_get_server_list() {
