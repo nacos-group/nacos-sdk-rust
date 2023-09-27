@@ -37,7 +37,10 @@ impl NacosConfigService {
         auth_plugin: std::sync::Arc<dyn AuthPlugin>,
         config_filters: Vec<Box<dyn ConfigFilter>>,
     ) -> crate::api::error::Result<Self> {
-        let client_id = generate_client_id(&client_props.server_addr, &client_props.namespace);
+        let client_id = generate_client_id(
+            &client_props.get_server_addr(),
+            &client_props.get_namespace(),
+        );
         let client_worker =
             ConfigWorker::new(client_props, auth_plugin, config_filters, client_id.clone())?;
         Ok(Self {
