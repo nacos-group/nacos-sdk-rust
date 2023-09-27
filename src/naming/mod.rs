@@ -83,7 +83,7 @@ impl NacosNamingService {
         let (observer, emitter) = observable::service_info_observable::create(
             client_id.clone(),
             naming_cache.clone(),
-            true,
+            client_props.naming_push_empty_protection,
         );
 
         let server_request_handler = NamingPushRequestHandler::new(emitter.clone());

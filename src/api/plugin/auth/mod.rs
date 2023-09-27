@@ -30,7 +30,7 @@ impl AuthContext {
 
     /// Add the params.
     pub fn add_params(mut self, map: HashMap<String, String>) -> Self {
-        self.params.extend(map.into_iter());
+        self.params.extend(map);
         self
     }
 }
@@ -49,7 +49,7 @@ impl LoginIdentityContext {
 
     /// Add the contexts.
     pub fn add_contexts(mut self, map: HashMap<String, String>) -> Self {
-        self.contexts.extend(map.into_iter());
+        self.contexts.extend(map);
         self
     }
 }
