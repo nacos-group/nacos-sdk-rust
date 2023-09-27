@@ -72,18 +72,14 @@ lazy_static! {
     static ref PROPERTIES: HashMap<String, String> = {
         let env_file_path = std::env::var(ENV_CONFIG_FILE_PATH).ok();
         let _ = env_file_path.as_ref().map(|file_path| {
-            dotenvy::from_path(Path::new(file_path)).or_else(|e| {
+            dotenvy::from_path(Path::new(file_path)).map_err(|e| {
                 let _ = dotenvy::dotenv();
-                Err(e)
+                e
             })
         });
         dotenvy::dotenv().ok();
 
-        let prop = dotenvy::vars()
-            .into_iter()
-            .collect::<HashMap<String, String>>();
-
-        prop
+        dotenvy::vars().collect::<HashMap<String, String>>()
     };
 }
 
@@ -108,6 +104,18 @@ pub(crate) mod properties {
             value
                 .to_string()
                 .parse::<u32>()
+                .map_or_else(|_e| default, |v| v)
+        })
+    }
+
+    pub(crate) fn get_value_bool<Key>(key: Key, default: bool) -> bool
+    where
+        Key: AsRef<str>,
+    {
+        PROPERTIES.get(key.as_ref()).map_or(default, |value| {
+            value
+                .to_string()
+                .parse::<bool>()
                 .map_or_else(|_e| default, |v| v)
         })
     }

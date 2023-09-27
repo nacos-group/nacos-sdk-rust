@@ -39,6 +39,6 @@ impl ConfigPublishRequest {
 
     /// Add into additionMap.
     pub fn add_addition_params(&mut self, addition_params: HashMap<String, String>) {
-        self.addition_map.extend(addition_params.into_iter());
+        self.addition_map.extend(addition_params);
     }
 }
