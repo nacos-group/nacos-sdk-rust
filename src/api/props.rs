@@ -93,12 +93,13 @@ impl ClientProps {
     }
 
     pub(crate) fn get_server_list(&self) -> crate::api::error::Result<Vec<String>> {
-        if self.server_addr.trim().is_empty() {
+        let server_addr = self.get_server_addr();
+        if server_addr.trim().is_empty() {
             return Err(crate::api::error::Error::WrongServerAddress(String::from(
                 "Server address is empty",
             )));
         }
-        let hosts: Vec<&str> = self.server_addr.trim().split(',').collect::<Vec<&str>>();
+        let hosts: Vec<&str> = server_addr.trim().split(',').collect::<Vec<&str>>();
         let mut result = vec![];
         for host in hosts {
             let host_port = host.split(':').collect::<Vec<&str>>();
