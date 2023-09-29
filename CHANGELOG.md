@@ -1,5 +1,19 @@
 # 变更日志 | Change log
 
+### 0.3.2
+
+- 增强：支持环境变量设置部分参数，默认为环境变量优先
+- 增强：提供防推空参数设置，默认 true
+- 增强：支持 server_addr 不设置端口，默认 8848
+- 测试：Integration Test with nacos-server
+
+---
+
+- Enhance: Read props from environment variables, please see `nacos_sdk::api::constants::ENV_NACOS_CLIENT_*`
+- Enhance: The `naming_push_empty_protection` could be set by ClientProps
+- Enhance: Support `server-addr` without port, default 8848
+- Test：Integration Test with nacos-server
+
 ### 0.3.1
 
 - Fix：异步登陆未完成，进行其它调用出现未登陆异常 `user not found`
