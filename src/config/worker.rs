@@ -40,15 +40,15 @@ impl ConfigWorker {
         let auth_layer = Arc::new(AuthLayer::new(
             auth_plugin.clone(),
             client_props.get_server_list()?.to_vec(),
-            client_props.auth_context.clone(),
+            client_props.get_auth_context(),
             client_id.clone(),
         ));
 
         let remote_client = NacosGrpcClientBuilder::new(client_props.get_server_list()?)
-            .port(client_props.grpc_port)
-            .namespace(client_props.namespace.clone())
-            .app_name(client_props.app_name.clone())
-            .client_version(client_props.client_version.clone())
+            .port(client_props.get_remote_grpc_port())
+            .namespace(client_props.get_namespace())
+            .app_name(client_props.get_app_name())
+            .client_version(client_props.get_client_version())
             .support_remote_connection(true)
             .support_config_remote_metrics(true)
             .support_naming_delta_push(false)
@@ -61,7 +61,7 @@ impl ConfigWorker {
                 crate::api::constants::common_remote::LABEL_MODULE.to_owned(),
                 crate::api::constants::common_remote::LABEL_MODULE_CONFIG.to_owned(),
             )
-            .add_labels(client_props.labels.clone())
+            .add_labels(client_props.get_labels())
             .register_server_request_handler::<ConfigChangeNotifyRequest>(Arc::new(
                 ConfigChangeNotifyHandler { notify_change_tx },
             ))
@@ -99,7 +99,7 @@ impl ConfigWorker {
         data_id: String,
         group: String,
     ) -> crate::api::error::Result<ConfigResponse> {
-        let namespace = self.client_props.namespace.clone();
+        let namespace = self.client_props.get_namespace();
         let config_resp = Self::get_config_inner_async(
             self.remote_client.clone(),
             data_id.clone(),
@@ -138,7 +138,7 @@ impl ConfigWorker {
         content: String,
         content_type: Option<String>,
     ) -> crate::api::error::Result<bool> {
-        let namespace = self.client_props.namespace.clone();
+        let namespace = self.client_props.get_namespace();
 
         let mut conf_req = ConfigReq::new(data_id, group, namespace, content, "".to_string());
         for config_filter in self.config_filters.iter() {
@@ -169,7 +169,7 @@ impl ConfigWorker {
         content_type: Option<String>,
         cas_md5: String,
     ) -> crate::api::error::Result<bool> {
-        let namespace = self.client_props.namespace.clone();
+        let namespace = self.client_props.get_namespace();
 
         let mut conf_req = ConfigReq::new(data_id, group, namespace, content, "".to_string());
         for config_filter in self.config_filters.iter() {
@@ -200,7 +200,7 @@ impl ConfigWorker {
         content_type: Option<String>,
         beta_ips: String,
     ) -> crate::api::error::Result<bool> {
-        let namespace = self.client_props.namespace.clone();
+        let namespace = self.client_props.get_namespace();
 
         let mut conf_req = ConfigReq::new(data_id, group, namespace, content, "".to_string());
         for config_filter in self.config_filters.iter() {
@@ -232,7 +232,7 @@ impl ConfigWorker {
         cas_md5: Option<String>,
         params: HashMap<String, String>,
     ) -> crate::api::error::Result<bool> {
-        let namespace = self.client_props.namespace.clone();
+        let namespace = self.client_props.get_namespace();
 
         let mut conf_req = ConfigReq::new(data_id, group, namespace, content, "".to_string());
         for config_filter in self.config_filters.iter() {
@@ -260,7 +260,7 @@ impl ConfigWorker {
         data_id: String,
         group: String,
     ) -> crate::api::error::Result<bool> {
-        let namespace = self.client_props.namespace.clone();
+        let namespace = self.client_props.get_namespace();
         Self::remove_config_inner_async(self.remote_client.clone(), data_id, group, namespace).await
     }
 
@@ -272,7 +272,7 @@ impl ConfigWorker {
         group: String,
         listener: Arc<dyn crate::api::config::ConfigChangeListener>,
     ) {
-        let namespace = self.client_props.namespace.clone();
+        let namespace = self.client_props.get_namespace();
         let group_key = util::group_key(&data_id, &group, &namespace);
 
         let mut mutex = self.cache_data_map.lock().await;
@@ -332,7 +332,7 @@ impl ConfigWorker {
         group: String,
         listener: Arc<dyn crate::api::config::ConfigChangeListener>,
     ) {
-        let namespace = self.client_props.namespace.clone();
+        let namespace = self.client_props.get_namespace();
         let group_key = util::group_key(&data_id, &group, &namespace);
 
         let mut mutex = self.cache_data_map.lock().await;

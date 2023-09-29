@@ -1,36 +1,105 @@
 use std::collections::HashMap;
 
-use crate::api::constants::DEFAULT_SERVER_ADDR;
-use crate::properties::{get_value, get_value_bool, get_value_u32};
+use crate::api::constants::*;
+use crate::properties::{get_value, get_value_bool, get_value_option, get_value_u32};
 
 /// Configures settings for Client.
 #[derive(Debug, Clone)]
 pub struct ClientProps {
     /// server_addr e.g: 127.0.0.1:8848; 192.168.0.1
-    pub(crate) server_addr: String,
+    server_addr: String,
     /// grpc port
-    pub(crate) grpc_port: Option<u32>,
-    pub(crate) namespace: String,
+    grpc_port: Option<u32>,
+    /// public is "", Should define a more meaningful namespace
+    namespace: String,
     /// app_name
-    pub(crate) app_name: String,
+    app_name: String,
     /// naming push_empty_protection, default true
-    pub(crate) naming_push_empty_protection: bool,
+    naming_push_empty_protection: bool,
+    /// env_first when get props, default true
+    env_first: bool,
     /// metadata
-    pub(crate) labels: HashMap<String, String>,
+    labels: HashMap<String, String>,
     /// client_version
-    pub(crate) client_version: String,
+    client_version: String,
     /// auth context
-    pub(crate) auth_context: HashMap<String, String>,
+    auth_context: HashMap<String, String>,
 }
 
 impl ClientProps {
+    pub(crate) fn get_server_addr(&self) -> String {
+        if self.env_first {
+            get_value(
+                ENV_NACOS_CLIENT_COMMON_SERVER_ADDRESS,
+                self.server_addr.clone(),
+            )
+        } else {
+            self.server_addr.clone()
+        }
+    }
+
+    pub(crate) fn get_remote_grpc_port(&self) -> Option<u32> {
+        self.grpc_port
+    }
+
+    pub(crate) fn get_namespace(&self) -> String {
+        if self.env_first {
+            get_value(ENV_NACOS_CLIENT_COMMON_NAMESPACE, self.namespace.clone())
+        } else {
+            self.namespace.clone()
+        }
+    }
+
+    pub(crate) fn get_app_name(&self) -> String {
+        if self.env_first {
+            get_value(ENV_NACOS_CLIENT_COMMON_APP_NAME, self.app_name.clone())
+        } else {
+            self.app_name.clone()
+        }
+    }
+
+    pub(crate) fn get_naming_push_empty_protection(&self) -> bool {
+        if self.env_first {
+            get_value_bool(
+                ENV_NACOS_CLIENT_NAMING_PUSH_EMPTY_PROTECTION,
+                self.naming_push_empty_protection,
+            )
+        } else {
+            self.naming_push_empty_protection
+        }
+    }
+
+    pub(crate) fn get_labels(&self) -> HashMap<String, String> {
+        let mut labels = self.labels.clone();
+        labels.insert(KEY_LABEL_APP_NAME.to_string(), self.get_app_name());
+        labels
+    }
+
+    pub(crate) fn get_client_version(&self) -> String {
+        self.client_version.clone()
+    }
+
+    pub(crate) fn get_auth_context(&self) -> HashMap<String, String> {
+        let mut auth_context = self.auth_context.clone();
+        if self.env_first {
+            if let Some(u) = get_value_option(ENV_NACOS_CLIENT_AUTH_USERNAME) {
+                auth_context.insert(crate::api::plugin::USERNAME.into(), u);
+            }
+            if let Some(p) = get_value_option(ENV_NACOS_CLIENT_AUTH_PASSWORD) {
+                auth_context.insert(crate::api::plugin::PASSWORD.into(), p);
+            }
+        }
+        auth_context
+    }
+
     pub(crate) fn get_server_list(&self) -> crate::api::error::Result<Vec<String>> {
-        if self.server_addr.trim().is_empty() {
+        let server_addr = self.get_server_addr();
+        if server_addr.trim().is_empty() {
             return Err(crate::api::error::Error::WrongServerAddress(String::from(
                 "Server address is empty",
             )));
         }
-        let hosts: Vec<&str> = self.server_addr.trim().split(',').collect::<Vec<&str>>();
+        let hosts: Vec<&str> = server_addr.trim().split(',').collect::<Vec<&str>>();
         let mut result = vec![];
         for host in hosts {
             let host_port = host.split(':').collect::<Vec<&str>>();
@@ -38,10 +107,7 @@ impl ClientProps {
                 result.push(format!(
                     "{}:{}",
                     host,
-                    get_value_u32(
-                        crate::api::constants::ENV_NACOS_CLIENT_COMMON_SERVER_PORT,
-                        crate::api::constants::DEFAULT_SERVER_PORT,
-                    )
+                    get_value_u32(ENV_NACOS_CLIENT_COMMON_SERVER_PORT, DEFAULT_SERVER_PORT,)
                 ));
                 continue;
             }
@@ -59,35 +125,13 @@ impl ClientProps {
         let env_project_version = env!("CARGO_PKG_VERSION");
         let client_version = format!("Nacos-Rust-Client:{}", env_project_version);
 
-        let server_addr = get_value(
-            crate::api::constants::ENV_NACOS_CLIENT_COMMON_SERVER_ADDRESS,
-            DEFAULT_SERVER_ADDR,
-        );
-
-        // public is "", Should define a more meaningful namespace
-        let namespace = get_value(crate::api::constants::ENV_NACOS_CLIENT_COMMON_NAMESPACE, "");
-
-        let app_name = get_value(
-            crate::api::constants::ENV_NACOS_CLIENT_COMMON_APP_NAME,
-            crate::api::constants::UNKNOWN,
-        );
-        let mut labels = HashMap::default();
-        labels.insert(
-            crate::api::constants::KEY_LABEL_APP_NAME.to_string(),
-            app_name.clone(),
-        );
-
-        let naming_push_empty_protection = get_value_bool(
-            crate::api::constants::ENV_NACOS_CLIENT_NAMING_PUSH_EMPTY_PROTECTION,
-            true,
-        );
-
         ClientProps {
-            server_addr,
-            namespace,
-            app_name,
-            naming_push_empty_protection,
-            labels,
+            server_addr: String::from(DEFAULT_SERVER_ADDR),
+            namespace: String::from(""),
+            app_name: UNKNOWN.to_string(),
+            naming_push_empty_protection: true,
+            env_first: true,
+            labels: HashMap::default(),
             client_version,
             auth_context: HashMap::default(),
             grpc_port: None,
@@ -96,10 +140,7 @@ impl ClientProps {
 
     /// Sets the server addr.
     pub fn server_addr(mut self, server_addr: impl Into<String>) -> Self {
-        self.server_addr = get_value(
-            crate::api::constants::ENV_NACOS_CLIENT_COMMON_SERVER_ADDRESS,
-            server_addr.into(),
-        );
+        self.server_addr = server_addr.into();
         self
     }
 
@@ -111,31 +152,25 @@ impl ClientProps {
 
     /// Sets the namespace.
     pub fn namespace(mut self, namespace: impl Into<String>) -> Self {
-        self.namespace = get_value(
-            crate::api::constants::ENV_NACOS_CLIENT_COMMON_NAMESPACE,
-            namespace.into(),
-        );
+        self.namespace = namespace.into();
         self
     }
 
     /// Sets the app_name.
     pub fn app_name(mut self, app_name: impl Into<String>) -> Self {
-        let name = get_value(
-            crate::api::constants::ENV_NACOS_CLIENT_COMMON_APP_NAME,
-            app_name.into(),
-        );
-        self.app_name = name.clone();
-        self.labels
-            .insert(crate::api::constants::KEY_LABEL_APP_NAME.to_string(), name);
+        self.app_name = app_name.into();
         self
     }
 
     /// Sets the naming_push_empty_protection.
     pub fn naming_push_empty_protection(mut self, naming_push_empty_protection: bool) -> Self {
-        self.naming_push_empty_protection = get_value_bool(
-            crate::api::constants::ENV_NACOS_CLIENT_NAMING_PUSH_EMPTY_PROTECTION,
-            naming_push_empty_protection,
-        );
+        self.naming_push_empty_protection = naming_push_empty_protection;
+        self
+    }
+
+    /// Sets the env_first.
+    pub fn env_first(mut self, env_first: bool) -> Self {
+        self.env_first = env_first;
         self
     }
 
@@ -148,26 +183,16 @@ impl ClientProps {
     /// Add auth username.
     #[cfg(feature = "auth-by-http")]
     pub fn auth_username(mut self, username: impl Into<String>) -> Self {
-        self.auth_context.insert(
-            crate::api::plugin::USERNAME.into(),
-            get_value(
-                crate::api::constants::ENV_NACOS_CLIENT_AUTH_USERNAME,
-                username.into(),
-            ),
-        );
+        self.auth_context
+            .insert(crate::api::plugin::USERNAME.into(), username.into());
         self
     }
 
     /// Add auth password.
     #[cfg(feature = "auth-by-http")]
     pub fn auth_password(mut self, password: impl Into<String>) -> Self {
-        self.auth_context.insert(
-            crate::api::plugin::PASSWORD.into(),
-            get_value(
-                crate::api::constants::ENV_NACOS_CLIENT_AUTH_PASSWORD,
-                password.into(),
-            ),
-        );
+        self.auth_context
+            .insert(crate::api::plugin::PASSWORD.into(), password.into());
         self
     }
 
@@ -192,6 +217,7 @@ mod tests {
             namespace: "test_namespace".to_string(),
             app_name: "test_app".to_string(),
             naming_push_empty_protection: true,
+            env_first: true,
             labels: HashMap::new(),
             client_version: "test_version".to_string(),
             auth_context: HashMap::new(),

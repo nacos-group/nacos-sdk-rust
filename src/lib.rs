@@ -66,11 +66,11 @@ use lazy_static::lazy_static;
 use std::collections::HashMap;
 use std::path::Path;
 
-const ENV_CONFIG_FILE_PATH: &str = "CONFIG_FILE_PATH";
+const ENV_NACOS_CLIENT_PROPS_FILE_PATH: &str = "NACOS_CLIENT_PROPS_FILE_PATH";
 
 lazy_static! {
     static ref PROPERTIES: HashMap<String, String> = {
-        let env_file_path = std::env::var(ENV_CONFIG_FILE_PATH).ok();
+        let env_file_path = std::env::var(ENV_NACOS_CLIENT_PROPS_FILE_PATH).ok();
         let _ = env_file_path.as_ref().map(|file_path| {
             dotenvy::from_path(Path::new(file_path)).map_err(|e| {
                 let _ = dotenvy::dotenv();
@@ -85,6 +85,13 @@ lazy_static! {
 
 pub(crate) mod properties {
     use crate::PROPERTIES;
+
+    pub(crate) fn get_value_option<Key>(key: Key) -> Option<String>
+    where
+        Key: AsRef<str>,
+    {
+        PROPERTIES.get(key.as_ref()).cloned()
+    }
 
     pub(crate) fn get_value<Key, Default>(key: Key, default: Default) -> String
     where
@@ -169,6 +176,24 @@ mod tests {
             payload.body.unwrap().value,
             Vec::from("{\"cluster\":\"DEFAULT\",\"healthyOnly\":true}")
         );
+    }
+}
+
+#[cfg(test)]
+mod test_props {
+    use crate::api::constants::ENV_NACOS_CLIENT_NAMING_PUSH_EMPTY_PROTECTION;
+    use crate::properties::{get_value, get_value_bool};
+
+    #[test]
+    fn test_get_value() {
+        let v = get_value("ENV_TEST", "TEST");
+        assert_eq!(v, "TEST");
+    }
+
+    #[test]
+    fn test_get_value_bool() {
+        let v = get_value_bool(ENV_NACOS_CLIENT_NAMING_PUSH_EMPTY_PROTECTION, true);
+        assert_eq!(v, true);
     }
 }
 

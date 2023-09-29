@@ -60,13 +60,13 @@ impl NacosNamingService {
     pub(crate) fn new(client_props: ClientProps, auth_plugin: Arc<dyn AuthPlugin>) -> Result<Self> {
         let server_list = Arc::new(client_props.get_server_list()?);
 
-        let mut namespace = client_props.namespace;
+        let mut namespace = client_props.get_namespace();
         if namespace.is_empty() {
             namespace = crate::api::constants::DEFAULT_NAMESPACE.to_owned();
         }
 
         // create client id
-        let client_id = generate_client_id(&client_props.server_addr, &namespace);
+        let client_id = generate_client_id(&client_props.get_server_addr(), &namespace);
 
         // create redo task executor
         let redo_task_executor = Arc::new(RedoTaskExecutor::new(client_id.clone()));
@@ -83,7 +83,7 @@ impl NacosNamingService {
         let (observer, emitter) = observable::service_info_observable::create(
             client_id.clone(),
             naming_cache.clone(),
-            client_props.naming_push_empty_protection,
+            client_props.get_naming_push_empty_protection(),
         );
 
         let server_request_handler = NamingPushRequestHandler::new(emitter.clone());
@@ -91,19 +91,19 @@ impl NacosNamingService {
         let auth_layer = Arc::new(AuthLayer::new(
             auth_plugin,
             server_list.to_vec(),
-            client_props.auth_context,
+            client_props.get_auth_context(),
             client_id.clone(),
         ));
 
         let nacos_grpc_client = NacosGrpcClientBuilder::new(server_list.to_vec())
-            .port(client_props.grpc_port)
+            .port(client_props.get_remote_grpc_port())
             .namespace(namespace.clone())
-            .client_version(client_props.client_version)
+            .client_version(client_props.get_client_version())
             .support_remote_connection(true)
             .support_config_remote_metrics(true)
             .support_naming_delta_push(false)
             .support_naming_remote_metric(false)
-            .add_labels(client_props.labels)
+            .add_labels(client_props.get_labels())
             .add_label(
                 crate::api::constants::common_remote::LABEL_SOURCE.to_owned(),
                 crate::api::constants::common_remote::LABEL_SOURCE_SDK.to_owned(),
@@ -112,7 +112,7 @@ impl NacosNamingService {
                 crate::api::constants::common_remote::LABEL_MODULE.to_owned(),
                 crate::api::constants::common_remote::LABEL_MODULE_NAMING.to_owned(),
             )
-            .app_name(client_props.app_name)
+            .app_name(client_props.get_app_name())
             .register_server_request_handler::<NotifySubscriberRequest>(Arc::new(
                 server_request_handler,
             ))
