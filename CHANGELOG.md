@@ -9,8 +9,8 @@
 
 ---
 
-- Enhance: Read props from environment variables
-- Enhance: The `naming_push_empty_protection` count be set by ClientProps
+- Enhance: Read props from environment variables, please see `nacos_sdk::api::constants::ENV_NACOS_CLIENT_*`
+- Enhance: The `naming_push_empty_protection` could be set by ClientProps
 - Enhance: Support `server-addr` without port, default 8848
 - Test：Integration Test with nacos-server
 
