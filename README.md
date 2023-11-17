@@ -115,7 +115,7 @@ nacos-sdk = { version = "0.3", features = ["default"] }
 Props count be set by `ClientProps`, or Environment variables (Higher priority).
 See them in `nacos_sdk::api::props::ClientProps` or `nacos_sdk::api::constants::ENV_NACOS_CLIENT_*`.
 e.g.
-- env `NACOS_CLIENT_COMMON_THREAD_CORES` to set num when multi-cpus, default is num_cpus
+- env `NACOS_CLIENT_COMMON_THREAD_CORES` to set nacos-client-thread-pool num, default 1
 - env `NACOS_CLIENT_NAMING_PUSH_EMPTY_PROTECTION` for naming empty data notify protection, default true
 
 ## 开发说明

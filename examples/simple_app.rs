@@ -17,6 +17,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // all spans/events with a level higher than TRACE (e.g, info, warn, etc.)
         // will be written to stdout.
         .with_max_level(tracing::Level::DEBUG)
+        .with_thread_names(true)
+        .with_thread_ids(true)
         // sets this to be the default, global collector for this application.
         .init();
 
