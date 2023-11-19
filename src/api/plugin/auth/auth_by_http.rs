@@ -90,7 +90,7 @@ impl AuthPlugin for HttpLoginAuthPlugin {
                 .add_context(ACCESS_TOKEN, login_response.access_token);
 
             unsafe {
-                #[warn(clippy::cast_ref_to_mut)]
+                #[warn(invalid_reference_casting)]
                 let mut_self = &mut *(self as *const Self as *mut Self);
                 mut_self.next_login_refresh = Instant::now().add(Duration::from_secs(delay_sec));
                 mut_self.login_identity = new_login_identity;

@@ -29,7 +29,7 @@ pub(crate) mod common_remote {
     pub const LABEL_MODULE_CONFIG: &str = "config";
 }
 
-/// env `NACOS_CLIENT_COMMON_THREAD_CORES` to set num when multi-cpus, default is num_cpus
+/// env `NACOS_CLIENT_COMMON_THREAD_CORES` to set nacos-client-thread-pool num, default 1
 pub const ENV_NACOS_CLIENT_COMMON_THREAD_CORES: &str = "NACOS_CLIENT_COMMON_THREAD_CORES";
 
 pub const ENV_NACOS_CLIENT_COMMON_SERVER_ADDRESS: &str = "NACOS_CLIENT_SERVER_ADDRESS";

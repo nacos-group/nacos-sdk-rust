@@ -801,7 +801,7 @@ where
             .in_current_span()
             .await?;
         let ret = svc.call(request).in_current_span().await;
-        ret.map_err(|error| GrpcBufferRequest(error))
+        ret.map_err(GrpcBufferRequest)
     }
 }
 
