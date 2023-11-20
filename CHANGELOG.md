@@ -1,5 +1,13 @@
 # 变更日志 | Change log
 
+### 0.3.3
+
+- 增强: Nacos client 公共线程池线程数量默认为1并升级一些依赖版本
+
+---
+
+- Enhance: upgrade some dependencies and nacos common thread pool default thread number is 1
+
 ### 0.3.2
 
 - 增强：支持环境变量设置部分参数，默认为环境变量优先
