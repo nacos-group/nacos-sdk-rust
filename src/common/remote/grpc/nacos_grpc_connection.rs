@@ -171,6 +171,11 @@ where
         .in_current_span()
         .await?;
 
+        // check server
+        let connection_id = NacosGrpcConnection::<M>::check_server(&mut service)
+            .in_current_span()
+            .await?;
+
         // connection health check
         for i in 0..4 {
             let health_check = NacosGrpcConnection::<M>::connection_health_check(&mut service)
@@ -182,11 +187,6 @@ where
             }
             break;
         }
-
-        // check server
-        let connection_id = NacosGrpcConnection::<M>::check_server(&mut service)
-            .in_current_span()
-            .await?;
 
         let conn_id_send_ret = conn_id_sender.send(connection_id.clone());
         if let Err(e) = conn_id_send_ret {
