@@ -161,12 +161,15 @@ impl NacosNamingService {
 }
 
 impl NacosNamingService {
-    async fn register_instance_async(
+    async fn register_ephemeral_instance_async(
         &self,
         service_name: String,
         group_name: Option<String>,
         service_instance: ServiceInstance,
     ) -> Result<()> {
+        info!(
+            "register ephemeral instance: service_name: {service_name}, group_name: {group_name:?}"
+        );
         let namespace = Some(self.namespace.clone());
         let group_name = group_name
             .filter(|data| !data.is_empty())
@@ -195,7 +198,7 @@ impl NacosNamingService {
             .await?;
         if !body.is_success() {
             return Err(ErrResult(format!(
-                "naming service register service failed: resultCode: {}, errorCode:{}, message:{}",
+                "naming service register ephemeral service failed: resultCode: {}, errorCode:{}, message:{}",
                 body.result_code,
                 body.error_code,
                 body.message.unwrap_or_default()
@@ -206,12 +209,60 @@ impl NacosNamingService {
         Ok(())
     }
 
-    async fn deregister_instance_async(
+    async fn register_persistent_instance_async(
         &self,
         service_name: String,
         group_name: Option<String>,
         service_instance: ServiceInstance,
     ) -> Result<()> {
+        info!("register persistent instance: service_name: {service_name}, group_name: {group_name:?}");
+        let namespace = Some(self.namespace.clone());
+        let group_name = group_name
+            .filter(|data| !data.is_empty())
+            .unwrap_or_else(|| crate::api::constants::DEFAULT_GROUP.to_owned());
+        let request = PersistentInstanceRequest::register(
+            service_instance,
+            Some(service_name),
+            namespace,
+            Some(group_name),
+        );
+
+        // automatic request
+        let auto_request: Arc<dyn AutomaticRequest> = Arc::new(request.clone());
+        let redo_task = Arc::new(NamingRedoTask::new(
+            self.nacos_grpc_client.clone(),
+            auto_request,
+        ));
+
+        // active redo task
+        redo_task.active();
+        // add redo task to executor
+        self.redo_task_executor.add_task(redo_task.clone()).await;
+
+        let body = self
+            .request_to_server::<PersistentInstanceRequest, InstanceResponse>(request)
+            .await?;
+        if !body.is_success() {
+            return Err(ErrResult(format!(
+                    "naming service register persistent service failed: resultCode: {}, errorCode:{}, message:{}",
+                    body.result_code,
+                    body.error_code,
+                    body.message.unwrap_or_default()
+                )));
+        }
+
+        redo_task.frozen();
+        Ok(())
+    }
+
+    async fn deregister_ephemeral_instance_async(
+        &self,
+        service_name: String,
+        group_name: Option<String>,
+        service_instance: ServiceInstance,
+    ) -> Result<()> {
+        info!("deregister ephemeral instance: service_name: {service_name}, group_name: {group_name:?}");
+
         let namespace = Some(self.namespace.clone());
         let group_name = group_name
             .filter(|data| !data.is_empty())
@@ -232,7 +283,44 @@ impl NacosNamingService {
             .await?;
 
         if !body.is_success() {
-            return Err(ErrResult(format!("naming service deregister service failed: resultCode: {}, errorCode:{}, message:{}", body.result_code,  body.error_code, body.message.unwrap_or_default())));
+            return Err(ErrResult(format!("naming service deregister ephemeral service failed: resultCode: {}, errorCode:{}, message:{}", body.result_code,  body.error_code, body.message.unwrap_or_default())));
+        }
+
+        // remove redo task from executor
+        self.redo_task_executor
+            .remove_task(redo_task.task_key().as_str())
+            .await;
+        Ok(())
+    }
+
+    async fn deregister_persistent_instance_async(
+        &self,
+        service_name: String,
+        group_name: Option<String>,
+        service_instance: ServiceInstance,
+    ) -> Result<()> {
+        info!("deregister persistent instance: service_name: {service_name}, group_name: {group_name:?}");
+        let namespace = Some(self.namespace.clone());
+        let group_name = group_name
+            .filter(|data| !data.is_empty())
+            .unwrap_or_else(|| crate::api::constants::DEFAULT_GROUP.to_owned());
+        let request = PersistentInstanceRequest::deregister(
+            service_instance,
+            Some(service_name),
+            namespace,
+            Some(group_name),
+        );
+
+        // automatic request
+        let auto_request: Arc<dyn AutomaticRequest> = Arc::new(request.clone());
+        let redo_task = NamingRedoTask::new(self.nacos_grpc_client.clone(), auto_request);
+
+        let body = self
+            .request_to_server::<PersistentInstanceRequest, InstanceResponse>(request)
+            .await?;
+
+        if !body.is_success() {
+            return Err(ErrResult(format!("naming service deregister persistent service failed: resultCode: {}, errorCode:{}, message:{}", body.result_code,  body.error_code, body.message.unwrap_or_default())));
         }
 
         // remove redo task from executor
@@ -563,8 +651,21 @@ impl NamingService for NacosNamingService {
         group_name: Option<String>,
         service_instance: ServiceInstance,
     ) -> Result<()> {
-        let future = self.deregister_instance_async(service_name, group_name, service_instance);
-        futures::executor::block_on(future)
+        if service_instance.ephemeral {
+            let future = self.deregister_ephemeral_instance_async(
+                service_name,
+                group_name,
+                service_instance,
+            );
+            futures::executor::block_on(future)
+        } else {
+            let future = self.deregister_persistent_instance_async(
+                service_name,
+                group_name,
+                service_instance,
+            );
+            futures::executor::block_on(future)
+        }
     }
 
     #[instrument(fields(client_id = &self.client_id, group = group_name), skip_all)]
@@ -648,8 +749,15 @@ impl NamingService for NacosNamingService {
         group_name: Option<String>,
         service_instance: ServiceInstance,
     ) -> Result<()> {
-        let future = self.register_instance_async(service_name, group_name, service_instance);
-        futures::executor::block_on(future)
+        if service_instance.ephemeral {
+            let future =
+                self.register_ephemeral_instance_async(service_name, group_name, service_instance);
+            futures::executor::block_on(future)
+        } else {
+            let future =
+                self.register_persistent_instance_async(service_name, group_name, service_instance);
+            futures::executor::block_on(future)
+        }
     }
 
     #[instrument(fields(client_id = &self.client_id, group = group_name), skip_all)]
@@ -677,8 +785,13 @@ impl NamingService for NacosNamingService {
         group_name: Option<String>,
         service_instance: ServiceInstance,
     ) -> Result<()> {
-        self.deregister_instance_async(service_name, group_name, service_instance)
-            .await
+        if service_instance.ephemeral {
+            self.deregister_ephemeral_instance_async(service_name, group_name, service_instance)
+                .await
+        } else {
+            self.deregister_persistent_instance_async(service_name, group_name, service_instance)
+                .await
+        }
     }
 
     #[instrument(fields(client_id = &self.client_id, group = group_name), skip_all)]
@@ -760,8 +873,13 @@ impl NamingService for NacosNamingService {
         group_name: Option<String>,
         service_instance: ServiceInstance,
     ) -> Result<()> {
-        self.register_instance_async(service_name, group_name, service_instance)
-            .await
+        if service_instance.ephemeral {
+            self.register_ephemeral_instance_async(service_name, group_name, service_instance)
+                .await
+        } else {
+            self.register_persistent_instance_async(service_name, group_name, service_instance)
+                .await
+        }
     }
 
     #[instrument(fields(client_id = &self.client_id, group = group_name), skip_all)]
@@ -792,42 +910,7 @@ pub(crate) mod tests {
 
     #[test]
     #[ignore]
-    fn test_register_service() -> Result<()> {
-        tracing_subscriber::fmt()
-            .with_thread_names(true)
-            .with_file(true)
-            .with_level(true)
-            .with_line_number(true)
-            .with_thread_ids(true)
-            .with_max_level(LevelFilter::DEBUG)
-            .init();
-
-        let props = ClientProps::new().server_addr("127.0.0.1:8848");
-
-        let mut metadata = HashMap::<String, String>::new();
-        metadata.insert("netType".to_string(), "external".to_string());
-        metadata.insert("version".to_string(), "2.0".to_string());
-
-        let naming_service = NacosNamingService::new(props, Arc::new(NoopAuthPlugin::default()))?;
-        let service_instance = ServiceInstance {
-            ip: "127.0.0.1".to_string(),
-            port: 9090,
-            metadata,
-            ..Default::default()
-        };
-
-        let ret =
-            naming_service.register_instance("test-service".to_string(), None, service_instance);
-        info!("response. {ret:?}");
-
-        let ten_millis = time::Duration::from_secs(100);
-        thread::sleep(ten_millis);
-        Ok(())
-    }
-
-    #[test]
-    #[ignore]
-    fn test_register_and_deregister_service() -> Result<()> {
+    fn test_ephemeral_register_service() -> Result<()> {
         tracing_subscriber::fmt()
             .with_thread_names(true)
             .with_file(true)
@@ -852,7 +935,85 @@ pub(crate) mod tests {
         };
 
         let ret = naming_service.register_instance(
-            "test-service".to_string(),
+            "test-ephemeral-service".to_string(),
+            None,
+            service_instance,
+        );
+        info!("response. {ret:?}");
+
+        let ten_millis = time::Duration::from_secs(100);
+        thread::sleep(ten_millis);
+        Ok(())
+    }
+
+    #[test]
+    #[ignore]
+    fn test_persistent_register_service() -> Result<()> {
+        tracing_subscriber::fmt()
+            .with_thread_names(true)
+            .with_file(true)
+            .with_level(true)
+            .with_line_number(true)
+            .with_thread_ids(true)
+            .with_max_level(LevelFilter::DEBUG)
+            .init();
+
+        let props = ClientProps::new().server_addr("127.0.0.1:8848");
+
+        let mut metadata = HashMap::<String, String>::new();
+        metadata.insert("netType".to_string(), "external".to_string());
+        metadata.insert("version".to_string(), "2.0".to_string());
+
+        let naming_service = NacosNamingService::new(props, Arc::new(NoopAuthPlugin::default()))?;
+        let service_instance = ServiceInstance {
+            ip: "127.0.0.1".to_string(),
+            port: 8848,
+            ephemeral: false,
+            metadata,
+            ..Default::default()
+        };
+
+        let ret = naming_service.register_instance(
+            "test-persistent-service".to_string(),
+            None,
+            service_instance,
+        );
+        info!("response. {ret:?}");
+
+        let ten_millis = time::Duration::from_secs(100);
+        thread::sleep(ten_millis);
+        Ok(())
+    }
+
+    #[test]
+    #[ignore]
+    fn test_register_and_deregister_persistent_service() -> Result<()> {
+        tracing_subscriber::fmt()
+            .with_thread_names(true)
+            .with_file(true)
+            .with_level(true)
+            .with_line_number(true)
+            .with_thread_ids(true)
+            .with_max_level(LevelFilter::DEBUG)
+            .init();
+
+        let props = ClientProps::new().server_addr("127.0.0.1:8848");
+
+        let mut metadata = HashMap::<String, String>::new();
+        metadata.insert("netType".to_string(), "external".to_string());
+        metadata.insert("version".to_string(), "2.0".to_string());
+
+        let naming_service = NacosNamingService::new(props, Arc::new(NoopAuthPlugin::default()))?;
+        let service_instance = ServiceInstance {
+            ip: "127.0.0.1".to_string(),
+            port: 8848,
+            metadata,
+            ephemeral: false,
+            ..Default::default()
+        };
+
+        let ret = naming_service.register_instance(
+            "test-persistent-service".to_string(),
             None,
             service_instance.clone(),
         );
@@ -862,7 +1023,55 @@ pub(crate) mod tests {
         thread::sleep(ten_millis);
 
         let ret = naming_service.deregister_instance(
-            "test-service".to_string(),
+            "test-persistent-service".to_string(),
+            Some(crate::api::constants::DEFAULT_GROUP.to_string()),
+            service_instance,
+        );
+        info!("response. {ret:?}");
+
+        let ten_millis = time::Duration::from_secs(30);
+        thread::sleep(ten_millis);
+        Ok(())
+    }
+
+    #[test]
+    #[ignore]
+    fn test_register_and_deregister_ephemeral_service() -> Result<()> {
+        tracing_subscriber::fmt()
+            .with_thread_names(true)
+            .with_file(true)
+            .with_level(true)
+            .with_line_number(true)
+            .with_thread_ids(true)
+            .with_max_level(LevelFilter::DEBUG)
+            .init();
+
+        let props = ClientProps::new().server_addr("127.0.0.1:8848");
+
+        let mut metadata = HashMap::<String, String>::new();
+        metadata.insert("netType".to_string(), "external".to_string());
+        metadata.insert("version".to_string(), "2.0".to_string());
+
+        let naming_service = NacosNamingService::new(props, Arc::new(NoopAuthPlugin::default()))?;
+        let service_instance = ServiceInstance {
+            ip: "127.0.0.1".to_string(),
+            port: 9090,
+            metadata,
+            ..Default::default()
+        };
+
+        let ret = naming_service.register_instance(
+            "test-ephemeral-service".to_string(),
+            None,
+            service_instance.clone(),
+        );
+        info!("response. {ret:?}");
+
+        let ten_millis = time::Duration::from_secs(30);
+        thread::sleep(ten_millis);
+
+        let ret = naming_service.deregister_instance(
+            "test-ephemeral-service".to_string(),
             Some(crate::api::constants::DEFAULT_GROUP.to_string()),
             service_instance,
         );
