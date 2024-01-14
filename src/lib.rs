@@ -111,7 +111,7 @@ pub(crate) mod properties {
             value
                 .to_string()
                 .parse::<u32>()
-                .map_or_else(|_e| default, |v| v)
+                .unwrap_or(default)
         })
     }
 
@@ -123,7 +123,7 @@ pub(crate) mod properties {
             value
                 .to_string()
                 .parse::<bool>()
-                .map_or_else(|_e| default, |v| v)
+                .unwrap_or(default)
         })
     }
 }
@@ -182,7 +182,7 @@ mod tests {
 #[cfg(test)]
 mod test_props {
     use crate::api::constants::ENV_NACOS_CLIENT_NAMING_PUSH_EMPTY_PROTECTION;
-    use crate::properties::{get_value, get_value_bool};
+    use crate::properties::{get_value, get_value_bool, get_value_u32};
 
     #[test]
     fn test_get_value() {
@@ -194,6 +194,12 @@ mod test_props {
     fn test_get_value_bool() {
         let v = get_value_bool(ENV_NACOS_CLIENT_NAMING_PUSH_EMPTY_PROTECTION, true);
         assert_eq!(v, true);
+    }
+
+    #[test]
+    fn test_get_value_u32() {
+        let v = get_value_u32(ENV_NACOS_CLIENT_NAMING_PUSH_EMPTY_PROTECTION, 91);
+        assert_eq!(v, 91);
     }
 }
 
