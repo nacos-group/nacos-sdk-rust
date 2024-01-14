@@ -108,10 +108,7 @@ pub(crate) mod properties {
         Key: AsRef<str>,
     {
         PROPERTIES.get(key.as_ref()).map_or(default, |value| {
-            value
-                .to_string()
-                .parse::<u32>()
-                .map_or_else(|_e| default, |v| v)
+            value.to_string().parse::<u32>().unwrap_or(default)
         })
     }
 
@@ -120,10 +117,7 @@ pub(crate) mod properties {
         Key: AsRef<str>,
     {
         PROPERTIES.get(key.as_ref()).map_or(default, |value| {
-            value
-                .to_string()
-                .parse::<bool>()
-                .map_or_else(|_e| default, |v| v)
+            value.to_string().parse::<bool>().unwrap_or(default)
         })
     }
 }
@@ -182,7 +176,7 @@ mod tests {
 #[cfg(test)]
 mod test_props {
     use crate::api::constants::ENV_NACOS_CLIENT_NAMING_PUSH_EMPTY_PROTECTION;
-    use crate::properties::{get_value, get_value_bool};
+    use crate::properties::{get_value, get_value_bool, get_value_u32};
 
     #[test]
     fn test_get_value() {
@@ -194,6 +188,13 @@ mod test_props {
     fn test_get_value_bool() {
         let v = get_value_bool(ENV_NACOS_CLIENT_NAMING_PUSH_EMPTY_PROTECTION, true);
         assert_eq!(v, true);
+    }
+
+    #[test]
+    fn test_get_value_u32() {
+        let not_exist_key = "MUST_NOT_EXIST";
+        let v = get_value_u32(not_exist_key, 91);
+        assert_eq!(v, 91);
     }
 }
 
