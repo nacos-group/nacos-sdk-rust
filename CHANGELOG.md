@@ -1,5 +1,13 @@
 # 变更日志 | Change log
 
+### 0.3.4
+
+- 增强: 当设置 ephemeral=false 时，注册持久化实例
+
+---
+
+- Enhance: register persistent-instance when instance's ephemeral=false
+
 ### 0.3.3
 
 - 增强: Nacos client 公共线程池线程数量默认为1并升级一些依赖版本
