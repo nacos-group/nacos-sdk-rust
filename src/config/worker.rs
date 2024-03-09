@@ -355,7 +355,7 @@ impl ConfigWorker {
     ) {
         tracing::info!("list_ensure_cache_data_newest started");
         loop {
-            tracing::info!("list_ensure_cache_data_newest refreshing");
+            tracing::debug!("list_ensure_cache_data_newest refreshing");
             // todo invoke remove_listener with ConfigBatchListenClientRequest::new(false) when is_empty(),
             //  and then remove cache_data from cache_data_map.
             let mut listen_context_vec = Vec::with_capacity(6);
@@ -398,7 +398,7 @@ impl ConfigWorker {
                     }
                 }
             }
-            tracing::info!("list_ensure_cache_data_newest finish");
+            tracing::debug!("list_ensure_cache_data_newest finish");
 
             tokio::time::sleep(std::time::Duration::from_secs(60)).await;
         }
