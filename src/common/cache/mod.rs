@@ -416,6 +416,7 @@ pub mod tests {
     pub fn test_cache() {
         run_test(|| {
             let cache: Cache<String> = CacheBuilder::naming("test-naming".to_string())
+                .load_cache_at_start(true)
                 .disk_store()
                 .build("test-id".to_string());
             let key = String::from("key");
