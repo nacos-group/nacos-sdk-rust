@@ -1,5 +1,16 @@
 # 变更日志 | Change log
 
+
+### 0.3.5
+
+- 修复: 磁盘加载持久化数据不触发 `Listener` 回调
+- 功能: 新增 `naming_load_cache_at_start` 属性，用于控制是否在启动时加载缓存, 默认 `false`
+
+---
+
+- Fix: load service info from disk not trigger `Listener` callback
+- Feature: add `naming_load_cache_at_start` property to control whether to load the cache at startup, default `false`
+
 ### 0.3.4
 
 - 增强: 当设置 ephemeral=false 时，注册持久化实例
