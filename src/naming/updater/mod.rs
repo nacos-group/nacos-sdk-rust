@@ -179,7 +179,7 @@ impl ServiceInfoUpdateTask {
                 let delay_time_millis = Duration::from_millis(
                     (delay_time << failed_count).min(ServiceInfoUpdateTask::DEFAULT_DELAY * 60),
                 );
-                info!("{log_tag}:ServiceInfoUpdateTask delay sleep {delay_time_millis:?}");
+                debug!("{log_tag}:ServiceInfoUpdateTask delay sleep {delay_time_millis:?}");
                 sleep(delay_time_millis).await;
 
                 if !running.load(Ordering::Acquire) {
@@ -187,7 +187,7 @@ impl ServiceInfoUpdateTask {
                     break;
                 }
 
-                info!("{log_tag}:ServiceInfoUpdateTask refreshing");
+                debug!("{log_tag}:ServiceInfoUpdateTask refreshing");
 
                 let service_info = {
                     let group_name = request.group_name.as_deref().unwrap_or_default();
@@ -253,7 +253,7 @@ impl ServiceInfoUpdateTask {
                 service_info_emitter.emit(service_info).in_current_span().await;
 
                 failed_count = 0;
-                info!("{log_tag}:ServiceInfoUpdateTask finish");
+                debug!("{log_tag}:ServiceInfoUpdateTask finish");
             }
 
             warn!("{log_tag}:ServiceInfoUpdateTask is stopped");

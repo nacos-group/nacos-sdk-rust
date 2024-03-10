@@ -32,11 +32,16 @@ impl<V> Cache<V>
 where
     V: serde::Serialize + serde::de::DeserializeOwned + Send + Sync + 'static,
 {
-    fn new(id: String, store: Option<Box<dyn Store<V>>>) -> Self {
+    fn new(id: String, store: Option<Box<dyn Store<V>>>, load_cache_at_start: bool) -> Self {
         let _span_enter = debug_span!("cache", id = id).entered();
 
         let (dash_map, sender) = if let Some(mut store) = store {
-            let map = store.load();
+            let map = if load_cache_at_start {
+                store.load()
+            } else {
+                HashMap::new()
+            };
+
             let dash_map: DashMap<VersionKeyWrapper, V> = DashMap::with_capacity(map.len());
             let dash_map = Arc::new(dash_map);
             for (k, v) in map {
@@ -303,6 +308,7 @@ where
     _mark: PhantomData<V>,
     namespace: String,
     module: String,
+    load_cache_at_start: bool,
     store: Option<Box<dyn Store<V>>>,
 }
 
@@ -318,6 +324,7 @@ where
             _mark: Default::default(),
             namespace,
             module: CONFIG_MODULE.to_owned(),
+            load_cache_at_start: false,
             store: None,
         }
     }
@@ -327,7 +334,15 @@ where
             _mark: Default::default(),
             namespace,
             module: NAMING_MODULE.to_owned(),
+            load_cache_at_start: false,
             store: None,
+        }
+    }
+
+    pub(crate) fn load_cache_at_start(self, load_cache_at_start: bool) -> Self {
+        Self {
+            load_cache_at_start,
+            ..self
         }
     }
 
@@ -352,7 +367,7 @@ where
     }
 
     pub(crate) fn build(self, id: String) -> Cache<V> {
-        Cache::new(id, self.store)
+        Cache::new(id, self.store, self.load_cache_at_start)
     }
 }
 
@@ -401,6 +416,7 @@ pub mod tests {
     pub fn test_cache() {
         run_test(|| {
             let cache: Cache<String> = CacheBuilder::naming("test-naming".to_string())
+                .load_cache_at_start(true)
                 .disk_store()
                 .build("test-id".to_string());
             let key = String::from("key");
@@ -480,6 +496,7 @@ pub mod tests {
             drop(cache);
 
             let cache: Cache<String> = CacheBuilder::naming("test-naming".to_string())
+                .load_cache_at_start(true)
                 .disk_store()
                 .build("test-id".to_string());
 
