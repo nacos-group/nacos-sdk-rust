@@ -1,5 +1,14 @@
 # 变更日志 | Change log
 
+### 0.3.6
+
+- 文档: 补充说明 `NamingService` 和 `ConfigService` 需要全局的生命周期
+- 优化: 调整 `connection health check` 日志级别为 `warn` 
+
+---
+
+- Doc: supplement that `NamingService` and `ConfigService` need a global lifecycle
+- Enhance: adjust the log level of `connection health check` to `warn`
 
 ### 0.3.5
 
