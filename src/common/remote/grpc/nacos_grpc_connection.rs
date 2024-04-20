@@ -374,8 +374,8 @@ where
 
         let response = GrpcMessage::<HealthCheckResponse>::from_payload(response);
         if let Err(e) = response {
-            error!(
-                "connection health check failed convert to grpc message failed. {}",
+            warn!(
+                "connection health check failed convert to grpc message failed. If the retry is successful, please ignore it. {}",
                 e
             );
             return Err(ErrResult(
