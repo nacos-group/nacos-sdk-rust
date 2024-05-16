@@ -87,7 +87,7 @@ pub trait ConfigService {
 
 #[cfg(feature = "async")]
 #[async_trait::async_trait]
-pub trait ConfigService {
+pub trait ConfigService: Send + Sync {
     /// Get config, return the content.
     ///
     /// Attention to [`error::Error::ConfigNotFound`], [`error::Error::ConfigQueryConflict`]
