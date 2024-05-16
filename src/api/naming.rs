@@ -217,7 +217,7 @@ pub trait NamingService {
 
 #[cfg(feature = "async")]
 #[async_trait::async_trait]
-pub trait NamingService {
+pub trait NamingService: Send + Sync {
     async fn register_instance(
         &self,
         service_name: String,
