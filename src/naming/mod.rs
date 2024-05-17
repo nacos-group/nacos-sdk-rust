@@ -767,7 +767,7 @@ impl NamingService for NacosNamingService {
 pub(crate) mod tests {
 
     use core::time;
-    use std::{collections::HashMap, thread};
+    use std::collections::HashMap;
 
     use tracing::{info, metadata::LevelFilter};
 
@@ -775,9 +775,9 @@ pub(crate) mod tests {
 
     use super::*;
 
-    #[test]
+    #[tokio::test]
     #[ignore]
-    fn test_ephemeral_register_service() -> Result<()> {
+    async fn test_ephemeral_register_service() {
         tracing_subscriber::fmt()
             .with_thread_names(true)
             .with_file(true)
@@ -793,7 +793,8 @@ pub(crate) mod tests {
         metadata.insert("netType".to_string(), "external".to_string());
         metadata.insert("version".to_string(), "2.0".to_string());
 
-        let naming_service = NacosNamingService::new(props, Arc::new(NoopAuthPlugin::default()))?;
+        let naming_service =
+            NacosNamingService::new(props, Arc::new(NoopAuthPlugin::default())).unwrap();
         let service_instance = ServiceInstance {
             ip: "127.0.0.1".to_string(),
             port: 9090,
@@ -801,21 +802,18 @@ pub(crate) mod tests {
             ..Default::default()
         };
 
-        let ret = naming_service.register_instance(
-            "test-ephemeral-service".to_string(),
-            None,
-            service_instance,
-        );
+        let ret = naming_service
+            .register_instance("test-ephemeral-service".to_string(), None, service_instance)
+            .await;
         info!("response. {ret:?}");
 
-        let ten_millis = time::Duration::from_secs(100);
-        thread::sleep(ten_millis);
-        Ok(())
+        let ten_millis = time::Duration::from_secs(1);
+        tokio::time::sleep(ten_millis).await;
     }
 
-    #[test]
+    #[tokio::test]
     #[ignore]
-    fn test_persistent_register_service() -> Result<()> {
+    async fn test_persistent_register_service() {
         tracing_subscriber::fmt()
             .with_thread_names(true)
             .with_file(true)
@@ -831,7 +829,8 @@ pub(crate) mod tests {
         metadata.insert("netType".to_string(), "external".to_string());
         metadata.insert("version".to_string(), "2.0".to_string());
 
-        let naming_service = NacosNamingService::new(props, Arc::new(NoopAuthPlugin::default()))?;
+        let naming_service =
+            NacosNamingService::new(props, Arc::new(NoopAuthPlugin::default())).unwrap();
         let service_instance = ServiceInstance {
             ip: "127.0.0.1".to_string(),
             port: 8848,
@@ -840,21 +839,22 @@ pub(crate) mod tests {
             ..Default::default()
         };
 
-        let ret = naming_service.register_instance(
-            "test-persistent-service".to_string(),
-            None,
-            service_instance,
-        );
+        let ret = naming_service
+            .register_instance(
+                "test-persistent-service".to_string(),
+                None,
+                service_instance,
+            )
+            .await;
         info!("response. {ret:?}");
 
-        let ten_millis = time::Duration::from_secs(100);
-        thread::sleep(ten_millis);
-        Ok(())
+        let ten_millis = time::Duration::from_secs(1);
+        tokio::time::sleep(ten_millis).await;
     }
 
-    #[test]
+    #[tokio::test]
     #[ignore]
-    fn test_register_and_deregister_persistent_service() -> Result<()> {
+    async fn test_register_and_deregister_persistent_service() {
         tracing_subscriber::fmt()
             .with_thread_names(true)
             .with_file(true)
@@ -870,7 +870,8 @@ pub(crate) mod tests {
         metadata.insert("netType".to_string(), "external".to_string());
         metadata.insert("version".to_string(), "2.0".to_string());
 
-        let naming_service = NacosNamingService::new(props, Arc::new(NoopAuthPlugin::default()))?;
+        let naming_service =
+            NacosNamingService::new(props, Arc::new(NoopAuthPlugin::default())).unwrap();
         let service_instance = ServiceInstance {
             ip: "127.0.0.1".to_string(),
             port: 8848,
@@ -879,31 +880,34 @@ pub(crate) mod tests {
             ..Default::default()
         };
 
-        let ret = naming_service.register_instance(
-            "test-persistent-service".to_string(),
-            None,
-            service_instance.clone(),
-        );
+        let ret = naming_service
+            .register_instance(
+                "test-persistent-service".to_string(),
+                None,
+                service_instance.clone(),
+            )
+            .await;
         info!("response. {ret:?}");
 
         let ten_millis = time::Duration::from_secs(30);
-        thread::sleep(ten_millis);
+        tokio::time::sleep(ten_millis).await;
 
-        let ret = naming_service.deregister_instance(
-            "test-persistent-service".to_string(),
-            Some(crate::api::constants::DEFAULT_GROUP.to_string()),
-            service_instance,
-        );
+        let ret = naming_service
+            .deregister_instance(
+                "test-persistent-service".to_string(),
+                Some(crate::api::constants::DEFAULT_GROUP.to_string()),
+                service_instance,
+            )
+            .await;
         info!("response. {ret:?}");
 
         let ten_millis = time::Duration::from_secs(30);
-        thread::sleep(ten_millis);
-        Ok(())
+        tokio::time::sleep(ten_millis).await;
     }
 
-    #[test]
+    #[tokio::test]
     #[ignore]
-    fn test_register_and_deregister_ephemeral_service() -> Result<()> {
+    async fn test_register_and_deregister_ephemeral_service() {
         tracing_subscriber::fmt()
             .with_thread_names(true)
             .with_file(true)
@@ -919,7 +923,8 @@ pub(crate) mod tests {
         metadata.insert("netType".to_string(), "external".to_string());
         metadata.insert("version".to_string(), "2.0".to_string());
 
-        let naming_service = NacosNamingService::new(props, Arc::new(NoopAuthPlugin::default()))?;
+        let naming_service =
+            NacosNamingService::new(props, Arc::new(NoopAuthPlugin::default())).unwrap();
         let service_instance = ServiceInstance {
             ip: "127.0.0.1".to_string(),
             port: 9090,
@@ -927,31 +932,34 @@ pub(crate) mod tests {
             ..Default::default()
         };
 
-        let ret = naming_service.register_instance(
-            "test-ephemeral-service".to_string(),
-            None,
-            service_instance.clone(),
-        );
+        let ret = naming_service
+            .register_instance(
+                "test-ephemeral-service".to_string(),
+                None,
+                service_instance.clone(),
+            )
+            .await;
         info!("response. {ret:?}");
 
         let ten_millis = time::Duration::from_secs(30);
-        thread::sleep(ten_millis);
+        tokio::time::sleep(ten_millis).await;
 
-        let ret = naming_service.deregister_instance(
-            "test-ephemeral-service".to_string(),
-            Some(crate::api::constants::DEFAULT_GROUP.to_string()),
-            service_instance,
-        );
+        let ret = naming_service
+            .deregister_instance(
+                "test-ephemeral-service".to_string(),
+                Some(crate::api::constants::DEFAULT_GROUP.to_string()),
+                service_instance,
+            )
+            .await;
         info!("response. {ret:?}");
 
         let ten_millis = time::Duration::from_secs(30);
-        thread::sleep(ten_millis);
-        Ok(())
+        tokio::time::sleep(ten_millis).await;
     }
 
-    #[test]
+    #[tokio::test]
     #[ignore]
-    fn test_batch_register_service() -> Result<()> {
+    async fn test_batch_register_service() {
         tracing_subscriber::fmt()
             .with_thread_names(true)
             .with_file(true)
@@ -967,7 +975,8 @@ pub(crate) mod tests {
         metadata.insert("netType".to_string(), "external".to_string());
         metadata.insert("version".to_string(), "2.0".to_string());
 
-        let naming_service = NacosNamingService::new(props, Arc::new(NoopAuthPlugin::default()))?;
+        let naming_service =
+            NacosNamingService::new(props, Arc::new(NoopAuthPlugin::default())).unwrap();
         let service_instance1 = ServiceInstance {
             ip: "127.0.0.1".to_string(),
             port: 9090,
@@ -991,21 +1000,22 @@ pub(crate) mod tests {
 
         let instance_vec = vec![service_instance1, service_instance2, service_instance3];
 
-        let ret = naming_service.batch_register_instance(
-            "test-service".to_string(),
-            Some(crate::api::constants::DEFAULT_GROUP.to_string()),
-            instance_vec,
-        );
+        let ret = naming_service
+            .batch_register_instance(
+                "test-service".to_string(),
+                Some(crate::api::constants::DEFAULT_GROUP.to_string()),
+                instance_vec,
+            )
+            .await;
         info!("response. {ret:?}");
 
-        let ten_millis = time::Duration::from_secs(300);
-        thread::sleep(ten_millis);
-        Ok(())
+        let ten_millis = time::Duration::from_secs(3);
+        tokio::time::sleep(ten_millis).await;
     }
 
-    #[test]
+    #[tokio::test]
     #[ignore]
-    fn test_batch_register_service_and_query_all_instances() -> Result<()> {
+    async fn test_batch_register_service_and_query_all_instances() {
         tracing_subscriber::fmt()
             .with_thread_names(true)
             .with_file(true)
@@ -1021,7 +1031,8 @@ pub(crate) mod tests {
         metadata.insert("netType".to_string(), "external".to_string());
         metadata.insert("version".to_string(), "2.0".to_string());
 
-        let naming_service = NacosNamingService::new(props, Arc::new(NoopAuthPlugin::default()))?;
+        let naming_service =
+            NacosNamingService::new(props, Arc::new(NoopAuthPlugin::default())).unwrap();
         let service_instance1 = ServiceInstance {
             ip: "127.0.0.1".to_string(),
             port: 9090,
@@ -1044,160 +1055,34 @@ pub(crate) mod tests {
         };
         let instance_vec = vec![service_instance1, service_instance2, service_instance3];
 
-        let ret = naming_service.batch_register_instance(
-            "test-service".to_string(),
-            Some(crate::api::constants::DEFAULT_GROUP.to_string()),
-            instance_vec,
-        );
-        info!("response. {ret:?}");
-
-        let ten_millis = time::Duration::from_secs(10);
-        thread::sleep(ten_millis);
-
-        let all_instances = naming_service.get_all_instances(
-            "test-service".to_string(),
-            Some(crate::api::constants::DEFAULT_GROUP.to_string()),
-            Vec::default(),
-            false,
-        );
-        info!("response. {all_instances:?}");
-
-        thread::sleep(ten_millis);
-        Ok(())
-    }
-
-    #[test]
-    #[ignore]
-    fn test_select_instance() -> Result<()> {
-        tracing_subscriber::fmt()
-            .with_thread_names(true)
-            .with_file(true)
-            .with_level(true)
-            .with_line_number(true)
-            .with_thread_ids(true)
-            .with_max_level(LevelFilter::DEBUG)
-            .init();
-
-        let props = ClientProps::new().server_addr("127.0.0.1:8848");
-
-        let mut metadata = HashMap::<String, String>::new();
-        metadata.insert("netType".to_string(), "external".to_string());
-        metadata.insert("version".to_string(), "2.0".to_string());
-
-        let naming_service = NacosNamingService::new(props, Arc::new(NoopAuthPlugin::default()))?;
-        let service_instance1 = ServiceInstance {
-            ip: "127.0.0.1".to_string(),
-            port: 9090,
-            metadata: metadata.clone(),
-            ..Default::default()
-        };
-
-        let service_instance2 = ServiceInstance {
-            ip: "192.168.1.1".to_string(),
-            port: 8888,
-            metadata: metadata.clone(),
-            ..Default::default()
-        };
-
-        let service_instance3 = ServiceInstance {
-            ip: "172.0.2.1".to_string(),
-            port: 6666,
-            metadata: metadata.clone(),
-            ..Default::default()
-        };
-        let instance_vec = vec![service_instance1, service_instance2, service_instance3];
-
-        let ret = naming_service.batch_register_instance(
-            "test-service".to_string(),
-            Some(crate::api::constants::DEFAULT_GROUP.to_string()),
-            instance_vec,
-        );
+        let ret = naming_service
+            .batch_register_instance(
+                "test-service".to_string(),
+                Some(crate::api::constants::DEFAULT_GROUP.to_string()),
+                instance_vec,
+            )
+            .await;
         info!("response. {ret:?}");
 
         let ten_millis = time::Duration::from_secs(10);
-        thread::sleep(ten_millis);
+        tokio::time::sleep(ten_millis).await;
 
-        let all_instances = naming_service.select_instances(
-            "test-service".to_string(),
-            Some(crate::api::constants::DEFAULT_GROUP.to_string()),
-            Vec::default(),
-            false,
-            true,
-        );
-        info!("response. {all_instances:?}");
-
-        thread::sleep(ten_millis);
-        Ok(())
-    }
-
-    #[test]
-    #[ignore]
-    fn test_select_one_healthy_instance() -> Result<()> {
-        tracing_subscriber::fmt()
-            .with_thread_names(true)
-            .with_file(true)
-            .with_level(true)
-            .with_line_number(true)
-            .with_thread_ids(true)
-            .with_max_level(LevelFilter::DEBUG)
-            .init();
-
-        let props = ClientProps::new().server_addr("127.0.0.1:8848");
-
-        let mut metadata = HashMap::<String, String>::new();
-        metadata.insert("netType".to_string(), "external".to_string());
-        metadata.insert("version".to_string(), "2.0".to_string());
-
-        let naming_service = NacosNamingService::new(props, Arc::new(NoopAuthPlugin::default()))?;
-        let service_instance1 = ServiceInstance {
-            ip: "127.0.0.1".to_string(),
-            port: 9090,
-            metadata: metadata.clone(),
-            ..Default::default()
-        };
-
-        let service_instance2 = ServiceInstance {
-            ip: "192.168.1.1".to_string(),
-            port: 8888,
-            metadata: metadata.clone(),
-            ..Default::default()
-        };
-
-        let service_instance3 = ServiceInstance {
-            ip: "172.0.2.1".to_string(),
-            port: 6666,
-            metadata: metadata.clone(),
-            ..Default::default()
-        };
-        let instance_vec = vec![service_instance1, service_instance2, service_instance3];
-
-        let ret = naming_service.batch_register_instance(
-            "test-service".to_string(),
-            Some(crate::api::constants::DEFAULT_GROUP.to_string()),
-            instance_vec,
-        );
-        info!("response. {ret:?}");
-
-        let ten_millis = time::Duration::from_secs(10);
-        thread::sleep(ten_millis);
-
-        for _ in 0..3 {
-            let all_instances = naming_service.select_one_healthy_instance(
+        let all_instances = naming_service
+            .get_all_instances(
                 "test-service".to_string(),
                 Some(crate::api::constants::DEFAULT_GROUP.to_string()),
                 Vec::default(),
                 false,
-            );
-            info!("response. {all_instances:?}");
-        }
+            )
+            .await;
+        info!("response. {all_instances:?}");
 
-        thread::sleep(ten_millis);
-        Ok(())
+        tokio::time::sleep(ten_millis).await;
     }
 
-    #[test]
+    #[tokio::test]
     #[ignore]
-    fn test_get_service_list() -> Result<()> {
+    async fn test_select_instance() {
         tracing_subscriber::fmt()
             .with_thread_names(true)
             .with_file(true)
@@ -1213,7 +1098,8 @@ pub(crate) mod tests {
         metadata.insert("netType".to_string(), "external".to_string());
         metadata.insert("version".to_string(), "2.0".to_string());
 
-        let naming_service = NacosNamingService::new(props, Arc::new(NoopAuthPlugin::default()))?;
+        let naming_service =
+            NacosNamingService::new(props, Arc::new(NoopAuthPlugin::default())).unwrap();
         let service_instance1 = ServiceInstance {
             ip: "127.0.0.1".to_string(),
             port: 9090,
@@ -1236,21 +1122,159 @@ pub(crate) mod tests {
         };
         let instance_vec = vec![service_instance1, service_instance2, service_instance3];
 
-        let ret = naming_service.batch_register_instance(
-            "test-service".to_string(),
-            Some(crate::api::constants::DEFAULT_GROUP.to_string()),
-            instance_vec,
-        );
+        let ret = naming_service
+            .batch_register_instance(
+                "test-service".to_string(),
+                Some(crate::api::constants::DEFAULT_GROUP.to_string()),
+                instance_vec,
+            )
+            .await;
         info!("response. {ret:?}");
 
         let ten_millis = time::Duration::from_secs(10);
-        thread::sleep(ten_millis);
+        tokio::time::sleep(ten_millis).await;
 
-        let service_list = naming_service.get_service_list(1, 50, None);
+        let all_instances = naming_service
+            .select_instances(
+                "test-service".to_string(),
+                Some(crate::api::constants::DEFAULT_GROUP.to_string()),
+                Vec::default(),
+                false,
+                true,
+            )
+            .await;
+        info!("response. {all_instances:?}");
+
+        tokio::time::sleep(ten_millis).await;
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn test_select_one_healthy_instance() {
+        tracing_subscriber::fmt()
+            .with_thread_names(true)
+            .with_file(true)
+            .with_level(true)
+            .with_line_number(true)
+            .with_thread_ids(true)
+            .with_max_level(LevelFilter::DEBUG)
+            .init();
+
+        let props = ClientProps::new().server_addr("127.0.0.1:8848");
+
+        let mut metadata = HashMap::<String, String>::new();
+        metadata.insert("netType".to_string(), "external".to_string());
+        metadata.insert("version".to_string(), "2.0".to_string());
+
+        let naming_service =
+            NacosNamingService::new(props, Arc::new(NoopAuthPlugin::default())).unwrap();
+        let service_instance1 = ServiceInstance {
+            ip: "127.0.0.1".to_string(),
+            port: 9090,
+            metadata: metadata.clone(),
+            ..Default::default()
+        };
+
+        let service_instance2 = ServiceInstance {
+            ip: "192.168.1.1".to_string(),
+            port: 8888,
+            metadata: metadata.clone(),
+            ..Default::default()
+        };
+
+        let service_instance3 = ServiceInstance {
+            ip: "172.0.2.1".to_string(),
+            port: 6666,
+            metadata: metadata.clone(),
+            ..Default::default()
+        };
+        let instance_vec = vec![service_instance1, service_instance2, service_instance3];
+
+        let ret = naming_service
+            .batch_register_instance(
+                "test-service".to_string(),
+                Some(crate::api::constants::DEFAULT_GROUP.to_string()),
+                instance_vec,
+            )
+            .await;
+        info!("response. {ret:?}");
+
+        let ten_millis = time::Duration::from_secs(10);
+        tokio::time::sleep(ten_millis).await;
+
+        for _ in 0..3 {
+            let all_instances = naming_service
+                .select_one_healthy_instance(
+                    "test-service".to_string(),
+                    Some(crate::api::constants::DEFAULT_GROUP.to_string()),
+                    Vec::default(),
+                    false,
+                )
+                .await;
+            info!("response. {all_instances:?}");
+        }
+
+        tokio::time::sleep(ten_millis).await;
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn test_get_service_list() {
+        tracing_subscriber::fmt()
+            .with_thread_names(true)
+            .with_file(true)
+            .with_level(true)
+            .with_line_number(true)
+            .with_thread_ids(true)
+            .with_max_level(LevelFilter::DEBUG)
+            .init();
+
+        let props = ClientProps::new().server_addr("127.0.0.1:8848");
+
+        let mut metadata = HashMap::<String, String>::new();
+        metadata.insert("netType".to_string(), "external".to_string());
+        metadata.insert("version".to_string(), "2.0".to_string());
+
+        let naming_service =
+            NacosNamingService::new(props, Arc::new(NoopAuthPlugin::default())).unwrap();
+        let service_instance1 = ServiceInstance {
+            ip: "127.0.0.1".to_string(),
+            port: 9090,
+            metadata: metadata.clone(),
+            ..Default::default()
+        };
+
+        let service_instance2 = ServiceInstance {
+            ip: "192.168.1.1".to_string(),
+            port: 8888,
+            metadata: metadata.clone(),
+            ..Default::default()
+        };
+
+        let service_instance3 = ServiceInstance {
+            ip: "172.0.2.1".to_string(),
+            port: 6666,
+            metadata: metadata.clone(),
+            ..Default::default()
+        };
+        let instance_vec = vec![service_instance1, service_instance2, service_instance3];
+
+        let ret = naming_service
+            .batch_register_instance(
+                "test-service".to_string(),
+                Some(crate::api::constants::DEFAULT_GROUP.to_string()),
+                instance_vec,
+            )
+            .await;
+        info!("response. {ret:?}");
+
+        let ten_millis = time::Duration::from_secs(10);
+        tokio::time::sleep(ten_millis).await;
+
+        let service_list = naming_service.get_service_list(1, 50, None).await;
         info!("response. {service_list:?}");
 
-        thread::sleep(ten_millis);
-        Ok(())
+        tokio::time::sleep(ten_millis).await;
     }
 
     #[derive(Hash, PartialEq)]
@@ -1262,9 +1286,9 @@ pub(crate) mod tests {
         }
     }
 
-    #[test]
+    #[tokio::test]
     #[ignore]
-    fn test_service_push() -> Result<()> {
+    async fn test_service_push() {
         tracing_subscriber::fmt()
             .with_thread_names(true)
             .with_file(true)
@@ -1280,7 +1304,8 @@ pub(crate) mod tests {
         metadata.insert("netType".to_string(), "external".to_string());
         metadata.insert("version".to_string(), "2.0".to_string());
 
-        let naming_service = NacosNamingService::new(props, Arc::new(NoopAuthPlugin::default()))?;
+        let naming_service =
+            NacosNamingService::new(props, Arc::new(NoopAuthPlugin::default())).unwrap();
         let service_instance1 = ServiceInstance {
             ip: "127.0.0.1".to_string(),
             port: 9090,
@@ -1303,25 +1328,28 @@ pub(crate) mod tests {
         };
         let instance_vec = vec![service_instance1, service_instance2, service_instance3];
 
-        let ret = naming_service.batch_register_instance(
-            "test-service".to_string(),
-            Some(crate::api::constants::DEFAULT_GROUP.to_string()),
-            instance_vec,
-        );
+        let ret = naming_service
+            .batch_register_instance(
+                "test-service".to_string(),
+                Some(crate::api::constants::DEFAULT_GROUP.to_string()),
+                instance_vec,
+            )
+            .await;
         info!("response. {ret:?}");
 
         let listener = Arc::new(InstancesChangeEventListener);
-        let ret = naming_service.subscribe(
-            "test-service".to_string(),
-            Some(crate::api::constants::DEFAULT_GROUP.to_string()),
-            Vec::default(),
-            listener,
-        );
+        let ret = naming_service
+            .subscribe(
+                "test-service".to_string(),
+                Some(crate::api::constants::DEFAULT_GROUP.to_string()),
+                Vec::default(),
+                listener,
+            )
+            .await;
 
         info!("response. {ret:?}");
 
         let ten_millis = time::Duration::from_secs(3000);
-        thread::sleep(ten_millis);
-        Ok(())
+        tokio::time::sleep(ten_millis).await;
     }
 }

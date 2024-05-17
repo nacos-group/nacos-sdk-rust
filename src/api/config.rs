@@ -300,21 +300,26 @@ mod tests {
                 "test_api_config_service".to_string(),
                 Some("text".to_string()),
             )
+            .await
             .unwrap();
         // sleep for config sync in server
         sleep(Duration::from_millis(111)).await;
 
-        let config = config_service.get_config(data_id.clone(), group.clone());
+        let config = config_service
+            .get_config(data_id.clone(), group.clone())
+            .await;
         match config {
             Ok(config) => tracing::info!("get the config {}", config),
             Err(err) => tracing::error!("get the config {:?}", err),
         }
 
-        let _listen = config_service.add_listener(
-            data_id.clone(),
-            group.clone(),
-            std::sync::Arc::new(TestConfigChangeListener {}),
-        );
+        let _listen = config_service
+            .add_listener(
+                data_id.clone(),
+                group.clone(),
+                std::sync::Arc::new(TestConfigChangeListener {}),
+            )
+            .await;
         match _listen {
             Ok(_) => tracing::info!("listening the config success"),
             Err(err) => tracing::error!("listen config error {:?}", err),
@@ -328,22 +333,26 @@ mod tests {
                 "test_api_config_service_for_listener".to_string(),
                 Some("text".to_string()),
             )
+            .await
             .unwrap();
 
         // example get a config not exit
-        let config_resp =
-            config_service.get_config("todo-data-id".to_string(), "todo-group".to_string());
+        let config_resp = config_service
+            .get_config("todo-data-id".to_string(), "todo-group".to_string())
+            .await;
         match config_resp {
             Ok(config_resp) => tracing::info!("get the config {}", config_resp),
             Err(err) => tracing::error!("get the config {:?}", err),
         }
 
         // example add a listener with config not exit
-        let _listen = config_service.add_listener(
-            "todo-data-id".to_string(),
-            "todo-group".to_string(),
-            std::sync::Arc::new(TestConfigChangeListener {}),
-        );
+        let _listen = config_service
+            .add_listener(
+                "todo-data-id".to_string(),
+                "todo-group".to_string(),
+                std::sync::Arc::new(TestConfigChangeListener {}),
+            )
+            .await;
         match _listen {
             Ok(_) => tracing::info!("listening the config success"),
             Err(err) => tracing::error!("listen config error {:?}", err),
@@ -363,8 +372,9 @@ mod tests {
         let config_service = ConfigServiceBuilder::default().build().unwrap();
 
         // remove a config not exit
-        let remove_resp =
-            config_service.remove_config("todo-data-id".to_string(), "todo-group".to_string());
+        let remove_resp = config_service
+            .remove_config("todo-data-id".to_string(), "todo-group".to_string())
+            .await;
         match remove_resp {
             Ok(result) => tracing::info!("remove a config not exit: {}", result),
             Err(err) => tracing::error!("remove a config not exit: {:?}", err),
@@ -388,6 +398,7 @@ mod tests {
                 "test_api_config_service_publish_config".to_string(),
                 Some("text".to_string()),
             )
+            .await
             .unwrap();
         tracing::info!("publish a config: {}", publish_resp);
         assert_eq!(true, publish_resp);
@@ -417,6 +428,7 @@ mod tests {
                 None,
                 params,
             )
+            .await
             .unwrap();
         tracing::info!("publish a config with param: {}", publish_resp);
         assert_eq!(true, publish_resp);
@@ -440,6 +452,7 @@ mod tests {
                 None,
                 "127.0.0.1,192.168.0.1".to_string(),
             )
+            .await
             .unwrap();
         tracing::info!("publish a config with beta: {}", publish_resp);
         assert_eq!(true, publish_resp);
@@ -464,6 +477,7 @@ mod tests {
                 "test_api_config_service_publish_config_cas".to_string(),
                 None,
             )
+            .await
             .unwrap();
         assert_eq!(true, publish_resp);
 
@@ -473,6 +487,7 @@ mod tests {
         // get a config
         let config_resp = config_service
             .get_config(data_id.clone(), group.clone())
+            .await
             .unwrap();
 
         // publish a config with cas
@@ -486,19 +501,22 @@ mod tests {
                 None,
                 config_resp.md5().to_string(),
             )
+            .await
             .unwrap();
         tracing::info!("publish a config with cas: {}", publish_resp);
         assert_eq!(true, publish_resp);
 
         // publish a config with cas md5 not right
         let content_cas_md5_not_right = "test_api_config_service_publish_config_cas_md5_not_right";
-        let publish_resp = config_service.publish_config_cas(
-            data_id.clone(),
-            group.clone(),
-            content_cas_md5_not_right.to_string(),
-            None,
-            config_resp.md5().to_string(),
-        );
+        let publish_resp = config_service
+            .publish_config_cas(
+                data_id.clone(),
+                group.clone(),
+                content_cas_md5_not_right.to_string(),
+                None,
+                config_resp.md5().to_string(),
+            )
+            .await;
         match publish_resp {
             Ok(result) => tracing::info!("publish a config with cas: {}", result),
             Err(err) => tracing::error!("publish a config with cas: {:?}", err),
@@ -507,6 +525,7 @@ mod tests {
 
         let config_resp = config_service
             .get_config(data_id.clone(), group.clone())
+            .await
             .unwrap();
         assert_ne!(content_cas_md5_not_right, config_resp.content().as_str());
         assert_eq!(content_cas_md5.as_str(), config_resp.content().as_str());
