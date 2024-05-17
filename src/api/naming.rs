@@ -135,7 +135,7 @@ pub trait NamingEventListener: Send + Sync + 'static {
 /// ```ignore
 ///  let mut naming_service = nacos_sdk::api::naming::NamingServiceBuilder::new(
 ///        nacos_sdk::api::props::ClientProps::new()
-///           .server_addr("0.0.0.0:8848")
+///           .server_addr("127.0.0.1:8848")
 ///           // Attention! "public" is "", it is recommended to customize the namespace with clear meaning.
 ///           .namespace("")
 ///           .app_name("todo-your-app-name"),
@@ -143,79 +143,6 @@ pub trait NamingEventListener: Send + Sync + 'static {
 ///   .build()?;
 /// ```
 #[doc(alias("naming", "sdk", "api"))]
-#[cfg(not(feature = "async"))]
-pub trait NamingService {
-    fn register_instance(
-        &self,
-        service_name: String,
-        group_name: Option<String>,
-        service_instance: ServiceInstance,
-    ) -> Result<()>;
-
-    fn deregister_instance(
-        &self,
-        service_name: String,
-        group_name: Option<String>,
-        service_instance: ServiceInstance,
-    ) -> Result<()>;
-
-    fn batch_register_instance(
-        &self,
-        service_name: String,
-        group_name: Option<String>,
-        service_instances: Vec<ServiceInstance>,
-    ) -> Result<()>;
-
-    fn get_all_instances(
-        &self,
-        service_name: String,
-        group_name: Option<String>,
-        clusters: Vec<String>,
-        subscribe: bool,
-    ) -> Result<Vec<ServiceInstance>>;
-
-    fn select_instances(
-        &self,
-        service_name: String,
-        group_name: Option<String>,
-        clusters: Vec<String>,
-        subscribe: bool,
-        healthy: bool,
-    ) -> Result<Vec<ServiceInstance>>;
-
-    fn select_one_healthy_instance(
-        &self,
-        service_name: String,
-        group_name: Option<String>,
-        clusters: Vec<String>,
-        subscribe: bool,
-    ) -> Result<ServiceInstance>;
-
-    fn get_service_list(
-        &self,
-        page_no: i32,
-        page_size: i32,
-        group_name: Option<String>,
-    ) -> Result<(Vec<String>, i32)>;
-
-    fn subscribe(
-        &self,
-        service_name: String,
-        group_name: Option<String>,
-        clusters: Vec<String>,
-        event_listener: Arc<dyn NamingEventListener>,
-    ) -> Result<()>;
-
-    fn unsubscribe(
-        &self,
-        service_name: String,
-        group_name: Option<String>,
-        clusters: Vec<String>,
-        event_listener: Arc<dyn NamingEventListener>,
-    ) -> Result<()>;
-}
-
-#[cfg(feature = "async")]
 #[async_trait::async_trait]
 pub trait NamingService: Send + Sync {
     async fn register_instance(
@@ -295,7 +222,7 @@ pub trait NamingService: Send + Sync {
 /// ```ignore
 ///  let mut naming_service = nacos_sdk::api::naming::NamingServiceBuilder::new(
 ///        nacos_sdk::api::props::ClientProps::new()
-///           .server_addr("0.0.0.0:8848")
+///           .server_addr("127.0.0.1:8848")
 ///           // Attention! "public" is "", it is recommended to customize the namespace with clear meaning.
 ///           .namespace("")
 ///           .app_name("todo-your-app-name"),

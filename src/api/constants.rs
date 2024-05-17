@@ -1,4 +1,4 @@
-pub const DEFAULT_SERVER_ADDR: &str = "0.0.0.0:8848";
+pub const DEFAULT_SERVER_ADDR: &str = "127.0.0.1:8848";
 
 pub const DEFAULT_SERVER_PORT: u32 = 8848;
 

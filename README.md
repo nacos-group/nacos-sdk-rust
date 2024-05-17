@@ -22,8 +22,8 @@ Add the dependency in `Cargo.toml`:
 
 ```toml
 [dependencies]
-# If you need async API, which can be enabled via `features = ["async"]`
-nacos-sdk = { version = "0.3", features = ["default"] }
+# If you need sync API, maybe `futures::executor::block_on(future_fn)`
+nacos-sdk = { version = "0.4", features = ["default"] }
 ```
 
 ### Usage of Config
@@ -32,7 +32,7 @@ nacos-sdk = { version = "0.3", features = ["default"] }
     // 因为它内部会初始化与服务端的长链接，后续的数据交互及变更订阅，都是实时地通过长链接告知客户端的。
     let config_service = ConfigServiceBuilder::new(
         ClientProps::new()
-            .server_addr("0.0.0.0:8848")
+            .server_addr("127.0.0.1:8848")
             // Attention! "public" is "", it is recommended to customize the namespace with clear meaning.
             .namespace("")
             .app_name("simple_app"),
@@ -43,7 +43,7 @@ nacos-sdk = { version = "0.3", features = ["default"] }
     .build()?;
 
     // example get a config
-    let config_resp = config_service.get_config("todo-data-id".to_string(), "todo-group".to_string());
+    let config_resp = config_service.get_config("todo-data-id".to_string(), "todo-group".to_string()).await;
     match config_resp {
         Ok(config_resp) => tracing::info!("get the config {}", config_resp),
         Err(err) => tracing::error!("get the config {:?}", err),
@@ -62,7 +62,7 @@ nacos-sdk = { version = "0.3", features = ["default"] }
         "todo-data-id".to_string(),
         "todo-group".to_string(),
         Arc::new(ExampleConfigChangeListener {}),
-    );
+    ).await;
     match _listen {
         Ok(_) => tracing::info!("listening the config success"),
         Err(err) => tracing::error!("listen config error {:?}", err),
@@ -75,7 +75,7 @@ nacos-sdk = { version = "0.3", features = ["default"] }
     // 因为它内部会初始化与服务端的长链接，后续的数据交互及变更订阅，都是实时地通过长链接告知客户端的。
     let naming_service = NamingServiceBuilder::new(
         ClientProps::new()
-            .server_addr("0.0.0.0:8848")
+            .server_addr("127.0.0.1:8848")
             // Attention! "public" is "", it is recommended to customize the namespace with clear meaning.
             .namespace("")
             .app_name("simple_app"),
@@ -100,7 +100,7 @@ nacos-sdk = { version = "0.3", features = ["default"] }
         Some(constants::DEFAULT_GROUP.to_string()),
         Vec::default(),
         subscriber,
-    );
+    ).await;
 
     // example naming register instances
     let service_instance1 = ServiceInstance {
@@ -112,7 +112,7 @@ nacos-sdk = { version = "0.3", features = ["default"] }
         "test-service".to_string(),
         Some(constants::DEFAULT_GROUP.to_string()),
         vec![service_instance1],
-    );
+    ).await;
 ```
 
 ### Props

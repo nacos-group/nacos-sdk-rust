@@ -643,142 +643,24 @@ impl NacosNamingService {
     }
 }
 
-#[cfg(not(feature = "async"))]
-impl NamingService for NacosNamingService {
-    #[instrument(fields(client_id = &self.client_id, group = group_name), skip_all)]
-    fn deregister_instance(
-        &self,
-        service_name: String,
-        group_name: Option<String>,
-        service_instance: ServiceInstance,
-    ) -> Result<()> {
-        if service_instance.ephemeral {
-            let future = self.deregister_ephemeral_instance_async(
-                service_name,
-                group_name,
-                service_instance,
-            );
-            futures::executor::block_on(future)
-        } else {
-            let future = self.deregister_persistent_instance_async(
-                service_name,
-                group_name,
-                service_instance,
-            );
-            futures::executor::block_on(future)
-        }
-    }
-
-    #[instrument(fields(client_id = &self.client_id, group = group_name), skip_all)]
-    fn batch_register_instance(
-        &self,
-        service_name: String,
-        group_name: Option<String>,
-        service_instances: Vec<ServiceInstance>,
-    ) -> Result<()> {
-        let future =
-            self.batch_register_instance_async(service_name, group_name, service_instances);
-        futures::executor::block_on(future)
-    }
-
-    #[instrument(fields(client_id = &self.client_id, group = group_name), skip_all)]
-    fn get_all_instances(
-        &self,
-        service_name: String,
-        group_name: Option<String>,
-        clusters: Vec<String>,
-        subscribe: bool,
-    ) -> Result<Vec<ServiceInstance>> {
-        let future = self.get_all_instances_async(service_name, group_name, clusters, subscribe);
-        futures::executor::block_on(future)
-    }
-
-    #[instrument(fields(client_id = &self.client_id, group = group_name), skip_all)]
-    fn select_one_healthy_instance(
-        &self,
-        service_name: String,
-        group_name: Option<String>,
-        clusters: Vec<String>,
-        subscribe: bool,
-    ) -> Result<ServiceInstance> {
-        let future =
-            self.select_one_healthy_instance_async(service_name, group_name, clusters, subscribe);
-        futures::executor::block_on(future)
-    }
-
-    #[instrument(fields(client_id = &self.client_id, group = group_name), skip_all)]
-    fn get_service_list(
-        &self,
-        page_no: i32,
-        page_size: i32,
-        group_name: Option<String>,
-    ) -> Result<(Vec<String>, i32)> {
-        let future = self.get_service_list_async(page_no, page_size, group_name);
-        futures::executor::block_on(future)
-    }
-
-    #[instrument(fields(client_id = &self.client_id, group = group_name), skip_all)]
-    fn subscribe(
-        &self,
-        service_name: String,
-        group_name: Option<String>,
-        clusters: Vec<String>,
-        event_listener: Arc<dyn NamingEventListener>,
-    ) -> Result<()> {
-        let future = self.subscribe_async(service_name, group_name, clusters, Some(event_listener));
-        let _ = futures::executor::block_on(future);
-        Ok(())
-    }
-
-    #[instrument(fields(client_id = &self.client_id, group = group_name), skip_all)]
-    fn unsubscribe(
-        &self,
-        service_name: String,
-        group_name: Option<String>,
-        clusters: Vec<String>,
-        event_listener: Arc<dyn NamingEventListener>,
-    ) -> Result<()> {
-        let future =
-            self.unsubscribe_async(service_name, group_name, clusters, Some(event_listener));
-        futures::executor::block_on(future)
-    }
-
-    #[instrument(fields(client_id = &self.client_id, group = group_name), skip_all)]
-    fn register_instance(
-        &self,
-        service_name: String,
-        group_name: Option<String>,
-        service_instance: ServiceInstance,
-    ) -> Result<()> {
-        if service_instance.ephemeral {
-            let future =
-                self.register_ephemeral_instance_async(service_name, group_name, service_instance);
-            futures::executor::block_on(future)
-        } else {
-            let future =
-                self.register_persistent_instance_async(service_name, group_name, service_instance);
-            futures::executor::block_on(future)
-        }
-    }
-
-    #[instrument(fields(client_id = &self.client_id, group = group_name), skip_all)]
-    fn select_instances(
-        &self,
-        service_name: String,
-        group_name: Option<String>,
-        clusters: Vec<String>,
-        subscribe: bool,
-        healthy: bool,
-    ) -> Result<Vec<ServiceInstance>> {
-        let future =
-            self.select_instances_async(service_name, group_name, clusters, subscribe, healthy);
-        futures::executor::block_on(future)
-    }
-}
-
-#[cfg(feature = "async")]
 #[async_trait::async_trait]
 impl NamingService for NacosNamingService {
+    #[instrument(fields(client_id = &self.client_id, group = group_name), skip_all)]
+    async fn register_instance(
+        &self,
+        service_name: String,
+        group_name: Option<String>,
+        service_instance: ServiceInstance,
+    ) -> Result<()> {
+        if service_instance.ephemeral {
+            self.register_ephemeral_instance_async(service_name, group_name, service_instance)
+                .await
+        } else {
+            self.register_persistent_instance_async(service_name, group_name, service_instance)
+                .await
+        }
+    }
+
     #[instrument(fields(client_id = &self.client_id, group = group_name), skip_all)]
     async fn deregister_instance(
         &self,
@@ -815,6 +697,19 @@ impl NamingService for NacosNamingService {
         subscribe: bool,
     ) -> Result<Vec<ServiceInstance>> {
         self.get_all_instances_async(service_name, group_name, clusters, subscribe)
+            .await
+    }
+
+    #[instrument(fields(client_id = &self.client_id, group = group_name), skip_all)]
+    async fn select_instances(
+        &self,
+        service_name: String,
+        group_name: Option<String>,
+        clusters: Vec<String>,
+        subscribe: bool,
+        healthy: bool,
+    ) -> Result<Vec<ServiceInstance>> {
+        self.select_instances_async(service_name, group_name, clusters, subscribe, healthy)
             .await
     }
 
@@ -864,35 +759,6 @@ impl NamingService for NacosNamingService {
         event_listener: Arc<dyn NamingEventListener>,
     ) -> Result<()> {
         self.unsubscribe_async(service_name, group_name, clusters, Some(event_listener))
-            .await
-    }
-
-    #[instrument(fields(client_id = &self.client_id, group = group_name), skip_all)]
-    async fn register_instance(
-        &self,
-        service_name: String,
-        group_name: Option<String>,
-        service_instance: ServiceInstance,
-    ) -> Result<()> {
-        if service_instance.ephemeral {
-            self.register_ephemeral_instance_async(service_name, group_name, service_instance)
-                .await
-        } else {
-            self.register_persistent_instance_async(service_name, group_name, service_instance)
-                .await
-        }
-    }
-
-    #[instrument(fields(client_id = &self.client_id, group = group_name), skip_all)]
-    async fn select_instances(
-        &self,
-        service_name: String,
-        group_name: Option<String>,
-        clusters: Vec<String>,
-        subscribe: bool,
-        healthy: bool,
-    ) -> Result<Vec<ServiceInstance>> {
-        self.select_instances_async(service_name, group_name, clusters, subscribe, healthy)
             .await
     }
 }

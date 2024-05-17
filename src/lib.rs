@@ -25,10 +25,10 @@
 //! ## Add Dependency
 //!
 //! Add the dependency in `Cargo.toml`:
-//! - If you need async API, which can be enabled via `features = ["async"]`
+//! - If you need sync API, maybe `futures::executor::block_on(future_fn)`
 //! ```toml
 //! [dependencies]
-//! nacos-sdk = { version = "0.3", features = ["default"] }
+//! nacos-sdk = { version = "0.4", features = ["default"] }
 //! ```
 //!
 //! ## General Configurations and Initialization
@@ -40,7 +40,7 @@
 //! ```ignore
 //!  let config_service = nacos_sdk::api::config::ConfigServiceBuilder::new(
 //!        nacos_sdk::api::props::ClientProps::new()
-//!           .server_addr("0.0.0.0:8848")
+//!           .server_addr("127.0.0.1:8848")
 //!           // Attention! "public" is "", it is recommended to customize the namespace with clear meaning.
 //!           .namespace("")
 //!           .app_name("todo-your-app-name"),
@@ -53,7 +53,7 @@
 //! ```ignore
 //!  let naming_service = nacos_sdk::api::naming::NamingServiceBuilder::new(
 //!        nacos_sdk::api::props::ClientProps::new()
-//!           .server_addr("0.0.0.0:8848")
+//!           .server_addr("127.0.0.1:8848")
 //!           // Attention! "public" is "", it is recommended to customize the namespace with clear meaning.
 //!           .namespace("")
 //!           .app_name("todo-your-app-name"),
