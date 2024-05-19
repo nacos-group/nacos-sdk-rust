@@ -122,7 +122,7 @@ mod tests {
             .init();
 
         let http_auth_plugin = HttpLoginAuthPlugin::default();
-        let server_list = vec!["0.0.0.0:8848".to_string()];
+        let server_list = vec!["127.0.0.1:8848".to_string()];
 
         let auth_context = AuthContext::default()
             .add_param(crate::api::plugin::USERNAME, "nacos")

@@ -10,7 +10,7 @@ use crate::api::{error, plugin, props};
 /// ```ignore
 ///  let mut config_service = nacos_sdk::api::config::ConfigServiceBuilder::new(
 ///        nacos_sdk::api::props::ClientProps::new()
-///           .server_addr("0.0.0.0:8848")
+///           .server_addr("127.0.0.1:8848")
 ///           // Attention! "public" is "", it is recommended to customize the namespace with clear meaning.
 ///           .namespace("")
 ///           .app_name("todo-your-app-name"),
@@ -18,74 +18,6 @@ use crate::api::{error, plugin, props};
 ///   .build()?;
 /// ```
 #[doc(alias("config", "sdk", "api"))]
-#[cfg(not(feature = "async"))]
-pub trait ConfigService {
-    /// Get config, return the content.
-    ///
-    /// Attention to [`error::Error::ConfigNotFound`], [`error::Error::ConfigQueryConflict`]
-    fn get_config(&self, data_id: String, group: String) -> error::Result<ConfigResponse>;
-
-    /// Publish config, return true/false.
-    fn publish_config(
-        &self,
-        data_id: String,
-        group: String,
-        content: String,
-        content_type: Option<String>,
-    ) -> error::Result<bool>;
-
-    /// Cas publish config with cas_md5 (prev content's md5), return true/false.
-    fn publish_config_cas(
-        &self,
-        data_id: String,
-        group: String,
-        content: String,
-        content_type: Option<String>,
-        cas_md5: String,
-    ) -> error::Result<bool>;
-
-    /// Beta publish config, return true/false.
-    fn publish_config_beta(
-        &self,
-        data_id: String,
-        group: String,
-        content: String,
-        content_type: Option<String>,
-        beta_ips: String,
-    ) -> error::Result<bool>;
-
-    /// Publish config with params (see keys [`constants::*`]), return true/false.
-    fn publish_config_param(
-        &self,
-        data_id: String,
-        group: String,
-        content: String,
-        content_type: Option<String>,
-        cas_md5: Option<String>,
-        params: HashMap<String, String>,
-    ) -> error::Result<bool>;
-
-    /// Remove config, return true/false.
-    fn remove_config(&self, data_id: String, group: String) -> error::Result<bool>;
-
-    /// Listen the config change.
-    fn add_listener(
-        &self,
-        data_id: String,
-        group: String,
-        listener: Arc<dyn ConfigChangeListener>,
-    ) -> error::Result<()>;
-
-    /// Remove a Listener.
-    fn remove_listener(
-        &self,
-        data_id: String,
-        group: String,
-        listener: Arc<dyn ConfigChangeListener>,
-    ) -> error::Result<()>;
-}
-
-#[cfg(feature = "async")]
 #[async_trait::async_trait]
 pub trait ConfigService: Send + Sync {
     /// Get config, return the content.
@@ -256,7 +188,7 @@ pub mod constants {
 /// ```ignore
 ///  let mut config_service = nacos_sdk::api::config::ConfigServiceBuilder::new(
 ///        nacos_sdk::api::props::ClientProps::new()
-///           .server_addr("0.0.0.0:8848")
+///           .server_addr("127.0.0.1:8848")
 ///           // Attention! "public" is "", it is recommended to customize the namespace with clear meaning.
 ///           .namespace("")
 ///           .app_name("todo-your-app-name"),
@@ -368,21 +300,26 @@ mod tests {
                 "test_api_config_service".to_string(),
                 Some("text".to_string()),
             )
+            .await
             .unwrap();
         // sleep for config sync in server
         sleep(Duration::from_millis(111)).await;
 
-        let config = config_service.get_config(data_id.clone(), group.clone());
+        let config = config_service
+            .get_config(data_id.clone(), group.clone())
+            .await;
         match config {
             Ok(config) => tracing::info!("get the config {}", config),
             Err(err) => tracing::error!("get the config {:?}", err),
         }
 
-        let _listen = config_service.add_listener(
-            data_id.clone(),
-            group.clone(),
-            std::sync::Arc::new(TestConfigChangeListener {}),
-        );
+        let _listen = config_service
+            .add_listener(
+                data_id.clone(),
+                group.clone(),
+                std::sync::Arc::new(TestConfigChangeListener {}),
+            )
+            .await;
         match _listen {
             Ok(_) => tracing::info!("listening the config success"),
             Err(err) => tracing::error!("listen config error {:?}", err),
@@ -396,22 +333,26 @@ mod tests {
                 "test_api_config_service_for_listener".to_string(),
                 Some("text".to_string()),
             )
+            .await
             .unwrap();
 
         // example get a config not exit
-        let config_resp =
-            config_service.get_config("todo-data-id".to_string(), "todo-group".to_string());
+        let config_resp = config_service
+            .get_config("todo-data-id".to_string(), "todo-group".to_string())
+            .await;
         match config_resp {
             Ok(config_resp) => tracing::info!("get the config {}", config_resp),
             Err(err) => tracing::error!("get the config {:?}", err),
         }
 
         // example add a listener with config not exit
-        let _listen = config_service.add_listener(
-            "todo-data-id".to_string(),
-            "todo-group".to_string(),
-            std::sync::Arc::new(TestConfigChangeListener {}),
-        );
+        let _listen = config_service
+            .add_listener(
+                "todo-data-id".to_string(),
+                "todo-group".to_string(),
+                std::sync::Arc::new(TestConfigChangeListener {}),
+            )
+            .await;
         match _listen {
             Ok(_) => tracing::info!("listening the config success"),
             Err(err) => tracing::error!("listen config error {:?}", err),
@@ -431,8 +372,9 @@ mod tests {
         let config_service = ConfigServiceBuilder::default().build().unwrap();
 
         // remove a config not exit
-        let remove_resp =
-            config_service.remove_config("todo-data-id".to_string(), "todo-group".to_string());
+        let remove_resp = config_service
+            .remove_config("todo-data-id".to_string(), "todo-group".to_string())
+            .await;
         match remove_resp {
             Ok(result) => tracing::info!("remove a config not exit: {}", result),
             Err(err) => tracing::error!("remove a config not exit: {:?}", err),
@@ -456,6 +398,7 @@ mod tests {
                 "test_api_config_service_publish_config".to_string(),
                 Some("text".to_string()),
             )
+            .await
             .unwrap();
         tracing::info!("publish a config: {}", publish_resp);
         assert_eq!(true, publish_resp);
@@ -485,6 +428,7 @@ mod tests {
                 None,
                 params,
             )
+            .await
             .unwrap();
         tracing::info!("publish a config with param: {}", publish_resp);
         assert_eq!(true, publish_resp);
@@ -508,6 +452,7 @@ mod tests {
                 None,
                 "127.0.0.1,192.168.0.1".to_string(),
             )
+            .await
             .unwrap();
         tracing::info!("publish a config with beta: {}", publish_resp);
         assert_eq!(true, publish_resp);
@@ -532,6 +477,7 @@ mod tests {
                 "test_api_config_service_publish_config_cas".to_string(),
                 None,
             )
+            .await
             .unwrap();
         assert_eq!(true, publish_resp);
 
@@ -541,6 +487,7 @@ mod tests {
         // get a config
         let config_resp = config_service
             .get_config(data_id.clone(), group.clone())
+            .await
             .unwrap();
 
         // publish a config with cas
@@ -554,19 +501,22 @@ mod tests {
                 None,
                 config_resp.md5().to_string(),
             )
+            .await
             .unwrap();
         tracing::info!("publish a config with cas: {}", publish_resp);
         assert_eq!(true, publish_resp);
 
         // publish a config with cas md5 not right
         let content_cas_md5_not_right = "test_api_config_service_publish_config_cas_md5_not_right";
-        let publish_resp = config_service.publish_config_cas(
-            data_id.clone(),
-            group.clone(),
-            content_cas_md5_not_right.to_string(),
-            None,
-            config_resp.md5().to_string(),
-        );
+        let publish_resp = config_service
+            .publish_config_cas(
+                data_id.clone(),
+                group.clone(),
+                content_cas_md5_not_right.to_string(),
+                None,
+                config_resp.md5().to_string(),
+            )
+            .await;
         match publish_resp {
             Ok(result) => tracing::info!("publish a config with cas: {}", result),
             Err(err) => tracing::error!("publish a config with cas: {:?}", err),
@@ -575,6 +525,7 @@ mod tests {
 
         let config_resp = config_service
             .get_config(data_id.clone(), group.clone())
+            .await
             .unwrap();
         assert_ne!(content_cas_md5_not_right, config_resp.content().as_str());
         assert_eq!(content_cas_md5.as_str(), config_resp.content().as_str());

@@ -1,5 +1,15 @@
 # 变更日志 | Change log
 
+### 0.4.0
+
+- 破坏性变更: 使 NamingService 和 ConfigService impl Send + Sync
+- 破坏性变更: 默认 async，去掉 sync api，需要的话建议 `futures::executor::block_on(future_fn)`
+
+---
+
+- Change: make NamingService and ConfigService Send + Sync
+- Change: all async API; If you need sync, maybe `futures::executor::block_on(future_fn)`
+
 ### 0.3.6
 
 - 文档: 补充说明 `NamingService` 和 `ConfigService` 需要全局的生命周期

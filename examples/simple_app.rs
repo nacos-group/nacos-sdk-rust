@@ -7,8 +7,6 @@ use nacos_sdk::api::naming::{
 };
 use nacos_sdk::api::props::ClientProps;
 
-const NACOS_ADDRESS: &str = "127.0.0.1:8848";
-
 /// enable https auth run with command:
 /// cargo run --example simple_app --features default,tls
 #[tokio::main]
@@ -23,7 +21,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .init();
 
     let client_props = ClientProps::new()
-        .server_addr(NACOS_ADDRESS)
+        .server_addr(constants::DEFAULT_SERVER_ADDR)
         // .remote_grpc_port(9838)
         // Attention! "public" is "", it is recommended to customize the namespace with clear meaning.
         .namespace("")
@@ -38,17 +36,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config_service = ConfigServiceBuilder::new(client_props.clone())
         .enable_auth_plugin_http() // TODO You can choose not to enable auth
         .build()?;
-    let config_resp = config_service.get_config("todo-data-id".to_string(), "LOVE".to_string());
+    let config_resp = config_service
+        .get_config("todo-data-id".to_string(), "LOVE".to_string())
+        .await;
     match config_resp {
         Ok(config_resp) => tracing::info!("get the config {}", config_resp),
         Err(err) => tracing::error!("get the config {:?}", err),
     }
 
-    let _listen = config_service.add_listener(
-        "todo-data-id".to_string(),
-        "LOVE".to_string(),
-        std::sync::Arc::new(SimpleConfigChangeListener {}),
-    );
+    let _listen = config_service
+        .add_listener(
+            "todo-data-id".to_string(),
+            "LOVE".to_string(),
+            std::sync::Arc::new(SimpleConfigChangeListener {}),
+        )
+        .await;
     match _listen {
         Ok(_) => tracing::info!("listening the config success"),
         Err(err) => tracing::error!("listen config error {:?}", err),
@@ -62,31 +64,37 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build()?;
 
     let listener = std::sync::Arc::new(SimpleInstanceChangeListener);
-    let _subscribe_ret = naming_service.subscribe(
-        "test-service".to_string(),
-        Some(constants::DEFAULT_GROUP.to_string()),
-        Vec::default(),
-        listener,
-    );
+    let _subscribe_ret = naming_service
+        .subscribe(
+            "test-service".to_string(),
+            Some(constants::DEFAULT_GROUP.to_string()),
+            Vec::default(),
+            listener,
+        )
+        .await;
 
     let service_instance1 = ServiceInstance {
         ip: "127.0.0.1".to_string(),
         port: 9090,
         ..Default::default()
     };
-    let _register_instance_ret = naming_service.batch_register_instance(
-        "test-service".to_string(),
-        Some(constants::DEFAULT_GROUP.to_string()),
-        vec![service_instance1],
-    );
+    let _register_instance_ret = naming_service
+        .batch_register_instance(
+            "test-service".to_string(),
+            Some(constants::DEFAULT_GROUP.to_string()),
+            vec![service_instance1],
+        )
+        .await;
     tokio::time::sleep(tokio::time::Duration::from_millis(666)).await;
 
-    let instances_ret = naming_service.get_all_instances(
-        "test-service".to_string(),
-        Some(constants::DEFAULT_GROUP.to_string()),
-        Vec::default(),
-        false,
-    );
+    let instances_ret = naming_service
+        .get_all_instances(
+            "test-service".to_string(),
+            Some(constants::DEFAULT_GROUP.to_string()),
+            Vec::default(),
+            false,
+        )
+        .await;
     match instances_ret {
         Ok(instances) => tracing::info!("get_all_instances {:?}", instances),
         Err(err) => tracing::error!("naming get_all_instances error {:?}", err),

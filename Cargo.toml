@@ -43,7 +43,6 @@ config = []
 naming = []
 tls = ["reqwest/default-tls"]
 auth-by-http = ["reqwest"]
-async = []
 
 [dependencies]
 nacos-macro = { version = "0.1.0", path = "nacos-macro" }
