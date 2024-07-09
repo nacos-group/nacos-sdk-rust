@@ -133,7 +133,6 @@ mod naming;
 
 #[allow(dead_code)]
 mod nacos_proto {
-    #[path = "_.rs"]
     pub mod v2 {
         tonic::include_proto!("_");
     }
