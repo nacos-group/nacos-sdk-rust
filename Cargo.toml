@@ -76,8 +76,10 @@ dotenvy = "0.15"
 
 [dev-dependencies]
 tracing-subscriber = { version = "0.3", features = ["default"] }
-tonic-build = "0.10"
 mockall = { version = "0.11" }
+
+[build-dependencies]
+tonic-build = "0.10"
 
 
 [[example]]
