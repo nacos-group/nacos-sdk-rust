@@ -1,5 +1,7 @@
+use arc_swap::ArcSwap;
 use rand::Rng;
-use std::ops::Add;
+use std::ops::{Add, Deref};
+use std::sync::Arc;
 use tokio::time::{Duration, Instant};
 
 use crate::api::plugin::{AuthContext, AuthPlugin, LoginIdentityContext};
@@ -15,15 +17,15 @@ pub(crate) const TOKEN_TTL: &str = "tokenTtl";
 
 /// Http login AuthPlugin.
 pub struct HttpLoginAuthPlugin {
-    login_identity: LoginIdentityContext,
-    next_login_refresh: Instant,
+    login_identity: ArcSwap<LoginIdentityContext>,
+    next_login_refresh: ArcSwap<Instant>,
 }
 
 impl Default for HttpLoginAuthPlugin {
     fn default() -> Self {
         Self {
-            login_identity: LoginIdentityContext::default(),
-            next_login_refresh: Instant::now(),
+            login_identity: ArcSwap::from_pointee(LoginIdentityContext::default()),
+            next_login_refresh: ArcSwap::from_pointee(Instant::now()),
         }
     }
 }
@@ -32,7 +34,7 @@ impl Default for HttpLoginAuthPlugin {
 impl AuthPlugin for HttpLoginAuthPlugin {
     async fn login(&self, server_list: Vec<String>, auth_context: AuthContext) {
         let now_instant = Instant::now();
-        if now_instant.le(&self.next_login_refresh) {
+        if now_instant.le(self.next_login_refresh.load().deref()) {
             tracing::debug!("Http login return because now_instant lte next_login_refresh.");
             return;
         }
@@ -86,20 +88,19 @@ impl AuthPlugin for HttpLoginAuthPlugin {
 
         if let Some(login_response) = login_response {
             let delay_sec = login_response.token_ttl / 10;
-            let new_login_identity = LoginIdentityContext::default()
-                .add_context(ACCESS_TOKEN, login_response.access_token);
+            let new_login_identity = Arc::new(
+                LoginIdentityContext::default()
+                    .add_context(ACCESS_TOKEN, login_response.access_token),
+            );
+            self.login_identity.store(new_login_identity);
 
-            unsafe {
-                #[warn(invalid_reference_casting)]
-                let mut_self = &mut *(self as *const Self as *mut Self);
-                mut_self.next_login_refresh = Instant::now().add(Duration::from_secs(delay_sec));
-                mut_self.login_identity = new_login_identity;
-            }
+            self.next_login_refresh
+                .store(Arc::new(Instant::now().add(Duration::from_secs(delay_sec))));
         }
     }
 
     fn get_login_identity(&self) -> LoginIdentityContext {
-        self.login_identity.to_owned()
+        self.login_identity.load().deref().deref().to_owned()
     }
 }
 
