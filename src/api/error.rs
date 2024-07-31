@@ -28,6 +28,9 @@ pub enum Error {
     #[error("get result failed: {0}")]
     ErrResult(String),
 
+    #[error("param:{0} with error_message:{1}")]
+    InvalidParam(String, String),
+
     #[error("request_id:{0:?} ret_code:{1} error_code:{2} message:{3:?}")]
     ErrResponse(Option<String>, i32, i32, Option<String>),
 
