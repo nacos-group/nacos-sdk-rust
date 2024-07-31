@@ -58,6 +58,8 @@ impl ConfigService for NacosConfigService {
         data_id: String,
         group: String,
     ) -> crate::api::error::Result<crate::api::config::ConfigResponse> {
+        crate::common::util::check_not_blank(&data_id, "data_id")?;
+        crate::common::util::check_not_blank(&group, "group")?;
         self.client_worker.get_config(data_id, group).await
     }
 
@@ -69,6 +71,9 @@ impl ConfigService for NacosConfigService {
         content: String,
         content_type: Option<String>,
     ) -> crate::api::error::Result<bool> {
+        crate::common::util::check_not_blank(&data_id, "data_id")?;
+        crate::common::util::check_not_blank(&group, "group")?;
+        crate::common::util::check_not_blank(&content, "content")?;
         self.client_worker
             .publish_config(data_id, group, content, content_type)
             .await
@@ -83,6 +88,10 @@ impl ConfigService for NacosConfigService {
         content_type: Option<String>,
         cas_md5: String,
     ) -> crate::api::error::Result<bool> {
+        crate::common::util::check_not_blank(&data_id, "data_id")?;
+        crate::common::util::check_not_blank(&group, "group")?;
+        crate::common::util::check_not_blank(&content, "content")?;
+        crate::common::util::check_not_blank(&cas_md5, "cas_md5")?;
         self.client_worker
             .publish_config_cas(data_id, group, content, content_type, cas_md5)
             .await
@@ -97,6 +106,10 @@ impl ConfigService for NacosConfigService {
         content_type: Option<String>,
         beta_ips: String,
     ) -> crate::api::error::Result<bool> {
+        crate::common::util::check_not_blank(&data_id, "data_id")?;
+        crate::common::util::check_not_blank(&group, "group")?;
+        crate::common::util::check_not_blank(&content, "content")?;
+        crate::common::util::check_not_blank(&beta_ips, "beta_ips")?;
         self.client_worker
             .publish_config_beta(data_id, group, content, content_type, beta_ips)
             .await
@@ -112,6 +125,9 @@ impl ConfigService for NacosConfigService {
         cas_md5: Option<String>,
         params: std::collections::HashMap<String, String>,
     ) -> crate::api::error::Result<bool> {
+        crate::common::util::check_not_blank(&data_id, "data_id")?;
+        crate::common::util::check_not_blank(&group, "group")?;
+        crate::common::util::check_not_blank(&content, "content")?;
         self.client_worker
             .publish_config_param(data_id, group, content, content_type, cas_md5, params)
             .await
@@ -123,6 +139,8 @@ impl ConfigService for NacosConfigService {
         data_id: String,
         group: String,
     ) -> crate::api::error::Result<bool> {
+        crate::common::util::check_not_blank(&data_id, "data_id")?;
+        crate::common::util::check_not_blank(&group, "group")?;
         self.client_worker.remove_config(data_id, group).await
     }
 
@@ -133,6 +151,8 @@ impl ConfigService for NacosConfigService {
         group: String,
         listener: std::sync::Arc<dyn crate::api::config::ConfigChangeListener>,
     ) -> crate::api::error::Result<()> {
+        crate::common::util::check_not_blank(&data_id, "data_id")?;
+        crate::common::util::check_not_blank(&group, "group")?;
         self.client_worker
             .add_listener(data_id, group, listener)
             .await;
@@ -146,6 +166,8 @@ impl ConfigService for NacosConfigService {
         group: String,
         listener: std::sync::Arc<dyn crate::api::config::ConfigChangeListener>,
     ) -> crate::api::error::Result<()> {
+        crate::common::util::check_not_blank(&data_id, "data_id")?;
+        crate::common::util::check_not_blank(&group, "group")?;
         self.client_worker
             .remove_listener(data_id, group, listener)
             .await;

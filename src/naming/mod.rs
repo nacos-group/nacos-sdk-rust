@@ -652,6 +652,7 @@ impl NamingService for NacosNamingService {
         group_name: Option<String>,
         service_instance: ServiceInstance,
     ) -> Result<()> {
+        crate::common::util::check_not_blank(&service_name, "service_name")?;
         if service_instance.ephemeral {
             self.register_ephemeral_instance_async(service_name, group_name, service_instance)
                 .await
@@ -668,6 +669,7 @@ impl NamingService for NacosNamingService {
         group_name: Option<String>,
         service_instance: ServiceInstance,
     ) -> Result<()> {
+        crate::common::util::check_not_blank(&service_name, "service_name")?;
         if service_instance.ephemeral {
             self.deregister_ephemeral_instance_async(service_name, group_name, service_instance)
                 .await
@@ -684,6 +686,7 @@ impl NamingService for NacosNamingService {
         group_name: Option<String>,
         service_instances: Vec<ServiceInstance>,
     ) -> Result<()> {
+        crate::common::util::check_not_blank(&service_name, "service_name")?;
         self.batch_register_instance_async(service_name, group_name, service_instances)
             .await
     }
@@ -696,6 +699,7 @@ impl NamingService for NacosNamingService {
         clusters: Vec<String>,
         subscribe: bool,
     ) -> Result<Vec<ServiceInstance>> {
+        crate::common::util::check_not_blank(&service_name, "service_name")?;
         self.get_all_instances_async(service_name, group_name, clusters, subscribe)
             .await
     }
@@ -709,6 +713,7 @@ impl NamingService for NacosNamingService {
         subscribe: bool,
         healthy: bool,
     ) -> Result<Vec<ServiceInstance>> {
+        crate::common::util::check_not_blank(&service_name, "service_name")?;
         self.select_instances_async(service_name, group_name, clusters, subscribe, healthy)
             .await
     }
@@ -721,6 +726,7 @@ impl NamingService for NacosNamingService {
         clusters: Vec<String>,
         subscribe: bool,
     ) -> Result<ServiceInstance> {
+        crate::common::util::check_not_blank(&service_name, "service_name")?;
         self.select_one_healthy_instance_async(service_name, group_name, clusters, subscribe)
             .await
     }
@@ -744,6 +750,7 @@ impl NamingService for NacosNamingService {
         clusters: Vec<String>,
         event_listener: Arc<dyn NamingEventListener>,
     ) -> Result<()> {
+        crate::common::util::check_not_blank(&service_name, "service_name")?;
         let _ = self
             .subscribe_async(service_name, group_name, clusters, Some(event_listener))
             .await;
@@ -758,6 +765,7 @@ impl NamingService for NacosNamingService {
         clusters: Vec<String>,
         event_listener: Arc<dyn NamingEventListener>,
     ) -> Result<()> {
+        crate::common::util::check_not_blank(&service_name, "service_name")?;
         self.unsubscribe_async(service_name, group_name, clusters, Some(event_listener))
             .await
     }
