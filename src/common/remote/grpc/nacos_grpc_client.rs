@@ -72,6 +72,7 @@ pub(crate) struct NacosGrpcClientBuilder {
     disconnected_listener: Option<DisconnectedListener>,
     unary_call_layer: Option<DynamicUnaryCallLayer>,
     bi_call_layer: Option<DynamicBiStreamingCallLayer>,
+    max_retries: Option<i32>,
 }
 
 impl NacosGrpcClientBuilder {
@@ -89,6 +90,7 @@ impl NacosGrpcClientBuilder {
             disconnected_listener: None,
             unary_call_layer: None,
             bi_call_layer: None,
+            max_retries: None,
         }
     }
 
@@ -114,6 +116,11 @@ impl NacosGrpcClientBuilder {
 
     pub(crate) fn add_labels(mut self, labels: HashMap<String, String>) -> Self {
         self.labels.extend(labels);
+        Self { ..self }
+    }
+
+    pub(crate) fn max_retries(mut self, max_retries: Option<i32>) -> Self {
+        self.max_retries = max_retries;
         Self { ..self }
     }
 
@@ -359,6 +366,7 @@ impl NacosGrpcClientBuilder {
                 self.namespace,
                 self.labels,
                 self.client_abilities,
+                self.max_retries,
             );
 
             if let Some(connected_listener) = self.connected_listener {
