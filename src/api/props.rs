@@ -135,7 +135,6 @@ impl ClientProps {
     pub(crate) fn get_max_retries(&self) -> Option<i32> {
         self.max_retries
     }
-
 }
 
 #[allow(clippy::new_without_default)]

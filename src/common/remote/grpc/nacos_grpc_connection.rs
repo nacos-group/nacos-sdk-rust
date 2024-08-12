@@ -483,7 +483,6 @@ where
             debug_span!(parent: None, "grpc_connection", id = self.id.clone()).entered();
 
         loop {
-
             if let Some(max_retries) = self.max_retries {
                 if self.retry_count >= max_retries {
                     error!("Exceeded maximum retry attempts: {}", max_retries);
