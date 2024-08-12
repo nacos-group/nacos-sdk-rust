@@ -485,7 +485,7 @@ where
         loop {
 
             if let Some(max_retries) = self.max_retries {
-                if self.retry_count > max_retries {
+                if self.retry_count >= max_retries {
                     error!("Exceeded maximum retry attempts: {}", max_retries);
                     return Poll::Ready(Err(Self::Error::MaxRetriesExceeded(max_retries)));
                 }
