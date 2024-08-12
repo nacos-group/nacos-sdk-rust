@@ -133,6 +133,7 @@ impl NacosNamingService {
             })
             .unary_call_layer(auth_layer.clone())
             .bi_call_layer(auth_layer)
+            .max_retries(client_props.get_max_retries())
             .build(client_id.clone());
 
         let nacos_grpc_client = Arc::new(nacos_grpc_client);

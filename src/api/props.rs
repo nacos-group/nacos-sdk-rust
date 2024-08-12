@@ -26,6 +26,8 @@ pub struct ClientProps {
     client_version: String,
     /// auth context
     auth_context: HashMap<String, String>,
+    /// max retries
+    max_retries: Option<u32>,
 }
 
 impl ClientProps {
@@ -129,6 +131,10 @@ impl ClientProps {
 
         Ok(result)
     }
+
+    pub(crate) fn get_max_retries(&self) -> Option<u32> {
+        self.max_retries
+    }
 }
 
 #[allow(clippy::new_without_default)]
@@ -149,6 +155,7 @@ impl ClientProps {
             client_version,
             auth_context: HashMap::default(),
             grpc_port: None,
+            max_retries: None,
         }
     }
 
@@ -221,6 +228,12 @@ impl ClientProps {
         self.auth_context.insert(key.into(), val.into());
         self
     }
+
+    /// Sets the max retries.
+    pub fn max_retries(mut self, max_retries: u32) -> Self {
+        self.max_retries = Some(max_retries);
+        self
+    }
 }
 
 #[cfg(test)]
@@ -242,6 +255,7 @@ mod tests {
             labels: HashMap::new(),
             client_version: "test_version".to_string(),
             auth_context: HashMap::new(),
+            max_retries: None,
         };
 
         let result = client_props.get_server_list();
