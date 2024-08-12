@@ -72,7 +72,7 @@ pub(crate) struct NacosGrpcClientBuilder {
     disconnected_listener: Option<DisconnectedListener>,
     unary_call_layer: Option<DynamicUnaryCallLayer>,
     bi_call_layer: Option<DynamicBiStreamingCallLayer>,
-    max_retries: Option<i32>,
+    max_retries: Option<u32>,
 }
 
 impl NacosGrpcClientBuilder {
@@ -119,7 +119,7 @@ impl NacosGrpcClientBuilder {
         Self { ..self }
     }
 
-    pub(crate) fn max_retries(mut self, max_retries: Option<i32>) -> Self {
+    pub(crate) fn max_retries(mut self, max_retries: Option<u32>) -> Self {
         self.max_retries = max_retries;
         Self { ..self }
     }

@@ -27,7 +27,7 @@ pub struct ClientProps {
     /// auth context
     auth_context: HashMap<String, String>,
     /// max retries
-    max_retries: Option<i32>,
+    max_retries: Option<u32>,
 }
 
 impl ClientProps {
@@ -132,7 +132,7 @@ impl ClientProps {
         Ok(result)
     }
 
-    pub(crate) fn get_max_retries(&self) -> Option<i32> {
+    pub(crate) fn get_max_retries(&self) -> Option<u32> {
         self.max_retries
     }
 }
@@ -230,7 +230,7 @@ impl ClientProps {
     }
 
     /// Sets the max retries.
-    pub fn max_retries(mut self, max_retries: i32) -> Self {
+    pub fn max_retries(mut self, max_retries: u32) -> Self {
         self.max_retries = Some(max_retries);
         self
     }

@@ -34,9 +34,9 @@ type ConnectedListener = Arc<dyn Fn(String) + Send + Sync + 'static>;
 type DisconnectedListener = Arc<dyn Fn(String) + Send + Sync + 'static>;
 
 type HandlerMap = HashMap<String, Arc<dyn ServerRequestHandler>>;
-const MAX_RETRY: i32 = 6;
+const MAX_RETRY: u32 = 6;
 
-fn sleep_time(retry_count: i32) -> i32 {
+fn sleep_time(retry_count: u32) -> u32 {
     if retry_count > MAX_RETRY {
         1 << (retry_count % MAX_RETRY)
     } else {
@@ -58,12 +58,12 @@ where
     state: State<M::Future, M::Service>,
     health: Arc<AtomicBool>,
     connection_id: Option<String>,
-    retry_count: i32,
+    retry_count: u32,
     connection_id_watcher: (
         watch::Sender<Option<String>>,
         watch::Receiver<Option<String>>,
     ),
-    max_retries: Option<i32>,
+    max_retries: Option<u32>,
 }
 
 impl<M> NacosGrpcConnection<M>
@@ -83,7 +83,7 @@ where
         namespace: String,
         labels: HashMap<String, String>,
         client_abilities: NacosClientAbilities,
-        max_retries: Option<i32>,
+        max_retries: Option<u32>,
     ) -> Self {
         let connection_id_watcher = watch::channel(None);
 
@@ -484,7 +484,7 @@ where
 
         loop {
             if let Some(max_retries) = self.max_retries {
-                if self.retry_count >= max_retries {
+                if self.retry_count > max_retries {
                     error!("Exceeded maximum retry attempts: {}", max_retries);
                     return Poll::Ready(Err(Self::Error::MaxRetriesExceeded(max_retries)));
                 }
