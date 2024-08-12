@@ -63,6 +63,7 @@ where
         watch::Sender<Option<String>>,
         watch::Receiver<Option<String>>,
     ),
+    max_retries: Option<i32>,
 }
 
 impl<M> NacosGrpcConnection<M>
@@ -82,6 +83,7 @@ where
         namespace: String,
         labels: HashMap<String, String>,
         client_abilities: NacosClientAbilities,
+        max_retries: Option<i32>,
     ) -> Self {
         let connection_id_watcher = watch::channel(None);
 
@@ -98,6 +100,7 @@ where
             connection_id: None,
             retry_count: 0,
             connection_id_watcher,
+            max_retries,
         }
     }
 
@@ -480,6 +483,14 @@ where
             debug_span!(parent: None, "grpc_connection", id = self.id.clone()).entered();
 
         loop {
+
+            if let Some(max_retries) = self.max_retries {
+                if self.retry_count >= max_retries {
+                    error!("Exceeded maximum retry attempts: {}", max_retries);
+                    return Poll::Ready(Err(Self::Error::MaxRetriesExceeded(max_retries)));
+                }
+            }
+
             match self.state {
                 State::Idle => {
                     info!("create new connection.");

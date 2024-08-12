@@ -64,4 +64,8 @@ pub enum Error {
 
     #[error("Wrong server address: {0}")]
     WrongServerAddress(String),
+
+
+    #[error("Exceeded maximum retry attempts: {0}")]
+    MaxRetriesExceeded(i32),
 }
