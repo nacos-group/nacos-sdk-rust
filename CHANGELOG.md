@@ -1,5 +1,21 @@
 # 变更日志 | Change log
 
+### 0.4.1
+
+- 优化: 在 `auth-plugin-http` 使用 `arc-swap` 替换 unsafe 代码
+- 增强: 可以设置参数 `max_retries` 使内部连接 nacos-server 仅重试一定次数（默认无限重连），否则失败抛出 Error
+- 增强: 针对 Config/Naming 的 sdk 调用检查参数
+- 升级: 升级 `tonic` and `prost` 版本
+- 样例: 增加一个使用 LazyLock 的用例 lazy_app
+
+---
+
+- Opt: `auth-plugin-http` unsafe code replace with `arc-swap` by @thynson in #234
+- Enhance: Prop `max_retries` for InnerConnection with nacos-server by @451846939 in #242
+- Enhance: Check params for Config/Naming by @CherishCai in #240
+- Bump: Upgrade `tonic` and `prost` version by @thynson in #233
+- Chore: Add an example lazy_app by @CherishCai in #239
+
 ### 0.4.0
 
 - 破坏性变更: 使 NamingService 和 ConfigService impl Send + Sync
