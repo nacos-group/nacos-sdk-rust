@@ -97,7 +97,9 @@ impl ClientProps {
     pub(crate) fn get_auth_context(&self) -> HashMap<String, String> {
         let mut auth_context = self.auth_context.clone();
         if self.env_first {
+            #[cfg(feature = "auth-by-http")]
             self.get_http_auth_context(&mut auth_context);
+            #[cfg(feature = "auth-by-aliyun")]
             self.get_aliyun_auth_context(&mut auth_context);
         }
         auth_context
@@ -113,9 +115,6 @@ impl ClientProps {
         }
     }
 
-    #[cfg(not(feature = "auth-by-http"))]
-    fn get_http_auth_context(&self, context: &mut HashMap<String, String>) {}
-
     #[cfg(feature = "auth-by-aliyun")]
     fn get_aliyun_auth_context(&self, context: &mut HashMap<String, String>) {
         if let Some(ak) = get_value_option(ENV_NACOS_CLIENT_AUTH_ACCESS_KEY) {
@@ -128,9 +127,6 @@ impl ClientProps {
             context.insert(crate::api::plugin::SIGN_REGION_ID.into(), sign_region_id);
         }
     }
-
-    #[cfg(not(feature = "auth-by-aliyun"))]
-    fn get_aliyun_auth_context(&self, context: &mut HashMap<String, String>) {}
 
     pub(crate) fn get_server_list(&self) -> crate::api::error::Result<Vec<String>> {
         let server_addr = self.get_server_addr();
