@@ -24,6 +24,40 @@ pub(crate) fn grpc_request(
         }
     };
 
+    let into_request_resource = match macro_args.module {
+        super::Module::Naming => {
+            quote! {
+                fn request_resource(&self) -> Option<crate::api::plugin::RequestResource> {
+                        Some(crate::api::plugin::RequestResource {
+                            request_type: "Naming".to_string(),
+                            namespace: self.namespace.clone(),
+                            group: self.group_name.clone(),
+                            resource: self.service_name.clone()
+                        })
+                }
+            }
+        }
+        super::Module::Config => {
+            quote! {
+                fn request_resource(&self) -> Option<crate::api::plugin::RequestResource> {
+                        Some(crate::api::plugin::RequestResource {
+                            request_type: "Config".to_string(),
+                            namespace: self.namespace.clone(),
+                            group: self.group.clone(),
+                            resource: self.data_id.clone()
+                        })
+                    }
+            }
+        }
+        _ => {
+            quote! {
+                fn request_resource(&self) -> Option<crate::api::plugin::RequestResource> {
+                    None
+                }
+            }
+        }
+    };
+
     // add derive GrpcRequestMessage
     let grpc_message_request = quote! {
 
@@ -52,8 +86,9 @@ pub(crate) fn grpc_request(
             fn module(&self) -> &str {
                 #module
             }
-        }
 
+            #into_request_resource
+        }
     };
 
     // add field

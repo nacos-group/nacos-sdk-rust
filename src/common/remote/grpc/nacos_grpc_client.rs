@@ -3,6 +3,7 @@ use tower::layer::util::Stack;
 use tracing::{instrument, Instrument};
 
 use crate::api::error::Error;
+use crate::api::plugin::{init_auth_plugin, AuthPlugin, NoopAuthPlugin};
 use crate::common::remote::grpc::message::{request::NacosClientAbilities, GrpcMessageData};
 use crate::common::remote::grpc::message::{
     GrpcMessage, GrpcMessageBuilder, GrpcRequestMessage, GrpcResponseMessage,
@@ -24,6 +25,7 @@ const APP_FILED: &str = "app";
 pub(crate) struct NacosGrpcClient {
     app_name: String,
     send_request: Arc<dyn SendRequest + Send + Sync + 'static>,
+    auth_plugin: Arc<dyn AuthPlugin>,
 }
 
 impl NacosGrpcClient {
@@ -36,7 +38,11 @@ impl NacosGrpcClient {
         Request: GrpcRequestMessage + 'static,
         Response: GrpcResponseMessage + 'static,
     {
-        let request_headers = request.take_headers();
+        let mut request_headers = request.take_headers();
+        if let Some(resource) = request.request_resource() {
+            let auth_context = self.auth_plugin.get_login_identity(resource);
+            request_headers.extend(auth_context.contexts);
+        }
 
         let grpc_request = GrpcMessageBuilder::new(request)
             .header(APP_FILED.to_owned(), self.app_name.clone())
@@ -72,6 +78,8 @@ pub(crate) struct NacosGrpcClientBuilder {
     disconnected_listener: Option<DisconnectedListener>,
     unary_call_layer: Option<DynamicUnaryCallLayer>,
     bi_call_layer: Option<DynamicBiStreamingCallLayer>,
+    auth_plugin: Arc<dyn AuthPlugin>,
+    auth_context: HashMap<String, String>,
     max_retries: Option<u32>,
 }
 
@@ -90,6 +98,8 @@ impl NacosGrpcClientBuilder {
             disconnected_listener: None,
             unary_call_layer: None,
             bi_call_layer: None,
+            auth_context: Default::default(),
+            auth_plugin: Arc::new(NoopAuthPlugin::default()),
             max_retries: None,
         }
     }
@@ -284,6 +294,20 @@ impl NacosGrpcClientBuilder {
         }
     }
 
+    pub(crate) fn auth_plugin(self, auth_plugin: Arc<dyn AuthPlugin>) -> Self {
+        Self {
+            auth_plugin,
+            ..self
+        }
+    }
+
+    pub(crate) fn auth_context(self, auth_context: HashMap<String, String>) -> Self {
+        Self {
+            auth_context,
+            ..self
+        }
+    }
+
     pub(crate) fn register_server_request_handler<T: GrpcMessageData>(
         mut self,
         handler: Arc<dyn ServerRequestHandler>,
@@ -348,7 +372,7 @@ impl NacosGrpcClientBuilder {
         );
 
         let send_request = {
-            let server_list = PollingServerListService::new(self.server_list);
+            let server_list = PollingServerListService::new(self.server_list.clone());
             let mut tonic_builder = TonicBuilder::new(self.grpc_config, server_list);
             if let Some(layer) = self.unary_call_layer {
                 tonic_builder = tonic_builder.unary_call_layer(layer);
@@ -377,14 +401,24 @@ impl NacosGrpcClientBuilder {
                 connection = connection.disconnected_listener(disconnected_listener);
             }
 
-            let failover_connection = connection.into_failover_connection(id);
+            let failover_connection = connection.into_failover_connection(id.clone());
             Arc::new(failover_connection) as Arc<dyn SendRequest + Send + Sync + 'static>
         };
+
+        init_auth_plugin(
+            self.auth_plugin.clone(),
+            self.server_list.clone(),
+            self.auth_context.clone(),
+            id,
+        );
+
         let app_name = self.app_name;
+        let auth_plugin = self.auth_plugin;
 
         NacosGrpcClient {
             app_name,
             send_request,
+            auth_plugin,
         }
     }
 }
@@ -436,6 +470,7 @@ pub mod tests {
         let nacos_grpc_client = NacosGrpcClient {
             app_name: "test_app".to_string(),
             send_request: Arc::new(mock_send_request),
+            auth_plugin: Arc::new(NoopAuthPlugin::default()),
         };
 
         let response = nacos_grpc_client

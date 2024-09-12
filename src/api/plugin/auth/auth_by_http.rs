@@ -6,6 +6,8 @@ use tokio::time::{Duration, Instant};
 
 use crate::api::plugin::{AuthContext, AuthPlugin, LoginIdentityContext};
 
+use super::RequestResource;
+
 pub const USERNAME: &str = "username";
 
 pub const PASSWORD: &str = "password";
@@ -99,7 +101,7 @@ impl AuthPlugin for HttpLoginAuthPlugin {
         }
     }
 
-    fn get_login_identity(&self) -> LoginIdentityContext {
+    fn get_login_identity(&self, _: RequestResource) -> LoginIdentityContext {
         self.login_identity.load().deref().deref().to_owned()
     }
 }
@@ -113,7 +115,7 @@ struct HttpLoginResponse {
 
 #[cfg(test)]
 mod tests {
-    use crate::api::plugin::{AuthContext, AuthPlugin, HttpLoginAuthPlugin};
+    use crate::api::plugin::{AuthContext, AuthPlugin, HttpLoginAuthPlugin, RequestResource};
 
     #[tokio::test]
     #[ignore]
@@ -132,13 +134,13 @@ mod tests {
         http_auth_plugin
             .login(server_list.clone(), auth_context.clone())
             .await;
-        let login_identity_1 = http_auth_plugin.get_login_identity();
+        let login_identity_1 = http_auth_plugin.get_login_identity(RequestResource::default());
         assert_eq!(login_identity_1.contexts.len(), 1);
 
         tokio::time::sleep(tokio::time::Duration::from_millis(111)).await;
 
         http_auth_plugin.login(server_list, auth_context).await;
-        let login_identity_2 = http_auth_plugin.get_login_identity();
+        let login_identity_2 = http_auth_plugin.get_login_identity(RequestResource::default());
         assert_eq!(login_identity_1.contexts, login_identity_2.contexts)
     }
 }

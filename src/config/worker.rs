@@ -1,7 +1,6 @@
 use crate::api::config::ConfigResponse;
 use crate::api::plugin::{AuthPlugin, ConfigFilter, ConfigReq, ConfigResp};
 use crate::api::props::ClientProps;
-use crate::common::remote::grpc::layers::auth::AuthLayer;
 use crate::common::remote::grpc::message::GrpcResponseMessage;
 use crate::common::remote::grpc::{NacosGrpcClient, NacosGrpcClientBuilder};
 use crate::config::cache::CacheData;
@@ -37,13 +36,6 @@ impl ConfigWorker {
         let (notify_change_tx, notify_change_rx) = tokio::sync::mpsc::channel(16);
         let notify_change_tx_clone = notify_change_tx.clone();
 
-        let auth_layer = Arc::new(AuthLayer::new(
-            auth_plugin.clone(),
-            client_props.get_server_list()?.to_vec(),
-            client_props.get_auth_context(),
-            client_id.clone(),
-        ));
-
         let remote_client = NacosGrpcClientBuilder::new(client_props.get_server_list()?)
             .port(client_props.get_remote_grpc_port())
             .namespace(client_props.get_namespace())
@@ -65,8 +57,8 @@ impl ConfigWorker {
             .register_server_request_handler::<ConfigChangeNotifyRequest>(Arc::new(
                 ConfigChangeNotifyHandler { notify_change_tx },
             ))
-            .unary_call_layer(auth_layer.clone())
-            .bi_call_layer(auth_layer)
+            .auth_plugin(auth_plugin)
+            .auth_context(client_props.get_auth_context())
             .max_retries(client_props.get_max_retries())
             .build(client_id);
 
