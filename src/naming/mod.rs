@@ -12,7 +12,6 @@ use crate::api::props::ClientProps;
 
 use crate::common::cache::{Cache, CacheBuilder};
 use crate::common::executor;
-use crate::common::remote::grpc::layers::auth::AuthLayer;
 use crate::common::remote::grpc::message::GrpcRequestMessage;
 use crate::common::remote::grpc::message::GrpcResponseMessage;
 use crate::common::remote::grpc::NacosGrpcClient;
@@ -89,13 +88,6 @@ impl NacosNamingService {
 
         let server_request_handler = NamingPushRequestHandler::new(emitter.clone());
 
-        let auth_layer = Arc::new(AuthLayer::new(
-            auth_plugin,
-            server_list.to_vec(),
-            client_props.get_auth_context(),
-            client_id.clone(),
-        ));
-
         let nacos_grpc_client = NacosGrpcClientBuilder::new(server_list.to_vec())
             .port(client_props.get_remote_grpc_port())
             .namespace(namespace.clone())
@@ -131,8 +123,8 @@ impl NacosNamingService {
                     redo.on_grpc_client_disconnect().await;
                 });
             })
-            .unary_call_layer(auth_layer.clone())
-            .bi_call_layer(auth_layer)
+            .auth_context(client_props.get_auth_context())
+            .auth_plugin(auth_plugin)
             .max_retries(client_props.get_max_retries())
             .build(client_id.clone());
 

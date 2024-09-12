@@ -97,15 +97,40 @@ impl ClientProps {
     pub(crate) fn get_auth_context(&self) -> HashMap<String, String> {
         let mut auth_context = self.auth_context.clone();
         if self.env_first {
-            if let Some(u) = get_value_option(ENV_NACOS_CLIENT_AUTH_USERNAME) {
-                auth_context.insert(crate::api::plugin::USERNAME.into(), u);
-            }
-            if let Some(p) = get_value_option(ENV_NACOS_CLIENT_AUTH_PASSWORD) {
-                auth_context.insert(crate::api::plugin::PASSWORD.into(), p);
-            }
+            self.get_http_auth_context(&mut auth_context);
+            self.get_aliyun_auth_context(&mut auth_context);
         }
         auth_context
     }
+
+    #[cfg(feature = "auth-by-http")]
+    fn get_http_auth_context(&self, context: &mut HashMap<String, String>) {
+        if let Some(u) = get_value_option(ENV_NACOS_CLIENT_AUTH_USERNAME) {
+            context.insert(crate::api::plugin::USERNAME.into(), u);
+        }
+        if let Some(p) = get_value_option(ENV_NACOS_CLIENT_AUTH_PASSWORD) {
+            context.insert(crate::api::plugin::PASSWORD.into(), p);
+        }
+    }
+
+    #[cfg(not(feature = "auth-by-http"))]
+    fn get_http_auth_context(&self, context: &mut HashMap<String, String>) {}
+
+    #[cfg(feature = "auth-by-aliyun")]
+    fn get_aliyun_auth_context(&self, context: &mut HashMap<String, String>) {
+        if let Some(ak) = get_value_option(ENV_NACOS_CLIENT_AUTH_ACCESS_KEY) {
+            context.insert(crate::api::plugin::ACCESS_KEY.into(), ak);
+        }
+        if let Some(sk) = get_value_option(ENV_NACOS_CLIENT_AUTH_ACCESS_SECRET) {
+            context.insert(crate::api::plugin::ACCESS_SECRET.into(), sk);
+        }
+        if let Some(sign_region_id) = get_value_option(ENV_NACOS_CLIENT_SIGN_REGION_ID) {
+            context.insert(crate::api::plugin::SIGN_REGION_ID.into(), sign_region_id);
+        }
+    }
+
+    #[cfg(not(feature = "auth-by-aliyun"))]
+    fn get_aliyun_auth_context(&self, context: &mut HashMap<String, String>) {}
 
     pub(crate) fn get_server_list(&self) -> crate::api::error::Result<Vec<String>> {
         let server_addr = self.get_server_addr();
@@ -220,6 +245,34 @@ impl ClientProps {
     pub fn auth_password(mut self, password: impl Into<String>) -> Self {
         self.auth_context
             .insert(crate::api::plugin::PASSWORD.into(), password.into());
+        self
+    }
+
+    /// Add access-key
+    #[cfg(feature = "auth-by-aliyun")]
+    pub fn auth_access_key(mut self, access_key: impl Into<String>) -> Self {
+        self.auth_context
+            .insert(crate::api::plugin::ACCESS_KEY.into(), access_key.into());
+        self
+    }
+
+    /// Add access-secret
+    #[cfg(feature = "auth-by-aliyun")]
+    pub fn auth_access_secret(mut self, access_secret: impl Into<String>) -> Self {
+        self.auth_context.insert(
+            crate::api::plugin::ACCESS_SECRET.into(),
+            access_secret.into(),
+        );
+        self
+    }
+
+    /// Add signature region id
+    #[cfg(feature = "auth-by-aliyun")]
+    pub fn auth_signature_region_id(mut self, signature_region_id: impl Into<String>) -> Self {
+        self.auth_context.insert(
+            crate::api::plugin::SIGN_REGION_ID.into(),
+            signature_region_id.into(),
+        );
         self
     }
 

@@ -8,6 +8,7 @@ use crate::api::error::Error::ErrResponse;
 use crate::api::error::Error::ErrResult;
 use crate::api::error::Error::Serialization;
 use crate::api::error::Result;
+use crate::api::plugin::RequestResource;
 use crate::common::remote::grpc::message::response::ErrorResponse;
 use crate::nacos_proto::v2::{Metadata, Payload};
 use std::fmt::Debug;
@@ -204,6 +205,8 @@ pub(crate) trait GrpcRequestMessage: GrpcMessageData {
     fn request_id(&self) -> Option<&String>;
 
     fn module(&self) -> &str;
+
+    fn request_resource(&self) -> Option<RequestResource>;
 }
 
 pub(crate) trait GrpcResponseMessage: GrpcMessageData {

@@ -43,6 +43,7 @@ config = []
 naming = []
 tls = ["reqwest/default-tls"]
 auth-by-http = ["reqwest"]
+auth-by-aliyun = ["ring", "base64", "chrono"]
 
 [dependencies]
 arc-swap = "1.7"
@@ -63,6 +64,11 @@ rand = "0.8.5"
 
 # now only for feature="auth-by-http"
 reqwest = { version = "0.12", default-features = false, features = [], optional = true }
+
+# only for aliyun-ram-auth
+ring = { version = "0.17.8", default-features = false, optional = true }
+base64 = { version = "0.22.1", default-features = false, optional = true }
+chrono = { version = "0.4", features = ["now"] ,optional = true }
 
 async-trait = "0.1"
 async-stream = "0.3.5"

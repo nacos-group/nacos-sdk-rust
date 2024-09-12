@@ -226,6 +226,11 @@ impl ConfigServiceBuilder {
         self.with_auth_plugin(Arc::new(plugin::HttpLoginAuthPlugin::default()))
     }
 
+    #[cfg(feature = "auth-by-aliyun")]
+    pub fn enable_auth_plugin_aliyun(self) -> Self {
+        self.with_auth_plugin(Arc::new(plugin::AliyunRamAuthPlugin::default()))
+    }
+
     /// Set [`plugin::AuthPlugin`]
     pub fn with_auth_plugin(mut self, auth_plugin: Arc<dyn plugin::AuthPlugin>) -> Self {
         self.auth_plugin = Some(auth_plugin);
