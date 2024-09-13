@@ -1,5 +1,13 @@
 # 变更日志 | Change log
 
+### 0.4.2
+
+- 功能: 提供 Aliyun ram AuthPlugin，通过 `features = ["auth-plugin-http"]` 开启
+
+---
+
+- Feature: Support Aliyun ram AuthPlugin (#245), enabled with `features = ["auth-plugin-http"]`
+
 ### 0.4.1
 
 - 优化: 在 `auth-plugin-http` 使用 `arc-swap` 替换 unsafe 代码
