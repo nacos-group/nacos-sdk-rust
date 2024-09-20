@@ -36,10 +36,10 @@ nacos-sdk = { version = "0.4", features = ["default"] }
             // Attention! "public" is "", it is recommended to customize the namespace with clear meaning.
             .namespace("")
             .app_name("simple_app"),
-            // .auth_username("TODO")
-            // .auth_password("TODO")
+            .auth_username("username")
+            .auth_password("password")
     )
-    // .enable_auth_plugin_http()
+    .enable_auth_plugin_http()
     .build()?;
 
     // example get a config
@@ -79,10 +79,10 @@ nacos-sdk = { version = "0.4", features = ["default"] }
             // Attention! "public" is "", it is recommended to customize the namespace with clear meaning.
             .namespace("")
             .app_name("simple_app"),
-            // .auth_username("TODO")
-            // .auth_password("TODO")
+            .auth_username("username")
+            .auth_password("password")
     )
-    // .enable_auth_plugin_http()
+    .enable_auth_plugin_http()
     .build()?;
 
     pub struct ExampleInstanceChangeListener;
@@ -121,6 +121,65 @@ See them in `nacos_sdk::api::props::ClientProps` or `nacos_sdk::api::constants::
 e.g.
 - env `NACOS_CLIENT_COMMON_THREAD_CORES` to set nacos-client-thread-pool num, default 1
 - env `NACOS_CLIENT_NAMING_PUSH_EMPTY_PROTECTION` for naming empty data notify protection, default true
+- env `NACOS_CLIENT_USERNAME` to set http auth username
+- env `NACOS_CLIENT_PASSWORD` to set http auth password
+- env `NACOS_CLIENT_ACCESS_KEY` to set Aliyun ram access-key
+- env `NACOS_CLIENT_SECRET_KEY` to set Aliyun ram access-secret
+
+### AuthPlugin Features
+- > Set access-key, access-secret via Environment variables are recommended.
+- auth-by-http
+  - support http auth via username and password
+  - how to use
+    - enable auth-by-http(default is enabled)
+    ```toml
+    [dependencies]
+    nacos-sdk = { version = "0.4", features = ["default"] }
+    ```
+    - Set username and password via environment variables
+    ```shell
+    export NACOS_CLIENT_USERNAME=you_username
+    export NACOS_CLIENT_PASSWORD=you_password
+    ```
+    - Enable auth-by-http in your code
+    ```rust
+    ConfigServiceBuilder::new(
+     ClientProps::new()
+         .server_addr("localhost:8848"))
+     .enable_auth_plugin_http()
+  
+    NamingServiceBuilder::new(
+     ClientProps::new()
+         .server_addr("localhost:8848"))
+     .enable_auth_plugin_http()
+     .build()
+    ```
+- auth-by-aliyun
+  - support aliyun ram auth via access-key and access-secret
+  - how to use 
+    - enable auth-by-aliyun feature in toml
+    ```toml
+    [dependencies]
+    nacos-sdk = { version = "0.4", features = ["default", "auth-by-aliyun"] }
+    ```
+    - Set accessKey and secretKey via environment variables
+    ```shell
+    export NACOS_CLIENT_ACCESS_KEY=you_access_key
+    export NACOS_CLIENT_SECRET_KEY=you_secret_key
+    ```
+    - Enable aliyun ram auth plugin in code by enable_auth_plugin_aliyun
+    ```rust
+    ConfigServiceBuilder::new(
+     ClientProps::new()
+         .server_addr("localhost:8848"))
+     .enable_auth_plugin_aliyun()
+  
+    NamingServiceBuilder::new(
+     ClientProps::new()
+         .server_addr("localhost:8848"))
+     .enable_auth_plugin_aliyun()
+     .build()
+    ```
 
 ## 开发说明
 - Build with `cargo build`
@@ -181,7 +240,7 @@ gRPC 交互的 Payload 和 Metadata 由 `Protocol Buffers` 序列化，具体的
 #### Common 通用能力
 - [x] 创建参数，自定义传参 + ENV 环境变量读取，后者优先级高；ENV 统一前缀，例如 `NACOS_CLIENT_CONFIG_*` 于配置管理， `NACOS_CLIENT_NAMING_*` 于服务注册
 - [x] 通用客户端请求交互，Request/Response 通用 gRPC 逻辑，提供给 Config/Naming
-- [x] Auth 鉴权；账密登陆 username/password，TODO accessKey/secretKey
+- [x] Auth 鉴权；账密登陆 username/password，阿里云RAM鉴权 accessKey/secretKey
 - [x] 通用日志，`tracing::info!()`
 - [ ] Monitor，`opentelemetry`
 - [ ] 数据落盘与加载（用于服务端宕机弱依赖）
