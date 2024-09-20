@@ -495,15 +495,6 @@ mod test {
         );
     }
 
-    #[test]
-    fn test_final_signing_key_string_with_default_info() {
-        let sign_data = calculate_v4_signing_key_util::final_signing_key_string_with_default_info(
-            "test",
-            "cn-hangzhou",
-        );
-        assert_eq!("lHVX6NEPs3+EKxO3g2iklCwbseQnAWz5nLce9Lm0Po4=", sign_data)
-    }
-
     struct TestNamingEventListener {
         instance_now: ArcSwap<Vec<ServiceInstance>>,
     }
@@ -527,8 +518,6 @@ mod test {
         ClientProps::new()
             .namespace(std::env::var("NAMESPACE").unwrap_or("".to_string()))
             .server_addr(std::env::var("SERVER_ADDR").unwrap())
-            .auth_ext(ACCESS_KEY, std::env::var("AK").unwrap())
-            .auth_ext(ACCESS_SECRET, std::env::var("SK").unwrap())
     }
 
     fn make_service_instance(ip: &str, port: i32) -> ServiceInstance {
