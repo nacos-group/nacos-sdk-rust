@@ -29,6 +29,8 @@ pub(crate) mod common_remote {
     pub const LABEL_MODULE_CONFIG: &str = "config";
 }
 
+pub(crate) const ENV_NACOS_CLIENT_PROPS_FILE_PATH: &str = "NACOS_CLIENT_PROPS_FILE_PATH";
+
 /// env `NACOS_CLIENT_COMMON_THREAD_CORES` to set nacos-client-thread-pool num, default 1
 pub const ENV_NACOS_CLIENT_COMMON_THREAD_CORES: &str = "NACOS_CLIENT_COMMON_THREAD_CORES";
 

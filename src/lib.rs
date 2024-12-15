@@ -62,26 +62,36 @@
 //! ```
 //!
 
-use lazy_static::lazy_static;
-use std::collections::HashMap;
-use std::path::Path;
+/// Nacos API
+pub mod api;
 
-const ENV_NACOS_CLIENT_PROPS_FILE_PATH: &str = "NACOS_CLIENT_PROPS_FILE_PATH";
+mod common;
+#[cfg(feature = "config")]
+mod config;
+#[cfg(feature = "naming")]
+mod naming;
 
-lazy_static! {
-    static ref PROPERTIES: HashMap<String, String> = {
-        let env_file_path = std::env::var(ENV_NACOS_CLIENT_PROPS_FILE_PATH).ok();
-        let _ = env_file_path.as_ref().map(|file_path| {
-            dotenvy::from_path(Path::new(file_path)).map_err(|e| {
-                let _ = dotenvy::dotenv();
-                e
-            })
-        });
-        dotenvy::dotenv().ok();
-
-        dotenvy::vars().collect::<HashMap<String, String>>()
-    };
+#[allow(dead_code)]
+#[path = ""]
+mod nacos_proto {
+    #[path = "_.rs"]
+    pub mod v2;
 }
+
+use crate::api::constants::ENV_NACOS_CLIENT_PROPS_FILE_PATH;
+use std::collections::HashMap;
+
+static PROPERTIES: std::sync::LazyLock<HashMap<String, String>> = std::sync::LazyLock::new(|| {
+    let env_file_path = std::env::var(ENV_NACOS_CLIENT_PROPS_FILE_PATH).ok();
+    let _ = env_file_path.as_ref().map(|file_path| {
+        dotenvy::from_path(std::path::Path::new(file_path)).inspect_err(|_e| {
+            let _ = dotenvy::dotenv();
+        })
+    });
+    dotenvy::dotenv().ok();
+
+    dotenvy::vars().collect::<HashMap<String, String>>()
+});
 
 pub(crate) mod properties {
     use crate::PROPERTIES;
@@ -120,22 +130,6 @@ pub(crate) mod properties {
             value.to_string().parse::<bool>().unwrap_or(default)
         })
     }
-}
-
-/// Nacos API
-pub mod api;
-
-mod common;
-#[cfg(feature = "config")]
-mod config;
-#[cfg(feature = "naming")]
-mod naming;
-
-#[allow(dead_code)]
-#[path = ""]
-mod nacos_proto {
-    #[path = "_.rs"]
-    pub mod v2;
 }
 
 #[cfg(test)]
