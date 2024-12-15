@@ -1,6 +1,5 @@
 use crate::api::error::Result;
 use futures::Future;
-use lazy_static::lazy_static;
 use tokio::{
     runtime::{Builder, Runtime},
     task::JoinHandle,
@@ -8,19 +7,21 @@ use tokio::{
 };
 use tracing::{error, Instrument};
 
-lazy_static! {
-    static ref COMMON_THREAD_CORES: usize =
-        std::env::var(crate::api::constants::ENV_NACOS_CLIENT_COMMON_THREAD_CORES)
-            .ok()
-            .and_then(|v| v.parse::<usize>().ok().filter(|n| *n > 0))
-            .unwrap_or(1);
-    static ref RT: Runtime = Builder::new_multi_thread()
+static COMMON_THREAD_CORES: std::sync::LazyLock<usize> = std::sync::LazyLock::new(|| {
+    std::env::var(crate::api::constants::ENV_NACOS_CLIENT_COMMON_THREAD_CORES)
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok().filter(|n| *n > 0))
+        .unwrap_or(1)
+});
+
+static RT: std::sync::LazyLock<Runtime> = std::sync::LazyLock::new(|| {
+    Builder::new_multi_thread()
         .enable_all()
         .thread_name("nacos-client-thread-pool")
         .worker_threads(*COMMON_THREAD_CORES)
         .build()
-        .unwrap();
-}
+        .unwrap()
+});
 
 pub(crate) fn spawn<F>(future: F) -> JoinHandle<F::Output>
 where

@@ -1,4 +1,3 @@
-use lazy_static::lazy_static;
 use prost_types::Any;
 use serde::{de::DeserializeOwned, Serialize};
 use std::collections::HashMap;
@@ -230,9 +229,8 @@ where
     client_ip: String,
 }
 
-lazy_static! {
-    static ref LOCAL_IP: String = local_ipaddress::get().unwrap();
-}
+static LOCAL_IP: std::sync::LazyLock<String> =
+    std::sync::LazyLock::new(|| local_ipaddress::get().unwrap());
 
 impl<T> GrpcMessageBuilder<T>
 where
