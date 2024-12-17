@@ -1,6 +1,6 @@
 [package]
 name = "nacos-macro"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2021"
 authors = ["nacos-group", "CheirshCai <785427346@qq.com>", "onewe <2583021406@qq.com>"]
 license = "Apache-2.0"

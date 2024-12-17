@@ -18,7 +18,7 @@
 
 [package]
 name = "nacos-sdk"
-version = "0.4.2"
+version = "0.4.3"
 edition = "2021"
 authors = ["nacos-group", "CheirshCai <785427346@qq.com>", "onewe <2583021406@qq.com>"]
 license = "Apache-2.0"
@@ -47,7 +47,7 @@ auth-by-aliyun = ["ring", "base64", "chrono"]
 
 [dependencies]
 arc-swap = "1.7"
-nacos-macro = { version = "0.1.1", path = "nacos-macro" }
+nacos-macro = { version = "0.2.0", path = "nacos-macro" }
 thiserror = "1.0"
 tokio = { version = "1", features = ["full"] }
 
