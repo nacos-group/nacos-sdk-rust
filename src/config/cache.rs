@@ -70,7 +70,7 @@ impl CacheData {
         listener: Arc<dyn crate::api::config::ConfigChangeListener>,
     ) -> Option<usize> {
         for (idx, listen_warp) in listen_warp_vec.iter().enumerate() {
-            #[warn(clippy::vtable_address_comparisons)]
+            #[allow(ambiguous_wide_pointer_comparisons)]
             if Arc::ptr_eq(&listen_warp.listener, &listener) {
                 return Some(idx);
             }

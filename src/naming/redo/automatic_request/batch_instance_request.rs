@@ -1,9 +1,9 @@
+use async_trait::async_trait;
 use std::sync::Arc;
-use tonic::async_trait;
+use tracing::Instrument;
 use tracing::debug;
 use tracing::error;
 use tracing::instrument;
-use tracing::Instrument;
 
 use crate::common::remote::grpc::NacosGrpcClient;
 use crate::{

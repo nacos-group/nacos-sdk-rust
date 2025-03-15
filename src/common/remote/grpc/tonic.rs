@@ -6,13 +6,13 @@ use std::{
 
 use futures::{Future, StreamExt};
 use tonic::transport::{Channel, Endpoint, Uri};
-use tower::{layer::util::Stack, Service};
-use tracing::{debug, debug_span, error, Instrument, Span};
+use tower::{Service, layer::util::Stack};
+use tracing::{Instrument, Span, debug, debug_span, error};
 
 use crate::{
     common::remote::grpc::nacos_grpc_service::DynamicBiStreamingCallLayerWrapper,
     nacos_proto::v2::{
-        bi_request_stream_client::BiRequestStreamClient, request_client::RequestClient, Payload,
+        Payload, bi_request_stream_client::BiRequestStreamClient, request_client::RequestClient,
     },
 };
 

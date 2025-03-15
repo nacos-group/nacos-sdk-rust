@@ -1,11 +1,11 @@
 use std::{borrow::Cow, collections::HashMap, io::BufReader, path::PathBuf};
 
+use async_trait::async_trait;
 use serde::de;
 use tokio::{
-    fs::{remove_file, OpenOptions},
+    fs::{OpenOptions, remove_file},
     io::AsyncWriteExt,
 };
-use tonic::async_trait;
 use tracing::{debug, instrument, warn};
 
 use super::Store;
@@ -114,6 +114,7 @@ where
         let file = OpenOptions::new()
             .write(true)
             .create(true)
+            .truncate(true)
             .open(write_path.as_path())
             .await;
 

@@ -1,7 +1,7 @@
 use crate::{
     common::remote::grpc::nacos_grpc_service::ServerRequestHandler, nacos_proto::v2::Payload,
 };
-use tonic::async_trait;
+use async_trait::async_trait;
 use tracing::{error, info};
 
 pub(crate) struct DefaultHandler;
@@ -39,7 +39,10 @@ impl ServerRequestHandler for DefaultHandler {
             headers = Default::default();
         }
 
-        info!("unknown server request. type: {}, client_ip: {}, headers:{:?}, payload: {}, payload_type: {}", r_type, client_ip, headers, r_body, p_type);
+        info!(
+            "unknown server request. type: {}, client_ip: {}, headers:{:?}, payload: {}, payload_type: {}",
+            r_type, client_ip, headers, r_body, p_type
+        );
 
         return None;
     }

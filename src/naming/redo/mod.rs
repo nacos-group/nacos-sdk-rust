@@ -1,18 +1,18 @@
 use std::{
     collections::HashMap,
     sync::{
-        atomic::{AtomicBool, Ordering},
         Arc,
+        atomic::{AtomicBool, Ordering},
     },
     time::Duration,
 };
 
+use async_trait::async_trait;
 use tokio::{
     sync::RwLock,
     time::{self, sleep},
 };
-use tonic::async_trait;
-use tracing::{debug, debug_span, instrument, Instrument};
+use tracing::{Instrument, debug, debug_span, instrument};
 
 use crate::api::error::Result;
 use crate::common::{executor, remote::grpc::NacosGrpcClient};

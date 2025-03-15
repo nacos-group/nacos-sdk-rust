@@ -10,7 +10,7 @@ pub use auth_by_aliyun_ram::*;
 
 use std::{collections::HashMap, sync::Arc, thread, time::Duration};
 use tokio::{sync::oneshot, time::sleep};
-use tracing::{debug, debug_span, info, Instrument};
+use tracing::{Instrument, debug, debug_span, info};
 
 use crate::common::executor;
 
@@ -118,21 +118,10 @@ pub fn init_auth_plugin(
     let _ = wait_ret.join().unwrap();
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct RequestResource {
     pub request_type: String,
     pub namespace: Option<String>,
     pub group: Option<String>,
     pub resource: Option<String>,
-}
-
-impl RequestResource {
-    fn default() -> Self {
-        Self {
-            request_type: "".to_string(),
-            namespace: None,
-            group: None,
-            resource: None,
-        }
-    }
 }

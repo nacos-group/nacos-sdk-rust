@@ -1,5 +1,5 @@
 use prost_types::Any;
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{Serialize, de::DeserializeOwned};
 use std::collections::HashMap;
 use tracing::warn;
 
@@ -81,7 +81,10 @@ where
                 if let Err(error) = ret {
                     let payload_str = std::str::from_utf8(&body_any.value);
                     if payload_str.is_err() {
-                        error!("can not convert to target type {}, this payload can not convert to string as well", T::identity());
+                        error!(
+                            "can not convert to target type {}, this payload can not convert to string as well",
+                            T::identity()
+                        );
                         return Err(error);
                     }
                     let payload_str = payload_str.unwrap();
@@ -105,7 +108,9 @@ where
                 if let Err(error) = ret {
                     let payload_str = std::str::from_utf8(&body_any.value);
                     if payload_str.is_err() {
-                        error!("can not convert to ErrorResponse, this payload can not convert to string as well");
+                        error!(
+                            "can not convert to ErrorResponse, this payload can not convert to string as well"
+                        );
                         return Err(error);
                     }
                     let payload_str = payload_str.unwrap();
@@ -130,7 +135,10 @@ where
             if let Err(error) = ret {
                 let payload_str = std::str::from_utf8(&body_any.value);
                 if payload_str.is_err() {
-                    error!("can not convert to target type {}, this payload can not convert to string as well", T::identity());
+                    error!(
+                        "can not convert to target type {}, this payload can not convert to string as well",
+                        T::identity()
+                    );
                     return Err(error);
                 }
                 let payload_str = payload_str.unwrap();

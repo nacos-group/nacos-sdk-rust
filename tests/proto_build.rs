@@ -24,6 +24,6 @@ fn build_proto() {
         .build_server(false)
         .build_transport(true)
         .out_dir("src")
-        .compile(&["./proto/nacos_grpc_service.proto"], &["./proto"])
+        .compile_protos(&["./proto/nacos_grpc_service.proto"], &["./proto"])
         .unwrap();
 }

@@ -1,14 +1,14 @@
 use std::sync::Arc;
 
-use tonic::async_trait;
+use async_trait::async_trait;
+use tracing::Instrument;
 use tracing::debug;
 use tracing::error;
 use tracing::instrument;
-use tracing::Instrument;
 
 use crate::common::remote::generate_request_id;
-use crate::common::remote::grpc::message::GrpcMessageData;
 use crate::common::remote::grpc::NacosGrpcClient;
+use crate::common::remote::grpc::message::GrpcMessageData;
 use crate::naming::message::request::SubscribeServiceRequest;
 use crate::naming::message::response::SubscribeServiceResponse;
 use crate::naming::redo::AutomaticRequest;

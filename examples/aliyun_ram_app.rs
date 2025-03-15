@@ -1,5 +1,5 @@
-use nacos_sdk::api::config::{ConfigService, ConfigServiceBuilder};
-use nacos_sdk::api::naming::{NamingService, NamingServiceBuilder, ServiceInstance};
+use nacos_sdk::api::config::ConfigServiceBuilder;
+use nacos_sdk::api::naming::{NamingServiceBuilder, ServiceInstance};
 use nacos_sdk::api::props::ClientProps;
 use std::time::Duration;
 use tokio::time::sleep;
@@ -33,7 +33,7 @@ async fn run_naming_demo() {
     let server_addr = "localhost:8848";
 
     /// NamingService
-    let mut naming_client = NamingServiceBuilder::new(ClientProps::new().server_addr(server_addr))
+    let naming_client = NamingServiceBuilder::new(ClientProps::new().server_addr(server_addr))
         .enable_auth_plugin_aliyun()
         .build()
         .unwrap();
@@ -68,7 +68,7 @@ async fn run_config_demo() {
     let server_addr = "localhost:8848";
 
     /// Config service
-    let mut config_client = ConfigServiceBuilder::new(ClientProps::new().server_addr(server_addr))
+    let config_client = ConfigServiceBuilder::new(ClientProps::new().server_addr(server_addr))
         .enable_auth_plugin_aliyun()
         .build()
         .unwrap();

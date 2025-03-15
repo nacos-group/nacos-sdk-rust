@@ -4,18 +4,18 @@ use std::{
     collections::HashMap,
     marker::PhantomData,
     sync::{
-        atomic::{AtomicUsize, Ordering},
         Arc,
+        atomic::{AtomicUsize, Ordering},
     },
 };
 
+use async_trait::async_trait;
 use dashmap::{
-    mapref::one::{Ref, RefMut},
     DashMap,
+    mapref::one::{Ref, RefMut},
 };
-use tokio::sync::mpsc::{channel, Receiver, Sender};
-use tonic::async_trait;
-use tracing::{debug, debug_span, warn, Instrument};
+use tokio::sync::mpsc::{Receiver, Sender, channel};
+use tracing::{Instrument, debug, debug_span, warn};
 
 use crate::common::cache::disk::DiskStore;
 
@@ -262,7 +262,7 @@ pub(crate) struct CacheRef<'a, V> {
     dash_map_ref: Ref<'a, VersionKeyWrapper, V>,
 }
 
-impl<'a, V> Deref for CacheRef<'a, V> {
+impl<V> Deref for CacheRef<'_, V> {
     type Target = V;
 
     fn deref(&self) -> &Self::Target {
@@ -275,7 +275,7 @@ pub(crate) struct CacheRefMut<'a, V> {
     sender: Option<Sender<ChangeEvent>>,
 }
 
-impl<'a, V> Deref for CacheRefMut<'a, V> {
+impl<V> Deref for CacheRefMut<'_, V> {
     type Target = V;
 
     fn deref(&self) -> &Self::Target {
@@ -283,13 +283,13 @@ impl<'a, V> Deref for CacheRefMut<'a, V> {
     }
 }
 
-impl<'a, V> DerefMut for CacheRefMut<'a, V> {
+impl<V> DerefMut for CacheRefMut<'_, V> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         self.dash_map_ref_mut.value_mut()
     }
 }
 
-impl<'a, V> Drop for CacheRefMut<'a, V> {
+impl<V> Drop for CacheRefMut<'_, V> {
     fn drop(&mut self) {
         let key = self.dash_map_ref_mut.key().clone();
 

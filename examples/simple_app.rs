@@ -1,9 +1,7 @@
-use nacos_sdk::api::config::{
-    ConfigChangeListener, ConfigResponse, ConfigService, ConfigServiceBuilder,
-};
+use nacos_sdk::api::config::{ConfigChangeListener, ConfigResponse, ConfigServiceBuilder};
 use nacos_sdk::api::constants;
 use nacos_sdk::api::naming::{
-    NamingChangeEvent, NamingEventListener, NamingService, NamingServiceBuilder, ServiceInstance,
+    NamingChangeEvent, NamingEventListener, NamingServiceBuilder, ServiceInstance,
 };
 use nacos_sdk::api::props::ClientProps;
 

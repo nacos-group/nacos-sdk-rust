@@ -22,22 +22,22 @@ static CLIENT_PROPS: LazyLock<ClientProps> = LazyLock::new(|| {
 
 // 请注意！一般情况下，应用下仅需一个 Config 客户端，而且需要长期持有直至应用停止。
 // 因为它内部会初始化与服务端的长链接，后续的数据交互及变更订阅，都是实时地通过长链接告知客户端的。
-static CONFIG_SERVICE: LazyLock<Box<dyn ConfigService>> = LazyLock::new(|| {
+static CONFIG_SERVICE: LazyLock<ConfigService> = LazyLock::new(|| {
     let config_service = ConfigServiceBuilder::new(CLIENT_PROPS.clone())
         .enable_auth_plugin_http() // TODO You can choose not to enable auth
         .build()
         .unwrap();
-    Box::new(config_service)
+    config_service
 });
 
 // 请注意！一般情况下，应用下仅需一个 Naming 客户端，而且需要长期持有直至应用停止。
 // 因为它内部会初始化与服务端的长链接，后续的数据交互及变更订阅，都是实时地通过长链接告知客户端的。
-static NAMING_SERVICE: LazyLock<Box<dyn NamingService>> = LazyLock::new(|| {
+static NAMING_SERVICE: LazyLock<NamingService> = LazyLock::new(|| {
     let naming_service = NamingServiceBuilder::new(CLIENT_PROPS.clone())
         .enable_auth_plugin_http() // TODO You can choose not to enable auth
         .build()
         .unwrap();
-    Box::new(naming_service)
+    naming_service
 });
 
 /// enable https auth run with command:

@@ -1,21 +1,21 @@
+use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
-use std::sync::Arc;
 
 use tracing::{debug, info, instrument};
 
 use crate::api::error::Error::ErrResult;
 use crate::api::error::Result;
-use crate::api::naming::{InstanceChooser, NamingEventListener, NamingService, ServiceInstance};
+use crate::api::naming::{InstanceChooser, NamingEventListener, ServiceInstance};
 use crate::api::plugin::AuthPlugin;
 use crate::api::props::ClientProps;
 
 use crate::common::cache::{Cache, CacheBuilder};
 use crate::common::executor;
-use crate::common::remote::grpc::message::GrpcRequestMessage;
-use crate::common::remote::grpc::message::GrpcResponseMessage;
 use crate::common::remote::grpc::NacosGrpcClient;
 use crate::common::remote::grpc::NacosGrpcClientBuilder;
+use crate::common::remote::grpc::message::GrpcRequestMessage;
+use crate::common::remote::grpc::message::GrpcResponseMessage;
 use crate::naming::message::request::*;
 use crate::naming::message::response::*;
 
@@ -42,6 +42,15 @@ pub(crate) struct NacosNamingService {
     client_id: String,
     naming_cache: Arc<Cache<ServiceInfo>>,
     observer: ServiceInfoObserver,
+}
+
+impl std::fmt::Debug for NacosNamingService {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("NacosNamingService")
+            .field("namespace", &self.namespace)
+            .field("client_id", &self.client_id)
+            .finish()
+    }
 }
 
 const MODULE_NAME: &str = "naming";
@@ -209,7 +218,9 @@ impl NacosNamingService {
         group_name: Option<String>,
         service_instance: ServiceInstance,
     ) -> Result<()> {
-        info!("register persistent instance: service_name: {service_name}, group_name: {group_name:?}");
+        info!(
+            "register persistent instance: service_name: {service_name}, group_name: {group_name:?}"
+        );
         let namespace = Some(self.namespace.clone());
         let group_name = group_name
             .filter(|data| !data.is_empty())
@@ -238,11 +249,11 @@ impl NacosNamingService {
             .await?;
         if !body.is_success() {
             return Err(ErrResult(format!(
-                    "naming service register persistent service failed: resultCode: {}, errorCode:{}, message:{}",
-                    body.result_code,
-                    body.error_code,
-                    body.message.unwrap_or_default()
-                )));
+                "naming service register persistent service failed: resultCode: {}, errorCode:{}, message:{}",
+                body.result_code,
+                body.error_code,
+                body.message.unwrap_or_default()
+            )));
         }
 
         redo_task.frozen();
@@ -255,7 +266,9 @@ impl NacosNamingService {
         group_name: Option<String>,
         service_instance: ServiceInstance,
     ) -> Result<()> {
-        info!("deregister ephemeral instance: service_name: {service_name}, group_name: {group_name:?}");
+        info!(
+            "deregister ephemeral instance: service_name: {service_name}, group_name: {group_name:?}"
+        );
 
         let namespace = Some(self.namespace.clone());
         let group_name = group_name
@@ -277,7 +290,12 @@ impl NacosNamingService {
             .await?;
 
         if !body.is_success() {
-            return Err(ErrResult(format!("naming service deregister ephemeral service failed: resultCode: {}, errorCode:{}, message:{}", body.result_code,  body.error_code, body.message.unwrap_or_default())));
+            return Err(ErrResult(format!(
+                "naming service deregister ephemeral service failed: resultCode: {}, errorCode:{}, message:{}",
+                body.result_code,
+                body.error_code,
+                body.message.unwrap_or_default()
+            )));
         }
 
         // remove redo task from executor
@@ -293,7 +311,9 @@ impl NacosNamingService {
         group_name: Option<String>,
         service_instance: ServiceInstance,
     ) -> Result<()> {
-        info!("deregister persistent instance: service_name: {service_name}, group_name: {group_name:?}");
+        info!(
+            "deregister persistent instance: service_name: {service_name}, group_name: {group_name:?}"
+        );
         let namespace = Some(self.namespace.clone());
         let group_name = group_name
             .filter(|data| !data.is_empty())
@@ -314,7 +334,12 @@ impl NacosNamingService {
             .await?;
 
         if !body.is_success() {
-            return Err(ErrResult(format!("naming service deregister persistent service failed: resultCode: {}, errorCode:{}, message:{}", body.result_code,  body.error_code, body.message.unwrap_or_default())));
+            return Err(ErrResult(format!(
+                "naming service deregister persistent service failed: resultCode: {}, errorCode:{}, message:{}",
+                body.result_code,
+                body.error_code,
+                body.message.unwrap_or_default()
+            )));
         }
 
         // remove redo task from executor
@@ -355,7 +380,12 @@ impl NacosNamingService {
             .request_to_server::<BatchInstanceRequest, BatchInstanceResponse>(request)
             .await?;
         if !body.is_success() {
-            return Err(ErrResult(format!("naming service batch register services failed: resultCode: {}, errorCode:{}, message:{}", body.result_code,  body.error_code, body.message.unwrap_or_default())));
+            return Err(ErrResult(format!(
+                "naming service batch register services failed: resultCode: {}, errorCode:{}, message:{}",
+                body.result_code,
+                body.error_code,
+                body.message.unwrap_or_default()
+            )));
         }
         redo_task.frozen();
         Ok(())
@@ -410,7 +440,12 @@ impl NacosNamingService {
                 .request_to_server::<ServiceQueryRequest, QueryServiceResponse>(request)
                 .await?;
             if !response.is_success() {
-                return Err(ErrResult(format!("naming service query services failed: resultCode: {}, errorCode:{}, message:{}", response.result_code,  response.error_code, response.message.unwrap_or_default())));
+                return Err(ErrResult(format!(
+                    "naming service query services failed: resultCode: {}, errorCode:{}, message:{}",
+                    response.result_code,
+                    response.error_code,
+                    response.message.unwrap_or_default()
+                )));
             }
             service_info = Some(response.service_info);
         }
@@ -636,16 +671,14 @@ impl NacosNamingService {
     }
 }
 
-#[async_trait::async_trait]
-impl NamingService for NacosNamingService {
+impl NacosNamingService {
     #[instrument(fields(client_id = &self.client_id, group = group_name), skip_all)]
-    async fn register_instance(
+    pub(crate) async fn register_instance(
         &self,
         service_name: String,
         group_name: Option<String>,
         service_instance: ServiceInstance,
     ) -> Result<()> {
-        crate::common::util::check_not_blank(&service_name, "service_name")?;
         if service_instance.ephemeral {
             self.register_ephemeral_instance_async(service_name, group_name, service_instance)
                 .await
@@ -656,13 +689,12 @@ impl NamingService for NacosNamingService {
     }
 
     #[instrument(fields(client_id = &self.client_id, group = group_name), skip_all)]
-    async fn deregister_instance(
+    pub(crate) async fn deregister_instance(
         &self,
         service_name: String,
         group_name: Option<String>,
         service_instance: ServiceInstance,
     ) -> Result<()> {
-        crate::common::util::check_not_blank(&service_name, "service_name")?;
         if service_instance.ephemeral {
             self.deregister_ephemeral_instance_async(service_name, group_name, service_instance)
                 .await
@@ -673,32 +705,30 @@ impl NamingService for NacosNamingService {
     }
 
     #[instrument(fields(client_id = &self.client_id, group = group_name), skip_all)]
-    async fn batch_register_instance(
+    pub(crate) async fn batch_register_instance(
         &self,
         service_name: String,
         group_name: Option<String>,
         service_instances: Vec<ServiceInstance>,
     ) -> Result<()> {
-        crate::common::util::check_not_blank(&service_name, "service_name")?;
         self.batch_register_instance_async(service_name, group_name, service_instances)
             .await
     }
 
     #[instrument(fields(client_id = &self.client_id, group = group_name), skip_all)]
-    async fn get_all_instances(
+    pub(crate) async fn get_all_instances(
         &self,
         service_name: String,
         group_name: Option<String>,
         clusters: Vec<String>,
         subscribe: bool,
     ) -> Result<Vec<ServiceInstance>> {
-        crate::common::util::check_not_blank(&service_name, "service_name")?;
         self.get_all_instances_async(service_name, group_name, clusters, subscribe)
             .await
     }
 
     #[instrument(fields(client_id = &self.client_id, group = group_name), skip_all)]
-    async fn select_instances(
+    pub(crate) async fn select_instances(
         &self,
         service_name: String,
         group_name: Option<String>,
@@ -706,26 +736,24 @@ impl NamingService for NacosNamingService {
         subscribe: bool,
         healthy: bool,
     ) -> Result<Vec<ServiceInstance>> {
-        crate::common::util::check_not_blank(&service_name, "service_name")?;
         self.select_instances_async(service_name, group_name, clusters, subscribe, healthy)
             .await
     }
 
     #[instrument(fields(client_id = &self.client_id, group = group_name), skip_all)]
-    async fn select_one_healthy_instance(
+    pub(crate) async fn select_one_healthy_instance(
         &self,
         service_name: String,
         group_name: Option<String>,
         clusters: Vec<String>,
         subscribe: bool,
     ) -> Result<ServiceInstance> {
-        crate::common::util::check_not_blank(&service_name, "service_name")?;
         self.select_one_healthy_instance_async(service_name, group_name, clusters, subscribe)
             .await
     }
 
     #[instrument(fields(client_id = &self.client_id, group = group_name), skip_all)]
-    async fn get_service_list(
+    pub(crate) async fn get_service_list(
         &self,
         page_no: i32,
         page_size: i32,
@@ -736,14 +764,13 @@ impl NamingService for NacosNamingService {
     }
 
     #[instrument(fields(client_id = &self.client_id, group = group_name), skip_all)]
-    async fn subscribe(
+    pub(crate) async fn subscribe(
         &self,
         service_name: String,
         group_name: Option<String>,
         clusters: Vec<String>,
         event_listener: Arc<dyn NamingEventListener>,
     ) -> Result<()> {
-        crate::common::util::check_not_blank(&service_name, "service_name")?;
         let _ = self
             .subscribe_async(service_name, group_name, clusters, Some(event_listener))
             .await;
@@ -751,14 +778,13 @@ impl NamingService for NacosNamingService {
     }
 
     #[instrument(fields(client_id = &self.client_id, group = group_name), skip_all)]
-    async fn unsubscribe(
+    pub(crate) async fn unsubscribe(
         &self,
         service_name: String,
         group_name: Option<String>,
         clusters: Vec<String>,
         event_listener: Arc<dyn NamingEventListener>,
     ) -> Result<()> {
-        crate::common::util::check_not_blank(&service_name, "service_name")?;
         self.unsubscribe_async(service_name, group_name, clusters, Some(event_listener))
             .await
     }
