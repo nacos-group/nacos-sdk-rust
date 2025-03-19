@@ -3,9 +3,9 @@ use futures::Future;
 use tokio::{
     runtime::{Builder, Runtime},
     task::JoinHandle,
-    time::{interval, sleep, Duration},
+    time::{Duration, interval, sleep},
 };
-use tracing::{error, Instrument};
+use tracing::{Instrument, error};
 
 static COMMON_THREAD_CORES: std::sync::LazyLock<usize> = std::sync::LazyLock::new(|| {
     std::env::var(crate::api::constants::ENV_NACOS_CLIENT_COMMON_THREAD_CORES)
@@ -98,7 +98,9 @@ mod tests {
             .unwrap_or(std::thread::available_parallelism().unwrap().get());
         assert!(num_cpus > 0);
 
-        std::env::set_var(ENV_NACOS_CLIENT_COMMON_THREAD_CORES, "4");
+        unsafe {
+            std::env::set_var(ENV_NACOS_CLIENT_COMMON_THREAD_CORES, "4");
+        }
         let num_cpus = std::env::var(ENV_NACOS_CLIENT_COMMON_THREAD_CORES)
             .ok()
             .and_then(|v| v.parse::<usize>().ok().filter(|n| *n > 0))

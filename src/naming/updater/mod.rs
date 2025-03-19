@@ -1,21 +1,21 @@
 use std::{
     collections::HashMap,
     sync::{
-        atomic::{AtomicBool, Ordering},
         Arc,
+        atomic::{AtomicBool, Ordering},
     },
     time::Duration,
 };
 
 use tokio::{sync::Mutex, time::sleep};
-use tracing::{debug, error, info, instrument, warn, Instrument};
+use tracing::{Instrument, debug, error, info, instrument, warn};
 
 use crate::common::{
     cache::Cache,
     executor,
     remote::{
         generate_request_id,
-        grpc::{message::GrpcResponseMessage, NacosGrpcClient},
+        grpc::{NacosGrpcClient, message::GrpcResponseMessage},
     },
 };
 

@@ -4,8 +4,8 @@ use crate::common::remote::grpc::message::{GrpcMessage, GrpcMessageBuilder};
 use crate::common::remote::grpc::nacos_grpc_service::ServerRequestHandler;
 use crate::naming::observable::service_info_observable::ServiceInfoEmitter;
 
-use tonic::async_trait;
-use tracing::{error, info, Instrument};
+use async_trait::async_trait;
+use tracing::{Instrument, error, info};
 
 use crate::{
     nacos_proto::v2::Payload,

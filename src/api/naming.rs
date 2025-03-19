@@ -123,7 +123,7 @@ pub trait InstanceChooser {
     fn choose(self) -> Option<ServiceInstance>;
 }
 
-/// The NamingEventListener receive a event of [`NamingChangeEvent`].
+/// The NamingEventListener receive an event of [`NamingChangeEvent`].
 pub trait NamingEventListener: Send + Sync + 'static {
     fn event(&self, event: Arc<NamingChangeEvent>);
 }
@@ -143,76 +143,124 @@ pub trait NamingEventListener: Send + Sync + 'static {
 ///   .build()?;
 /// ```
 #[doc(alias("naming", "sdk", "api"))]
-#[async_trait::async_trait]
-pub trait NamingService: Send + Sync {
-    async fn register_instance(
+#[derive(Clone, Debug)]
+pub struct NamingService {
+    inner: Arc<NacosNamingService>,
+}
+
+impl NamingService {
+    pub async fn register_instance(
         &self,
         service_name: String,
         group_name: Option<String>,
         service_instance: ServiceInstance,
-    ) -> Result<()>;
+    ) -> Result<()> {
+        crate::common::util::check_not_blank(&service_name, "service_name")?;
+        self.inner
+            .register_instance(service_name, group_name, service_instance)
+            .await
+    }
 
-    async fn deregister_instance(
+    pub async fn deregister_instance(
         &self,
         service_name: String,
         group_name: Option<String>,
         service_instance: ServiceInstance,
-    ) -> Result<()>;
+    ) -> Result<()> {
+        crate::common::util::check_not_blank(&service_name, "service_name")?;
+        self.inner
+            .deregister_instance(service_name, group_name, service_instance)
+            .await
+    }
 
-    async fn batch_register_instance(
+    pub async fn batch_register_instance(
         &self,
         service_name: String,
         group_name: Option<String>,
         service_instances: Vec<ServiceInstance>,
-    ) -> Result<()>;
+    ) -> Result<()> {
+        crate::common::util::check_not_blank(&service_name, "service_name")?;
+        self.inner
+            .batch_register_instance(service_name, group_name, service_instances)
+            .await
+    }
 
-    async fn get_all_instances(
+    pub async fn get_all_instances(
         &self,
         service_name: String,
         group_name: Option<String>,
         clusters: Vec<String>,
         subscribe: bool,
-    ) -> Result<Vec<ServiceInstance>>;
+    ) -> Result<Vec<ServiceInstance>> {
+        crate::common::util::check_not_blank(&service_name, "service_name")?;
+        self.inner
+            .get_all_instances(service_name, group_name, clusters, subscribe)
+            .await
+    }
 
-    async fn select_instances(
+    pub async fn select_instances(
         &self,
         service_name: String,
         group_name: Option<String>,
         clusters: Vec<String>,
         subscribe: bool,
         healthy: bool,
-    ) -> Result<Vec<ServiceInstance>>;
+    ) -> Result<Vec<ServiceInstance>> {
+        crate::common::util::check_not_blank(&service_name, "service_name")?;
+        self.inner
+            .select_instances(service_name, group_name, clusters, subscribe, healthy)
+            .await
+    }
 
-    async fn select_one_healthy_instance(
+    pub async fn select_one_healthy_instance(
         &self,
         service_name: String,
         group_name: Option<String>,
         clusters: Vec<String>,
         subscribe: bool,
-    ) -> Result<ServiceInstance>;
+    ) -> Result<ServiceInstance> {
+        crate::common::util::check_not_blank(&service_name, "service_name")?;
+        self.inner
+            .select_one_healthy_instance(service_name, group_name, clusters, subscribe)
+            .await
+    }
 
-    async fn get_service_list(
+    pub async fn get_service_list(
         &self,
         page_no: i32,
         page_size: i32,
         group_name: Option<String>,
-    ) -> Result<(Vec<String>, i32)>;
+    ) -> Result<(Vec<String>, i32)> {
+        self.inner
+            .get_service_list(page_no, page_size, group_name)
+            .await
+    }
 
-    async fn subscribe(
+    pub async fn subscribe(
         &self,
         service_name: String,
         group_name: Option<String>,
         clusters: Vec<String>,
         event_listener: Arc<dyn NamingEventListener>,
-    ) -> Result<()>;
+    ) -> Result<()> {
+        crate::common::util::check_not_blank(&service_name, "service_name")?;
+        self.inner
+            .subscribe(service_name, group_name, clusters, event_listener)
+            .await
+    }
 
-    async fn unsubscribe(
+    pub async fn unsubscribe(
         &self,
         service_name: String,
         group_name: Option<String>,
         clusters: Vec<String>,
         event_listener: Arc<dyn NamingEventListener>,
-    ) -> Result<()>;
+    ) -> Result<()> {
+        crate::common::util::check_not_blank(&service_name, "service_name")?;
+        self.inner
+            .unsubscribe(service_name, group_name, clusters, event_listener)
+            .await
+    }
 }
 
 /// Builder of api [`NamingService`].
@@ -259,12 +307,14 @@ impl NamingServiceBuilder {
         self
     }
 
-    pub fn build(self) -> Result<impl NamingService> {
+    pub fn build(self) -> Result<NamingService> {
         let auth_plugin = match self.auth_plugin {
             None => Arc::new(plugin::NoopAuthPlugin::default()),
             Some(plugin) => plugin,
         };
-        NacosNamingService::new(self.client_props, auth_plugin)
+        let inner = NacosNamingService::new(self.client_props, auth_plugin)?;
+        let inner = Arc::new(inner);
+        Ok(NamingService { inner })
     }
 }
 

@@ -1,5 +1,16 @@
 # 变更日志 | Change log
 
+### 0.5.0
+
+- 增强: rust-edition=2024, MSRV=1.80
+- 增强: ConfigService / NamingService 改为 struct 而无需 Box<dyn> 包裹
+
+---
+
+- Enhance: rust-edition=2024, MSRV=1.80
+- Enhance: ConfigService / NamingService changed to struct without Box<dyn> wrapping
+
+
 ### 0.4.3
 
 - 功能: 提供 Aliyun ram AuthPlugin (#245)，通过 `features = ["auth-by-aliyun"]` 开启

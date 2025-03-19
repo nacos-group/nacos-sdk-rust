@@ -12,11 +12,11 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use tokio::sync::Mutex;
-use tracing::{instrument, Instrument};
+use tracing::{Instrument, instrument};
 
 #[derive(Clone)]
 pub(crate) struct ConfigWorker {
-    client_props: ClientProps,
+    pub(crate) client_props: ClientProps,
     remote_client: Arc<NacosGrpcClient>,
     cache_data_map: Arc<Mutex<HashMap<String, CacheData>>>,
     config_filters: Arc<Vec<Box<dyn ConfigFilter>>>,

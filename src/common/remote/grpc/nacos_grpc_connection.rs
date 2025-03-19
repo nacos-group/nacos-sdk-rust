@@ -4,14 +4,14 @@ use std::time::Duration;
 use std::{collections::HashMap, pin::Pin, sync::Arc};
 
 use async_stream::stream;
+use async_trait::async_trait;
 use futures::StreamExt;
-use futures::{future, Future};
+use futures::{Future, future};
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::time::sleep;
-use tonic::async_trait;
 use tower::buffer::Buffer;
 use tower::{MakeService, Service};
-use tracing::{debug, debug_span, error, info, instrument, warn, Instrument};
+use tracing::{Instrument, debug, debug_span, error, info, instrument, warn};
 
 use crate::api::error::Error::ErrResult;
 use crate::api::error::Error::GrpcBufferRequest;
@@ -75,6 +75,7 @@ where
     M::Service: Send + 'static,
     <M::Service as Service<NacosGrpcCall>>::Future: Send + 'static,
 {
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         id: String,
         mk_service: M,
@@ -194,7 +195,9 @@ where
         let conn_id_send_ret = conn_id_sender.send(connection_id.clone());
         if let Err(e) = conn_id_send_ret {
             // maybe error? perhaps.
-            error!("send connection id to bi stream task occur an error. please check connection state. {e}");
+            error!(
+                "send connection id to bi stream task occur an error. please check connection state. {e}"
+            );
             return Err(ErrResult("the bi stream task has already quit, because connection id sender send id occur an error".to_string()));
         }
 
@@ -526,7 +529,10 @@ where
                         Poll::Ready(Err(e)) => {
                             self.retry_count += 1;
                             let sleep_time = sleep_time(self.retry_count);
-                            error!("create connection error, this operate will be retry after {} sec, retry count:{}. {}", sleep_time,  self.retry_count, e);
+                            error!(
+                                "create connection error, this operate will be retry after {} sec, retry count:{}. {}",
+                                sleep_time, self.retry_count, e
+                            );
                             self.state = State::Retry(Box::new(sleep(Duration::from_secs(
                                 sleep_time as u64,
                             ))));
@@ -554,7 +560,10 @@ where
                                 .send(Some(connection_id.clone()));
                             if let Err(e) = send_ret {
                                 // this never happen maybe.
-                                warn!("connection id watch channel exception, send connection id:{} to receiver error: {}", connection_id, e);
+                                warn!(
+                                    "connection id watch channel exception, send connection id:{} to receiver error: {}",
+                                    connection_id, e
+                                );
                             }
 
                             self.retry_count = 0;
@@ -566,7 +575,10 @@ where
                         Poll::Ready(Err(e)) => {
                             self.retry_count += 1;
                             let sleep_time = sleep_time(self.retry_count);
-                            error!("initializing connection error, this operate will be retry after {} sec, retry count:{}. {}", sleep_time,  self.retry_count, e);
+                            error!(
+                                "initializing connection error, this operate will be retry after {} sec, retry count:{}. {}",
+                                sleep_time, self.retry_count, e
+                            );
                             self.state = State::Retry(Box::new(sleep(Duration::from_secs(
                                 sleep_time as u64,
                             ))));
@@ -582,7 +594,10 @@ where
                             if !self.health.load(Ordering::Acquire) {
                                 self.retry_count += 1;
                                 let sleep_time = sleep_time(self.retry_count);
-                                error!("the connection {:?} is not in health, destroy connection and retry, this operate will be retry after {} sec, retry count:{}.", self.connection_id,  sleep_time,  self.retry_count);
+                                error!(
+                                    "the connection {:?} is not in health, destroy connection and retry, this operate will be retry after {} sec, retry count:{}.",
+                                    self.connection_id, sleep_time, self.retry_count
+                                );
                                 self.state = State::Retry(Box::new(sleep(Duration::from_secs(
                                     sleep_time as u64,
                                 ))));
@@ -594,7 +609,10 @@ where
                             self.health.store(false, Ordering::Release);
                             self.retry_count += 1;
                             let sleep_time = sleep_time(self.retry_count);
-                            error!("connection {:?} not ready, destroy connection and retry, this operate will be retry after {} sec, retry count:{}. {}", self.connection_id,  sleep_time,  self.retry_count, e);
+                            error!(
+                                "connection {:?} not ready, destroy connection and retry, this operate will be retry after {} sec, retry count:{}. {}",
+                                self.connection_id, sleep_time, self.retry_count, e
+                            );
                             self.state = State::Retry(Box::new(sleep(Duration::from_secs(
                                 sleep_time as u64,
                             ))));

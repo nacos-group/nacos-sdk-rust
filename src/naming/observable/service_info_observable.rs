@@ -2,10 +2,10 @@ use std::{collections::HashMap, sync::Arc};
 
 use serde::Serialize;
 use tokio::sync::{
-    mpsc::{channel, Receiver, Sender},
     RwLock,
+    mpsc::{Receiver, Sender, channel},
 };
-use tracing::{debug_span, error, info, instrument, warn, Instrument, Span};
+use tracing::{Instrument, Span, debug_span, error, info, instrument, warn};
 
 use crate::{
     api::naming::{NamingChangeEvent, NamingEventListener, ServiceInstance},

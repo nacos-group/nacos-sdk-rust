@@ -78,8 +78,8 @@ impl ConfigResp {
 
 #[cfg(test)]
 mod tests {
-    use crate::api::plugin::config_filter::{ConfigReq, ConfigResp};
     use crate::api::plugin::ConfigFilter;
+    use crate::api::plugin::config_filter::{ConfigReq, ConfigResp};
 
     struct TestConfigEncryptionFilter;
 

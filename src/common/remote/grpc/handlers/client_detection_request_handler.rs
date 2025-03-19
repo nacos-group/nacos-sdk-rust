@@ -1,14 +1,14 @@
 use crate::{
     common::remote::grpc::{
         message::{
-            request::ClientDetectionRequest, response::ClientDetectionResponse, GrpcMessage,
-            GrpcMessageBuilder,
+            GrpcMessage, GrpcMessageBuilder, request::ClientDetectionRequest,
+            response::ClientDetectionResponse,
         },
         nacos_grpc_service::ServerRequestHandler,
     },
     nacos_proto::v2::Payload,
 };
-use tonic::async_trait;
+use async_trait::async_trait;
 use tracing::{debug, error};
 
 pub(crate) struct ClientDetectionRequestHandler;

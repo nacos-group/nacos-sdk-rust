@@ -1,7 +1,6 @@
+use crate::api::{error, plugin, props};
 use std::collections::HashMap;
 use std::sync::Arc;
-
-use crate::api::{error, plugin, props};
 
 /// Api [`ConfigService`].
 ///
@@ -18,44 +17,79 @@ use crate::api::{error, plugin, props};
 ///   .build()?;
 /// ```
 #[doc(alias("config", "sdk", "api"))]
-#[async_trait::async_trait]
-pub trait ConfigService: Send + Sync {
+#[derive(Clone, Debug)]
+pub struct ConfigService {
+    inner: Arc<crate::config::NacosConfigService>,
+}
+
+impl ConfigService {
     /// Get config, return the content.
     ///
     /// Attention to [`error::Error::ConfigNotFound`], [`error::Error::ConfigQueryConflict`]
-    async fn get_config(&self, data_id: String, group: String) -> error::Result<ConfigResponse>;
+    pub async fn get_config(
+        &self,
+        data_id: String,
+        group: String,
+    ) -> error::Result<ConfigResponse> {
+        crate::common::util::check_not_blank(&data_id, "data_id")?;
+        crate::common::util::check_not_blank(&group, "group")?;
+        self.inner.get_config(data_id, group).await
+    }
 
     /// Publish config, return true/false.
-    async fn publish_config(
+    pub async fn publish_config(
         &self,
         data_id: String,
         group: String,
         content: String,
         content_type: Option<String>,
-    ) -> error::Result<bool>;
+    ) -> error::Result<bool> {
+        crate::common::util::check_not_blank(&data_id, "data_id")?;
+        crate::common::util::check_not_blank(&group, "group")?;
+        crate::common::util::check_not_blank(&content, "content")?;
+        self.inner
+            .publish_config(data_id, group, content, content_type)
+            .await
+    }
 
     /// Cas publish config with cas_md5 (prev content's md5), return true/false.
-    async fn publish_config_cas(
+    pub async fn publish_config_cas(
         &self,
         data_id: String,
         group: String,
         content: String,
         content_type: Option<String>,
         cas_md5: String,
-    ) -> error::Result<bool>;
+    ) -> error::Result<bool> {
+        crate::common::util::check_not_blank(&data_id, "data_id")?;
+        crate::common::util::check_not_blank(&group, "group")?;
+        crate::common::util::check_not_blank(&content, "content")?;
+        crate::common::util::check_not_blank(&cas_md5, "cas_md5")?;
+        self.inner
+            .publish_config_cas(data_id, group, content, content_type, cas_md5)
+            .await
+    }
 
     /// Beta publish config, return true/false.
-    async fn publish_config_beta(
+    pub async fn publish_config_beta(
         &self,
         data_id: String,
         group: String,
         content: String,
         content_type: Option<String>,
         beta_ips: String,
-    ) -> error::Result<bool>;
+    ) -> error::Result<bool> {
+        crate::common::util::check_not_blank(&data_id, "data_id")?;
+        crate::common::util::check_not_blank(&group, "group")?;
+        crate::common::util::check_not_blank(&content, "content")?;
+        crate::common::util::check_not_blank(&beta_ips, "beta_ips")?;
+        self.inner
+            .publish_config_beta(data_id, group, content, content_type, beta_ips)
+            .await
+    }
 
     /// Publish config with params (see keys [`constants::*`]), return true/false.
-    async fn publish_config_param(
+    pub async fn publish_config_param(
         &self,
         data_id: String,
         group: String,
@@ -63,28 +97,48 @@ pub trait ConfigService: Send + Sync {
         content_type: Option<String>,
         cas_md5: Option<String>,
         params: HashMap<String, String>,
-    ) -> error::Result<bool>;
+    ) -> error::Result<bool> {
+        crate::common::util::check_not_blank(&data_id, "data_id")?;
+        crate::common::util::check_not_blank(&group, "group")?;
+        crate::common::util::check_not_blank(&content, "content")?;
+        self.inner
+            .publish_config_param(data_id, group, content, content_type, cas_md5, params)
+            .await
+    }
 
     /// Remove config, return true/false.
-    async fn remove_config(&self, data_id: String, group: String) -> error::Result<bool>;
+    pub async fn remove_config(&self, data_id: String, group: String) -> error::Result<bool> {
+        crate::common::util::check_not_blank(&data_id, "data_id")?;
+        crate::common::util::check_not_blank(&group, "group")?;
+        self.inner.remove_config(data_id, group).await
+    }
 
     /// Listen the config change.
-    async fn add_listener(
+    pub async fn add_listener(
         &self,
         data_id: String,
         group: String,
         listener: Arc<dyn ConfigChangeListener>,
-    ) -> error::Result<()>;
+    ) -> error::Result<()> {
+        crate::common::util::check_not_blank(&data_id, "data_id")?;
+        crate::common::util::check_not_blank(&group, "group")?;
+        self.inner.add_listener(data_id, group, listener).await
+    }
 
     /// Remove a Listener.
-    async fn remove_listener(
+    pub async fn remove_listener(
         &self,
         data_id: String,
         group: String,
         listener: Arc<dyn ConfigChangeListener>,
-    ) -> error::Result<()>;
+    ) -> error::Result<()> {
+        crate::common::util::check_not_blank(&data_id, "data_id")?;
+        crate::common::util::check_not_blank(&group, "group")?;
+        self.inner.remove_listener(data_id, group, listener).await
+    }
 }
-/// The ConfigChangeListener receive a notify of [`ConfigResponse`].
+
+/// The ConfigChangeListener receive notify of [`ConfigResponse`].
 pub trait ConfigChangeListener: Send + Sync {
     fn notify(&self, config_resp: ConfigResponse);
 }
@@ -261,12 +315,18 @@ impl ConfigServiceBuilder {
     }
 
     /// Builds a new [`ConfigService`].
-    pub fn build(self) -> error::Result<impl ConfigService> {
+    pub fn build(self) -> error::Result<ConfigService> {
         let auth_plugin = match self.auth_plugin {
             None => Arc::new(plugin::NoopAuthPlugin::default()),
             Some(plugin) => plugin,
         };
-        crate::config::NacosConfigService::new(self.client_props, auth_plugin, self.config_filters)
+        let inner = crate::config::NacosConfigService::new(
+            self.client_props,
+            auth_plugin,
+            self.config_filters,
+        )?;
+        let inner = Arc::new(inner);
+        Ok(ConfigService { inner })
     }
 }
 

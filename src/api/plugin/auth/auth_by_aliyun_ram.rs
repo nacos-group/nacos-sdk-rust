@@ -88,8 +88,8 @@ mod calculate_v4_signing_key_util {
     use ring::hmac::{self, Algorithm};
 
     use super::{
-        sign_utils::{self, sign_to_base64_with_alg},
         CONSTANT, SIGNATURE_V4_PRODUCE,
+        sign_utils::{self, sign_to_base64_with_alg},
     };
 
     pub fn first_signing_key(secret: &str, date: &str, alg: Algorithm) -> Vec<u8> {
@@ -283,9 +283,9 @@ mod test {
         calculate_v4_signing_key_util, sign_utils, spas_adaptor,
     };
     use crate::api::plugin::{
-        AliyunRamAuthPlugin, AuthContext, AuthPlugin, RequestResource, ACCESS_KEY,
-        ACCESS_KEY_HEADER, ACCESS_SECRET, AK_FILED, DATA_FILED, SIGNATURE_FILED, SIGNATURE_HEADER,
-        SIGNATURE_VERSION, SIGN_REGION_ID, TIMESTAMP_HEADER,
+        ACCESS_KEY, ACCESS_KEY_HEADER, ACCESS_SECRET, AK_FILED, AliyunRamAuthPlugin, AuthContext,
+        AuthPlugin, DATA_FILED, RequestResource, SIGN_REGION_ID, SIGNATURE_FILED, SIGNATURE_HEADER,
+        SIGNATURE_VERSION, TIMESTAMP_HEADER,
     };
     use crate::api::props::ClientProps;
     use crate::config::NacosConfigService;

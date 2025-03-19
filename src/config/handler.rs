@@ -4,8 +4,8 @@ use crate::config::message::request::ConfigChangeNotifyRequest;
 use crate::config::message::response::ConfigChangeNotifyResponse;
 use crate::config::util;
 use crate::nacos_proto::v2::Payload;
+use async_trait::async_trait;
 use tokio::sync::mpsc::Sender;
-use tonic::async_trait;
 
 /// Handler for ConfigChangeNotify
 pub(crate) struct ConfigChangeNotifyHandler {
@@ -28,7 +28,9 @@ impl ServerRequestHandler for ConfigChangeNotifyHandler {
         let req_namespace = server_req.namespace.unwrap_or_default();
         let req_data_id = server_req.data_id.unwrap();
         let req_group = server_req.group.unwrap();
-        tracing::info!("receive config-change, dataId={req_data_id},group={req_group},namespace={req_namespace}");
+        tracing::info!(
+            "receive config-change, dataId={req_data_id},group={req_group},namespace={req_namespace}"
+        );
         // notify config change
         let group_key = util::group_key(&req_data_id, &req_group, &req_namespace);
         let _ = self.notify_change_tx.send(group_key).await;

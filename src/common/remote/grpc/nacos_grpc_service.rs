@@ -4,8 +4,8 @@ use std::task::{Context, Poll};
 
 use futures::{Future, Stream};
 
+use async_trait::async_trait;
 use tokio::sync::oneshot::Sender;
-use tonic::async_trait;
 use tower::{Layer, Service};
 use want::Giver;
 
@@ -218,8 +218,8 @@ impl Layer<DynamicBiStreamingCallService> for BiStreamingCallIdentityLayer {
 pub mod unary_call_layer_test {
     use std::{pin::Pin, sync::Arc, task::Poll};
 
-    use futures::{future::poll_fn, Future};
-    use tower::{layer::util::Stack, Layer, Service};
+    use futures::{Future, future::poll_fn};
+    use tower::{Layer, Service, layer::util::Stack};
     use tracing::debug;
 
     use crate::{
