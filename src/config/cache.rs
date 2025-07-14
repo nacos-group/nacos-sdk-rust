@@ -133,8 +133,8 @@ impl CacheData {
 impl std::fmt::Display for CacheData {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut content = self.content.clone();
-        if content.len() > 30 {
-            content.truncate(30);
+        if content.chars().count() > 30 {
+            content = content.chars().take(30).collect();
             content.push_str("...");
         }
         write!(
