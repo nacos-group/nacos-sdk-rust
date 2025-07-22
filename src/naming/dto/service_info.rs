@@ -18,7 +18,7 @@ pub struct ServiceInfo {
 
     pub checksum: String,
 
-    #[serde(rename = "allIPs")]
+    #[serde(rename = "allIps")]
     pub all_ips: bool,
 
     pub reach_protection_threshold: bool,
