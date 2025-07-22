@@ -1,5 +1,14 @@
 # 变更日志 | Change log
 
+### 0.5.1
+
+- 修复: 使用安全的 UTF-8 字符边界处理修复字符串截断
+
+---
+
+- Fix: Fix panic on string truncation by using safe UTF-8 character boundary handling by @wslongchen
+
+
 ### 0.5.0
 
 - 增强: rust-edition=2024, MSRV=1.80
