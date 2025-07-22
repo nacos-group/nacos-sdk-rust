@@ -1,4 +1,4 @@
-name: codecov
+name: Code Coverage
 
 on:
   push:
@@ -13,19 +13,30 @@ on:
       - release-*
 
 jobs:
-  test:
+  coverage:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v3
-        with:
-          submodules: true
-      - uses: actions-rs/toolchain@v1
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: actions-rs/toolchain@v1
         with:
           profile: minimal
           toolchain: stable
           override: true
-      - uses: actions-rs/tarpaulin@v0.1
+
+      - name: Install cargo-tarpaulin
+        run: cargo install cargo-tarpaulin
+
+      - name: Generate coverage report
+        run: cargo tarpaulin --out Xml
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
         with:
-          version: 0.32.8
-      - uses: codecov/codecov-action@v2.1.0
+          files: coverage.xml
+          fail_ci_if_error: true
+          token: ${{ secrets.CODECOV_TOKEN }}
+
