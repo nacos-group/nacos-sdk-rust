@@ -18,7 +18,7 @@
 
 [package]
 name = "nacos-sdk"
-version = "0.5.0"
+version = "0.5.1"
 edition = "2024"
 authors = ["nacos-group", "CheirshCai <785427346@qq.com>", "onewe <2583021406@qq.com>"]
 license = "Apache-2.0"
