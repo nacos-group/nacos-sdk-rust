@@ -18,8 +18,13 @@ pub struct ServiceInfo {
 
     pub checksum: String,
 
+    // < 3.0
     #[serde(rename = "allIPs")]
-    pub all_ips: bool,
+    pub all_ips: Option<bool>,
+
+    // >=3.0
+    #[serde(rename = "allIps")]
+    pub all_ips_3x: Option<bool>,
 
     pub reach_protection_threshold: bool,
 
@@ -35,8 +40,16 @@ impl ServiceInfo {
         self.hosts.as_ref().unwrap().len() as i32
     }
 
+    fn is_all_ips(&self) -> bool {
+        if self.all_ips.is_some() {
+            self.all_ips.unwrap()
+        } else {
+            self.all_ips_3x.unwrap_or(false)
+        }
+    }
+
     pub fn validate(&self) -> bool {
-        if self.all_ips {
+        if self.is_all_ips() {
             return true;
         }
 
@@ -97,7 +110,8 @@ impl Default for ServiceInfo {
             cache_millis: 1000,
             last_ref_time: 0,
             checksum: Default::default(),
-            all_ips: false,
+            all_ips: Some(false),
+            all_ips_3x: Some(false),
             reach_protection_threshold: false,
             hosts: Default::default(),
         }

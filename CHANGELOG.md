@@ -1,5 +1,14 @@
 # 变更日志 | Change log
 
+### 0.5.2
+
+- 修复: 兼容 Nacos-Server 3.x 的 ServiceInfo 属性 `allIps`
+
+---
+
+- Fix: Compatible with Nacos Server 3.x ServiceInfo's field `allIps`
+
+
 ### 0.5.1
 
 - 修复: 使用安全的 UTF-8 字符边界处理修复字符串截断
