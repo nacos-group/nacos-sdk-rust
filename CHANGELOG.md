@@ -1,5 +1,14 @@
 # 变更日志 | Change log
 
+### 0.5.3
+
+- 增强: tokio 只引入需要的 `features = ["rt-multi-thread", "time", "net", "fs"]`
+
+---
+
+- Chore: do not require unused features of tokio #266
+
+
 ### 0.5.2
 
 - 修复: 兼容 Nacos-Server 3.x 的 ServiceInfo 属性 `allIps`
