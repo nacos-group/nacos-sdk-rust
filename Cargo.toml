@@ -49,7 +49,7 @@ auth-by-aliyun = ["ring", "base64", "chrono"]
 arc-swap = "1.7"
 nacos-macro = { version = "0.2.0", path = "nacos-macro" }
 thiserror = "1.0"
-tokio = { version = "1", features = ["full"] }
+tokio = { version = "1", features = ["rt-multi-thread", "time", "net", "fs"] }
 
 futures = "0.3"
 prost = "0.13"
