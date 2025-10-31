@@ -1,6 +1,18 @@
 use crate::api::error::Error;
 use crate::api::error::Result;
 
+pub(crate) static LOCAL_IP: std::sync::LazyLock<String> =
+    std::sync::LazyLock::new(|| local_ipaddress::get().unwrap_or(String::from("127.0.0.1")));
+
+pub(crate) static HOME_DIR: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+    home::home_dir()
+        .unwrap_or(std::env::temp_dir())
+        .as_path()
+        .to_str()
+        .unwrap()
+        .to_owned()
+});
+
 /// Checks param_val not blank
 pub(crate) fn check_not_blank<'a>(param_val: &'a str, param_name: &'a str) -> Result<&'a str> {
     if param_val.trim().is_empty() {
