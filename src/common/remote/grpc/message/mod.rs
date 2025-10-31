@@ -237,9 +237,6 @@ where
     client_ip: String,
 }
 
-static LOCAL_IP: std::sync::LazyLock<String> =
-    std::sync::LazyLock::new(|| local_ipaddress::get().unwrap());
-
 impl<T> GrpcMessageBuilder<T>
 where
     T: GrpcMessageData,
@@ -248,7 +245,7 @@ where
         GrpcMessageBuilder {
             headers: HashMap::<String, String>::new(),
             body,
-            client_ip: LOCAL_IP.to_owned(),
+            client_ip: crate::common::util::LOCAL_IP.to_owned(),
         }
     }
 

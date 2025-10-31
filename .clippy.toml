@@ -6,7 +6,7 @@ disallowed-methods = [
     "std::env::remove_var",
 
     # Use tokio::time::sleep instead.
-    "std::time::sleep",
+    "std::thread::sleep",
 ]
 disallowed-types = [
     # Use tokio::time::Instant instead.

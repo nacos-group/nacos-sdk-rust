@@ -44,6 +44,8 @@ naming = []
 tls = ["reqwest/default-tls"]
 auth-by-http = ["reqwest"]
 auth-by-aliyun = ["ring", "base64", "chrono"]
+# only need this if you don't customize tracing-subscriber
+tracing-log = ["tracing-subscriber", "tracing-appender"]
 
 [dependencies]
 arc-swap = "1.7"
@@ -58,6 +60,9 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
 tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "local-time"], optional = true }
+tracing-appender = { version = "0.2", optional = true }
+
 local_ipaddress = "0.1.3"
 rand = "0.8.5"
 

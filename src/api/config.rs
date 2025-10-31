@@ -316,6 +316,14 @@ impl ConfigServiceBuilder {
 
     /// Builds a new [`ConfigService`].
     pub fn build(self) -> error::Result<ConfigService> {
+        #[cfg(feature = "tracing-log")]
+        {
+            // $HOME/logs/nacos
+            let log_path = crate::common::util::HOME_DIR.to_owned() + "/logs/nacos";
+            let log_level = "INFO".to_string();
+            crate::common::log::init(log_path, log_level);
+        }
+
         let auth_plugin = match self.auth_plugin {
             None => Arc::new(plugin::NoopAuthPlugin::default()),
             Some(plugin) => plugin,
