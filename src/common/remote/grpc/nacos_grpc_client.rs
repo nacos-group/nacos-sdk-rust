@@ -447,15 +447,23 @@ pub mod tests {
                 let app_name = &req
                     .metadata
                     .as_ref()
-                    .map(|data| data.headers.get(APP_FILED).unwrap().clone())
-                    .unwrap();
+                    .map(|data| {
+                        data.headers
+                            .get(APP_FILED)
+                            .expect("APP field should exist in headers")
+                            .clone()
+                    })
+                    .expect("APP field extraction should not fail");
 
                 app_name.eq("test_app")
             }))
             .returning(|req| {
-                let request = GrpcMessage::<HealthCheckRequest>::from_payload(req).unwrap();
+                let request = GrpcMessage::<HealthCheckRequest>::from_payload(req)
+                    .expect("Payload should deserialize to HealthCheckRequest");
                 let request = request.into_body();
-                let req_id = request.request_id.unwrap();
+                let req_id = request
+                    .request_id
+                    .expect("Request ID should exist in the deserialized request");
 
                 let mut response = HealthCheckResponse::default();
                 response.request_id = Some(req_id);
@@ -463,7 +471,7 @@ pub mod tests {
                 let payload = GrpcMessageBuilder::new(response)
                     .build()
                     .into_payload()
-                    .unwrap();
+                    .expect("GRPC message should build into payload");
                 Ok(payload)
             });
 
@@ -476,11 +484,13 @@ pub mod tests {
         let response = nacos_grpc_client
             .send_request::<HealthCheckRequest, HealthCheckResponse>(health_check_request)
             .await;
-        let response = response.unwrap();
+        let response = response.expect("Health check response should succeed");
 
         assert_eq!(
             "test_health_check_id".to_string(),
-            response.request_id.unwrap()
+            response
+                .request_id
+                .expect("Response request ID should exist")
         );
     }
 }

@@ -88,7 +88,7 @@ where
                                 continue;
                             }
 
-                            let value = value.unwrap();
+                            let value = value.expect("Failed to serialize cache data to bytes");
                             Some(value)
                         } else {
                             None
@@ -353,7 +353,8 @@ where
             panic!("cannot read user home variable from system environment.")
         }
 
-        let mut disk_path = user_home.unwrap();
+        let mut disk_path =
+            user_home.expect("Failed to get user home directory from system environment");
         disk_path.push("nacos");
         disk_path.push(self.module.clone());
         disk_path.push(self.namespace.clone());
@@ -434,28 +435,28 @@ pub mod tests {
             {
                 let value = cache.get(&key);
                 assert!(value.is_some());
-                let value = value.unwrap();
+                let value = value.expect("Value should be present in cache");
                 assert!(value.eq("value"));
             }
 
             {
                 let value = cache.get_mut(&key);
                 assert!(value.is_some());
-                let mut value = value.unwrap();
+                let mut value = value.expect("Mutable value should be present in cache");
                 *value = "modify".to_owned();
             }
 
             {
                 let value = cache.get(&key);
                 assert!(value.is_some());
-                let value = value.unwrap();
+                let value = value.expect("Value should be present in cache after modification");
                 assert!(value.eq("modify"));
             }
 
             {
                 let ret = cache.remove(&key);
                 assert!(ret.is_some());
-                let ret = ret.unwrap();
+                let ret = ret.expect("Removed value should be present");
                 assert!(ret.eq("modify"));
             }
 
@@ -473,7 +474,8 @@ pub mod tests {
 
             let user_home = home::home_dir();
 
-            let mut disk_path = user_home.unwrap();
+            let mut disk_path =
+                user_home.expect("Failed to get user home directory from system environment");
             disk_path.push("nacos");
             disk_path.push("naming");
             disk_path.push("test-naming");
@@ -483,12 +485,12 @@ pub mod tests {
 
             assert!(read_ret.is_ok());
 
-            let ret = read_ret.unwrap();
+            let ret = read_ret.expect("Failed to read cache file from disk");
 
             let str = String::from_utf8(ret);
             assert!(str.is_ok());
 
-            let str = str.unwrap();
+            let str = str.expect("Failed to convert bytes to UTF-8 string");
 
             assert!(str.eq("\"test\""));
 
@@ -503,10 +505,10 @@ pub mod tests {
             let key = String::from("key1");
             let value = cache.get(&key);
             assert!(value.is_some());
-            let value = value.unwrap();
+            let value = value.expect("Value should be present in cache after reload");
             assert!(value.eq("test"));
 
-            let _ = std::fs::remove_file(&disk_path).unwrap();
+            let _ = std::fs::remove_file(&disk_path).expect("Failed to remove test cache file");
         });
     }
 }

@@ -25,5 +25,5 @@ fn build_proto() {
         .build_transport(true)
         .out_dir("src")
         .compile_protos(&["./proto/nacos_grpc_service.proto"], &["./proto"])
-        .unwrap();
+        .expect("Failed to compile proto files for nacos gRPC service");
 }

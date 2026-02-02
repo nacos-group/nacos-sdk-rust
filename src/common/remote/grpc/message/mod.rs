@@ -52,7 +52,7 @@ where
             error!("Serialize GrpcMessageBody occur an error: {:?}", error);
             return Err(error);
         }
-        let body = body.unwrap();
+        let body = body.expect("Body should exist after checking serialize result is not error");
 
         payload.metadata = Some(meta_data);
         payload.body = Some(body);
@@ -65,7 +65,7 @@ where
             return Err(ErrResult("grpc payload body is empty".to_string()));
         }
 
-        let body_any = body.unwrap();
+        let body_any = body.expect("Body should exist after checking it's not none");
 
         let meta_data = payload.metadata.unwrap_or_default();
         let r_type = meta_data.r#type;
@@ -87,7 +87,9 @@ where
                         );
                         return Err(error);
                     }
-                    let payload_str = payload_str.unwrap();
+                    let payload_str = payload_str.expect(
+                        "Payload string should exist after checking utf8 conversion is not error",
+                    );
                     error!(
                         "payload {} can not convert to {} occur an error:{:?}",
                         payload_str,
@@ -96,7 +98,7 @@ where
                     );
                     return Err(error);
                 }
-                de_body = ret.unwrap();
+                de_body = ret.expect("Deserialize body should exist after checking it's not error");
             } else {
                 warn!(
                     "payload type {}, target type {}, trying convert to ErrorResponse",
@@ -113,7 +115,9 @@ where
                         );
                         return Err(error);
                     }
-                    let payload_str = payload_str.unwrap();
+                    let payload_str = payload_str.expect(
+                        "Payload string should exist after checking utf8 conversion is not error",
+                    );
                     error!(
                         "payload {} can not convert to ErrorResponse occur an error:{:?}",
                         payload_str, error
@@ -121,7 +125,9 @@ where
                     return Err(error);
                 }
 
-                let error_response = ret.unwrap();
+                let error_response = ret.expect(
+                    "Error response should exist after checking deserialize result is not error",
+                );
                 return Err(ErrResponse(
                     error_response.request_id,
                     error_response.result_code,
@@ -141,7 +147,9 @@ where
                     );
                     return Err(error);
                 }
-                let payload_str = payload_str.unwrap();
+                let payload_str = payload_str.expect(
+                    "Payload string should exist after checking utf8 conversion is not error",
+                );
                 warn!(
                     "payload {} can not convert to {} occur an error:{:?}",
                     payload_str,
@@ -153,7 +161,9 @@ where
                     error!("trying convert to ErrorResponse occur an error:{:?}", e);
                     return Err(error);
                 }
-                let error_response = ret.unwrap();
+                let error_response = ret.expect(
+                    "Error response should exist after checking deserialize result is not error",
+                );
                 return Err(ErrResponse(
                     error_response.request_id,
                     error_response.result_code,
@@ -161,7 +171,7 @@ where
                     error_response.message,
                 ));
             }
-            de_body = ret.unwrap();
+            de_body = ret.expect("Deserialize body should exist after checking it's not error");
         }
 
         Ok(GrpcMessage {
@@ -186,7 +196,8 @@ pub(crate) trait GrpcMessageData:
         if let Err(error) = byte_data {
             return Err(Serialization(error));
         }
-        any.value = byte_data.unwrap();
+        any.value =
+            byte_data.expect("Byte data should exist after checking serialize result is not error");
         Ok(any)
     }
 
@@ -195,7 +206,8 @@ pub(crate) trait GrpcMessageData:
         if let Err(error) = body {
             return Err(Serialization(error));
         };
-        let body = body.unwrap();
+        let body = body
+            .expect("Deserialize body should exist after checking serialize result is not error");
         Ok(body)
     }
 }

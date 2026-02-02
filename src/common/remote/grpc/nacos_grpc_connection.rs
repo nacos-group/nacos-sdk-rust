@@ -114,7 +114,10 @@ where
 
                 // if previous id is none and the current id is some then the state is connected
                 if previous_id.is_none() && current_id.is_some() {
-                    let current_id = current_id.as_ref().unwrap().clone();
+                    let current_id = current_id
+                        .as_ref()
+                        .expect("Current ID should exist after checking it's some")
+                        .clone();
                     listener(current_id);
                 }
                 previous_id = current_id;
@@ -134,7 +137,10 @@ where
 
                 // if previous id is some and the current id is none then the state is disconnected
                 if previous_id.is_some() && current_id.is_none() {
-                    let previous_id = previous_id.as_ref().unwrap().clone();
+                    let previous_id = previous_id
+                        .as_ref()
+                        .expect("Previous ID should exist after checking it's some")
+                        .clone();
                     listener(previous_id);
                 }
                 previous_id = current_id;
@@ -242,7 +248,7 @@ where
                 "setup message convert to grpc message occur an error".to_string(),
             ));
         }
-        let payload = payload.unwrap();
+        let payload = payload.expect("Payload should exist after checking conversion is not error");
 
         let send_ret = local_sender.send(payload).await;
         if let Err(e) = send_ret {
@@ -280,14 +286,16 @@ where
                 return;
             }
 
-            let server_stream = server_stream.unwrap();
+            let server_stream = server_stream
+                .expect("Server stream should exist after checking it's not error");
             if let Err(e) = server_stream {
                 error!("can't open server stream. {}", e);
                 warn!("server stream closed!");
                 return;
             }
 
-            let server_stream = server_stream.unwrap();
+            let server_stream = server_stream
+                .expect("Server stream should exist after checking it's not error");
 
             // receive conn_id
             let conn_id = conn_id_receiver.await;
@@ -296,7 +304,7 @@ where
                 error!("the server stream has already opened, but cannot get connection id! quit server stream task. {e}");
                 return;
             }
-            let conn_id = conn_id.unwrap();
+            let conn_id = conn_id.expect("Failed to get connection ID from server stream");
 
             // create span
             let span = debug_span!("bi_stream", conn_id = conn_id);
@@ -312,7 +320,7 @@ where
                         debug!("response payload type field is empty, skip.");
                         continue;
                     }
-                    let handler_key = handler_key.unwrap();
+                    let handler_key = handler_key.expect("Handler key should be present in response metadata");
                     debug!("server stream handler: {}", handler_key);
                     let handler = server_stream_handlers.get(&handler_key).cloned();
                     let handler = handler.unwrap_or_else(|| Arc::new(DefaultHandler));
@@ -324,7 +332,7 @@ where
                         );
                         continue;
                     }
-                    let ret = ret.unwrap();
+                    let ret = ret.expect("Handler response should be present");
                     let ret = local_sender_clone.send(ret).await;
                     if let Err(e) = ret {
                         error!("send grpc message to server occur an error, {}", e);
@@ -354,7 +362,7 @@ where
                 "health check request message convert to grpc message occur an error".to_string(),
             ));
         }
-        let request = request.unwrap();
+        let request = request.expect("Health check request should be convertible to gRPC payload");
 
         let (gv, mut tk) = want::new();
 
@@ -371,12 +379,13 @@ where
             error!("grpc request callback failed. {}", e);
             return Err(ErrResult("grpc request callback failed".to_string()));
         }
-        let response = response.unwrap();
+        let response =
+            response.expect("gRPC response should be received in connection health check");
         if let Err(e) = response {
             error!("connection health check failed: {}", e);
             return Err(ErrResult("connection health check failed".to_string()));
         }
-        let response = response.unwrap();
+        let response = response.expect("Health check response should indicate success");
 
         let response = GrpcMessage::<HealthCheckResponse>::from_payload(response);
         if let Err(e) = response {
@@ -405,7 +414,7 @@ where
                 "server check request message convert to grpc message occur an error".to_string(),
             ));
         }
-        let request = request.unwrap();
+        let request = request.expect("Server check request should be convertible to gRPC message");
 
         let (gv, mut tk) = want::new();
 
@@ -422,12 +431,12 @@ where
             error!("grpc request callback failed. {}", e);
             return Err(ErrResult("grpc request callback failed".to_string()));
         }
-        let response = response.unwrap();
+        let response = response.expect("gRPC response should be received in server check");
         if let Err(e) = response {
             error!("check server failed: {}", e);
             return Err(ErrResult("check server failed".to_string()));
         }
-        let response = response.unwrap();
+        let response = response.expect("Server check response should indicate success");
 
         let response = GrpcMessage::<ServerCheckResponse>::from_payload(response);
         if let Err(e) = response {
@@ -437,7 +446,7 @@ where
             ));
         }
 
-        let response = response.unwrap();
+        let response = response.expect("Server check response should be successful");
 
         let response = response.into_body();
         let connection_id = response.connection_id;
@@ -449,7 +458,8 @@ where
             ));
         }
 
-        let connection_id = connection_id.unwrap();
+        let connection_id =
+            connection_id.expect("Connection ID should be present in server check response");
 
         Ok(connection_id)
     }
@@ -486,11 +496,11 @@ where
             debug_span!(parent: None, "grpc_connection", id = self.id.clone()).entered();
 
         loop {
-            if let Some(max_retries) = self.max_retries {
-                if self.retry_count > max_retries {
-                    error!("Exceeded maximum retry attempts: {}", max_retries);
-                    return Poll::Ready(Err(Self::Error::MaxRetriesExceeded(max_retries)));
-                }
+            if let Some(max_retries) = self.max_retries
+                && self.retry_count > max_retries
+            {
+                error!("Exceeded maximum retry attempts: {}", max_retries);
+                return Poll::Ready(Err(Self::Error::MaxRetriesExceeded(max_retries)));
             }
 
             match self.state {
@@ -658,7 +668,7 @@ where
                     if response.is_err() {
                         return Err(ErrResult("sender has been drop".to_string()));
                     }
-                    response.unwrap()
+                    response.expect("Response receiver should not fail")
                 }
                 .in_current_span();
                 executor::spawn(call_task);
@@ -761,7 +771,8 @@ where
                 sleep(Duration::from_secs(5)).await;
                 continue;
             }
-            let health_check_request = health_check_request.unwrap();
+            let health_check_request = health_check_request
+                .expect("Health check request should be convertible to payload");
             let ready = futures_util::future::poll_fn(|cx| svc.poll_ready(cx))
                 .in_current_span()
                 .await;
@@ -783,7 +794,7 @@ where
                 continue;
             }
 
-            let response = response.unwrap();
+            let response = response.expect("Health check response should be received successfully");
             let response = GrpcMessage::<HealthCheckResponse>::from_payload(response);
             if let Err(e) = response {
                 let _ =

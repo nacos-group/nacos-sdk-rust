@@ -11,9 +11,9 @@ pub(crate) fn group_key(data_id: &str, group: &str, namespace: &str) -> String {
 pub(crate) fn parse_key(group_key: &str) -> (String, String, String) {
     let v: Vec<&str> = group_key.split(GROUP_KEY_SPLIT).collect();
     (
-        v.get(0).unwrap().to_string(),
-        v.get(1).unwrap().to_string(),
-        v.get(2).unwrap().to_string(),
+        v.get(0).expect("data_id should exist").to_string(),
+        v.get(1).expect("group should exist").to_string(),
+        v.get(2).expect("namespace should exist").to_string(),
     )
 }
 

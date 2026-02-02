@@ -39,7 +39,7 @@ impl GrpcConfiguration {
         if uri.is_err() {
             return self;
         }
-        self.origin = Some(uri.unwrap());
+        self.origin = Some(uri.expect("Failed to parse URI"));
         self
     }
 
@@ -48,7 +48,7 @@ impl GrpcConfiguration {
         if ua.is_err() {
             return self;
         }
-        let ua = ua.unwrap();
+        let ua = ua.expect("Failed to parse user agent header value");
         self.user_agent = Some(ua);
         self
     }

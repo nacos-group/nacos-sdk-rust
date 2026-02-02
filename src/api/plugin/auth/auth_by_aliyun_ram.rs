@@ -28,7 +28,7 @@ pub const SHA_ENCRYPT: &str = "HmacSHA1";
 fn get_current_timestamp() -> u128 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .unwrap()
+        .expect("System time should be after UNIX_EPOCH")
         .as_millis()
 }
 
@@ -151,11 +151,19 @@ impl AliyunRamAuthPlugin {
         Self::get_sign_data(&resource)
             .map(|sign_data| {
                 let mut res = LoginIdentityContext::default();
-                let mut signature_key = self.secret_key.load().as_ref().as_ref().unwrap().clone();
+                let mut signature_key = self
+                    .secret_key
+                    .load()
+                    .as_ref()
+                    .as_ref()
+                    .expect("Secret key should be initialized before getting login identity")
+                    .clone();
                 if let Some(region_id) = self.signature_region_id.load().as_ref() {
                     signature_key =
                         calculate_v4_signing_key_util::final_signing_key_string_with_default_info(
-                            self.secret_key.load().as_ref().as_ref().unwrap(),
+                            self.secret_key.load().as_ref().as_ref().expect(
+                                "Secret key should be initialized before calculating signature",
+                            ),
                             region_id,
                         );
                     res = res.add_context(SIGNATURE_VERSION, V4);
@@ -163,7 +171,13 @@ impl AliyunRamAuthPlugin {
                 let signature = sign_utils::sign_with_hmac_sha1(&sign_data, &signature_key);
                 res = res.add_context(SIGNATURE_FILED, signature);
                 res = res.add_context(DATA_FILED, sign_data);
-                res = res.add_context(AK_FILED, self.access_key.load().as_ref().as_ref().unwrap());
+                res =
+                    res.add_context(
+                        AK_FILED,
+                        self.access_key.load().as_ref().as_ref().expect(
+                            "Access key should be initialized before getting login identity",
+                        ),
+                    );
                 res
             })
             .unwrap_or_default()
@@ -185,25 +199,46 @@ impl AliyunRamAuthPlugin {
             if service_name.contains("@@") || resource.group.is_none() {
                 service_name.clone()
             } else {
-                format!("{}@@{}", resource.group.as_ref().unwrap(), service_name)
+                format!(
+                    "{}@@{}",
+                    resource
+                        .group
+                        .as_ref()
+                        .expect("Group should be set when formatting grouped service name"),
+                    service_name
+                )
             }
         })
     }
 
     fn get_login_identify_for_config(&self, resource: RequestResource) -> LoginIdentityContext {
         let mut res = LoginIdentityContext::default();
-        let mut signature_key = self.secret_key.load().as_ref().as_ref().unwrap().clone();
+        let mut signature_key = self
+            .secret_key
+            .load()
+            .as_ref()
+            .as_ref()
+            .expect("Secret key should be initialized before getting login identity")
+            .clone();
         if let Some(region_id) = self.signature_region_id.load().as_ref().as_ref() {
             signature_key =
                 calculate_v4_signing_key_util::final_signing_key_string_with_default_info(
-                    self.secret_key.load().as_ref().as_ref().unwrap(),
+                    self.secret_key
+                        .load()
+                        .as_ref()
+                        .as_ref()
+                        .expect("Secret key should be initialized before calculating v4 signature"),
                     region_id,
                 );
             res = res.add_context(SIGNATURE_VERSION, V4);
         }
         res = res.add_context(
             ACCESS_KEY_HEADER,
-            self.access_key.load().as_ref().as_ref().unwrap(),
+            self.access_key
+                .load()
+                .as_ref()
+                .as_ref()
+                .expect("Access key should be initialized before getting login identity"),
         );
         res = res.add_contexts(spas_adaptor::get_sign_header_for_resource(
             Self::get_resource_for_config(&resource).as_str(),
@@ -219,7 +254,11 @@ impl AliyunRamAuthPlugin {
             .filter(|value| !value.is_empty());
         let group = resource.group.as_ref().filter(|value| !value.is_empty());
         if namespace.is_some() && group.is_some() {
-            format!("{}+{}", namespace.unwrap(), group.unwrap())
+            format!(
+                "{}+{}",
+                namespace.expect("Namespace should be set when formatting resource for config"),
+                group.expect("Group should be set when formatting resource for config")
+            )
         } else if let Some(g) = group {
             g.to_string()
         } else if let Some(n) = namespace {
@@ -312,15 +351,23 @@ mod test {
 
         sign_headers = spas_adaptor::get_sign_header_for_resource("", "test");
         assert_eq!(sign_headers.len(), 2);
-        let timestamp = sign_headers.get(TIMESTAMP_HEADER).unwrap();
-        let sign_data = sign_headers.get(SIGNATURE_HEADER).unwrap();
+        let timestamp = sign_headers
+            .get(TIMESTAMP_HEADER)
+            .expect("Timestamp header should exist in sign_headers");
+        let sign_data = sign_headers
+            .get(SIGNATURE_HEADER)
+            .expect("Signature header should exist in sign_headers");
         let expected_sign_data = sign_utils::sign_with_hmac_sha1(timestamp, "test");
         assert_eq!(&expected_sign_data, sign_data);
 
         sign_headers = spas_adaptor::get_sign_header_for_resource("test", "test");
         assert_eq!(sign_headers.len(), 2);
-        let timestamp = sign_headers.get(TIMESTAMP_HEADER).unwrap();
-        let sign_data = sign_headers.get(SIGNATURE_HEADER).unwrap();
+        let timestamp = sign_headers
+            .get(TIMESTAMP_HEADER)
+            .expect("Timestamp header should exist in sign_headers");
+        let sign_data = sign_headers
+            .get(SIGNATURE_HEADER)
+            .expect("Signature header should exist in sign_headers");
         let expected_sign_data =
             sign_utils::sign_with_hmac_sha1(format!("{}+{}", "test", timestamp).as_str(), "test");
         assert_eq!(&expected_sign_data, sign_data);
@@ -342,7 +389,7 @@ mod test {
                 .load()
                 .as_ref()
                 .as_ref()
-                .unwrap()
+                .expect("System time should be after UNIX_EPOCH")
         );
         assert_eq!(
             "test",
@@ -351,7 +398,7 @@ mod test {
                 .load()
                 .as_ref()
                 .as_ref()
-                .unwrap()
+                .expect("System time should be after UNIX_EPOCH")
         );
         assert_eq!(
             "cn-hangzhou",
@@ -360,7 +407,7 @@ mod test {
                 .load()
                 .as_ref()
                 .as_ref()
-                .unwrap()
+                .expect("System time should be after UNIX_EPOCH")
         );
     }
 
@@ -392,25 +439,35 @@ mod test {
         let mut resource = RequestResource::default();
         resource.resource = Some("test@@test".to_owned());
         let grouped_service_name = AliyunRamAuthPlugin::get_grouped_service_name(&resource);
-        assert_eq!("test@@test", grouped_service_name.unwrap());
+        assert_eq!(
+            "test@@test",
+            grouped_service_name.expect("Grouped service name should exist")
+        );
 
         let mut resource = RequestResource::default();
         resource.resource = Some("test".to_owned());
         let grouped_service_name = AliyunRamAuthPlugin::get_grouped_service_name(&resource);
-        assert_eq!("test", grouped_service_name.unwrap());
+        assert_eq!(
+            "test",
+            grouped_service_name.expect("Grouped service name should exist")
+        );
 
         let mut resource = RequestResource::default();
         resource.resource = Some("test".to_owned());
         resource.group = Some("test".to_owned());
         let grouped_service_name = AliyunRamAuthPlugin::get_grouped_service_name(&resource);
-        assert_eq!("test@@test", grouped_service_name.unwrap());
+        assert_eq!(
+            "test@@test",
+            grouped_service_name.expect("Grouped service name should exist")
+        );
     }
 
     #[test]
     fn test_get_sign_data() {
         let mut request = RequestResource::default();
         request.resource = Some("test".to_owned());
-        let sign_data = AliyunRamAuthPlugin::get_sign_data(&request).unwrap();
+        let sign_data = AliyunRamAuthPlugin::get_sign_data(&request)
+            .expect("Sign data should exist for request");
         assert!(sign_data.contains("@@test"))
     }
 
@@ -432,14 +489,26 @@ mod test {
         assert_eq!(4, identity_context.contexts.len());
         assert_eq!(
             "v4",
-            identity_context.contexts.get(SIGNATURE_VERSION).unwrap()
+            identity_context
+                .contexts
+                .get(SIGNATURE_VERSION)
+                .expect("Signature version should exist in identity contexts")
         );
-        assert_eq!("test-ak", identity_context.contexts.get(AK_FILED).unwrap());
-        let data = identity_context.contexts.get(DATA_FILED).unwrap();
+        assert_eq!(
+            "test-ak",
+            identity_context
+                .contexts
+                .get(AK_FILED)
+                .expect("AK field should exist in identity contexts")
+        );
+        let data = identity_context
+            .contexts
+            .get(DATA_FILED)
+            .expect("Data field should exist in identity contexts");
         let sign_data = identity_context
             .contexts
             .get(SIGNATURE_FILED)
-            .unwrap()
+            .expect("System time should be after UNIX_EPOCH")
             .clone();
 
         let signature_key =
@@ -471,15 +540,27 @@ mod test {
         assert_eq!(4, identity_context.contexts.len());
         assert_eq!(
             "v4",
-            identity_context.contexts.get(SIGNATURE_VERSION).unwrap()
+            identity_context
+                .contexts
+                .get(SIGNATURE_VERSION)
+                .expect("Signature version should exist in identity contexts")
         );
         assert_eq!(
             "test-ak",
-            identity_context.contexts.get(ACCESS_KEY_HEADER).unwrap()
+            identity_context
+                .contexts
+                .get(ACCESS_KEY_HEADER)
+                .expect("Access key header should exist in identity contexts")
         );
 
-        let timestamp = identity_context.contexts.get(TIMESTAMP_HEADER).unwrap();
-        let sign_data = identity_context.contexts.get(SIGNATURE_HEADER).unwrap();
+        let timestamp = identity_context
+            .contexts
+            .get(TIMESTAMP_HEADER)
+            .expect("Timestamp header should exist in identity contexts");
+        let sign_data = identity_context
+            .contexts
+            .get(SIGNATURE_HEADER)
+            .expect("Signature header should exist in identity contexts");
 
         let signature_key =
             calculate_v4_signing_key_util::final_signing_key_string_with_default_info(
@@ -501,8 +582,13 @@ mod test {
 
     impl NamingEventListener for TestNamingEventListener {
         fn event(&self, event: Arc<NamingChangeEvent>) {
-            self.instance_now
-                .store(Arc::new(event.instances.as_ref().unwrap().clone()));
+            self.instance_now.store(Arc::new(
+                event
+                    .instances
+                    .as_ref()
+                    .expect("Event instances should exist")
+                    .clone(),
+            ));
         }
     }
 
@@ -517,7 +603,10 @@ mod test {
     fn init_ram_client_prop_from_env() -> ClientProps {
         ClientProps::new()
             .namespace(std::env::var("NAMESPACE").unwrap_or("".to_string()))
-            .server_addr(std::env::var("SERVER_ADDR").unwrap())
+            .server_addr(
+                std::env::var("SERVER_ADDR")
+                    .expect("SERVER_ADDR environment variable should be set"),
+            )
     }
 
     fn make_service_instance(ip: &str, port: i32) -> ServiceInstance {
@@ -532,7 +621,8 @@ mod test {
     async fn test_naming_ram() {
         let props = init_ram_client_prop_from_env();
         let naming_client =
-            NacosNamingService::new(props, Arc::new(AliyunRamAuthPlugin::default())).unwrap();
+            NacosNamingService::new(props, Arc::new(AliyunRamAuthPlugin::default()))
+                .expect("Failed to create NacosNamingService with RAM auth plugin");
         naming_client
             .register_instance(
                 "test".to_owned(),
@@ -540,7 +630,7 @@ mod test {
                 make_service_instance("1.1.1.1", 8080),
             )
             .await
-            .unwrap();
+            .expect("System time should be after UNIX_EPOCH");
         let instances = naming_client
             .get_all_instances(
                 "test".to_string(),
@@ -549,7 +639,7 @@ mod test {
                 false,
             )
             .await
-            .unwrap();
+            .expect("System time should be after UNIX_EPOCH");
         assert_eq!(1, instances.len());
         assert_eq!("1.1.1.1", instances[0].ip);
         assert_eq!(8080, instances[0].port);
@@ -561,7 +651,7 @@ mod test {
                 make_service_instance("1.1.1.1", 8080),
             )
             .await
-            .unwrap();
+            .expect("System time should be after UNIX_EPOCH");
         sleep(Duration::from_secs(5)).await;
         let instance = naming_client
             .get_all_instances(
@@ -571,14 +661,14 @@ mod test {
                 false,
             )
             .await
-            .unwrap();
+            .expect("System time should be after UNIX_EPOCH");
         assert_eq!(0, instance.len());
 
         let listener = Arc::new(TestNamingEventListener::default());
         naming_client
             .subscribe("test".to_string(), None, Vec::new(), listener.clone())
             .await
-            .unwrap();
+            .expect("System time should be after UNIX_EPOCH");
 
         naming_client
             .register_instance(
@@ -587,14 +677,14 @@ mod test {
                 make_service_instance("2.2.2.2", 80),
             )
             .await
-            .unwrap();
+            .expect("System time should be after UNIX_EPOCH");
         sleep(Duration::from_secs(5)).await;
         assert_eq!(1, listener.instance_now.load().len());
 
         naming_client
             .unsubscribe("test".to_string(), None, Vec::new(), listener.clone())
             .await
-            .unwrap();
+            .expect("System time should be after UNIX_EPOCH");
         naming_client
             .batch_register_instance(
                 "test".to_owned(),
@@ -605,7 +695,7 @@ mod test {
                 ],
             )
             .await
-            .unwrap();
+            .expect("System time should be after UNIX_EPOCH");
 
         sleep(Duration::from_secs(5)).await;
         let instance = naming_client
@@ -616,7 +706,7 @@ mod test {
                 false,
             )
             .await
-            .unwrap();
+            .expect("System time should be after UNIX_EPOCH");
         assert_eq!(2, instance.len());
     }
 
@@ -645,7 +735,7 @@ mod test {
         let props = init_ram_client_prop_from_env();
         let config_client =
             NacosConfigService::new(props, Arc::new(AliyunRamAuthPlugin::default()), Vec::new())
-                .unwrap();
+                .expect("System time should be after UNIX_EPOCH");
         config_client
             .publish_config(
                 "test".to_string(),
@@ -654,13 +744,13 @@ mod test {
                 Some("properties".to_string()),
             )
             .await
-            .unwrap();
+            .expect("System time should be after UNIX_EPOCH");
         sleep(Duration::from_secs(5)).await;
 
         let response = config_client
             .get_config("test".to_string(), "test".to_string())
             .await
-            .unwrap();
+            .expect("System time should be after UNIX_EPOCH");
         assert_eq!("test=test", response.content());
         assert_eq!("properties", response.content_type());
         assert_eq!("test", response.group());
@@ -669,7 +759,7 @@ mod test {
         config_client
             .remove_config("test".to_string(), "test".to_string())
             .await
-            .unwrap();
+            .expect("System time should be after UNIX_EPOCH");
         sleep(Duration::from_secs(5)).await;
         let result = config_client
             .get_config("test".to_string(), "test".to_string())
@@ -677,14 +767,14 @@ mod test {
         assert!(result.is_err());
         assert_eq!(
             "config not found: error_code=300,message=config data not exist",
-            result.err().unwrap().to_string()
+            result.err().expect("Error result should exist").to_string()
         );
 
         let listener = Arc::new(TestConfigListener::default());
         config_client
             .add_listener("test-1".to_string(), "test".to_string(), listener.clone())
             .await
-            .unwrap();
+            .expect("System time should be after UNIX_EPOCH");
         config_client
             .publish_config(
                 "test-1".to_string(),
@@ -693,16 +783,19 @@ mod test {
                 Some("properties".to_string()),
             )
             .await
-            .unwrap();
+            .expect("System time should be after UNIX_EPOCH");
         sleep(Duration::from_secs(5)).await;
         let result = config_client
             .get_config("test-1".to_string(), "test".to_string())
             .await;
-        assert_eq!(result.unwrap().content(), "test=test");
+        assert_eq!(
+            result.expect("Config result should exist").content(),
+            "test=test"
+        );
 
         config_client
             .remove_listener("test-1".to_string(), "test".to_string(), listener.clone())
             .await
-            .unwrap();
+            .expect("System time should be after UNIX_EPOCH");
     }
 }

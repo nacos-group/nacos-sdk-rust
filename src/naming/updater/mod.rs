@@ -197,8 +197,7 @@ impl ServiceInfoUpdateTask {
                     let grouped_name =
                         ServiceInfo::get_grouped_service_name(service_name, group_name);
                     let key = ServiceInfo::get_key(&grouped_name, cluster);
-                    let ret = cache.get(&key).map(|data| data.clone());
-                    ret
+                    cache.get(&key).map(|data| data.clone())
                 };
 
                 let mut need_query_service_info = true;
@@ -232,7 +231,8 @@ impl ServiceInfoUpdateTask {
                     }
                     continue;
                 }
-                let response = ret.unwrap();
+                let response = ret
+                    .expect("Response should exist after checking it's not an error");
                 debug!("{log_tag}:ServiceInfoUpdateTask query service info response: {response:?}");
                 if !response.is_success() {
                     let result_code = response.result_code;

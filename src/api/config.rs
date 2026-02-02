@@ -341,7 +341,7 @@ impl ConfigServiceBuilder {
 #[cfg(test)]
 mod tests {
     use crate::api::config::ConfigServiceBuilder;
-    use crate::api::config::{ConfigChangeListener, ConfigResponse, ConfigService};
+    use crate::api::config::{ConfigChangeListener, ConfigResponse};
     use std::collections::HashMap;
     use std::time::Duration;
     use tokio::time::sleep;
@@ -363,7 +363,9 @@ mod tests {
 
         let (data_id, group) = ("test_api_config_service".to_string(), "TEST".to_string());
 
-        let config_service = ConfigServiceBuilder::default().build().unwrap();
+        let config_service = ConfigServiceBuilder::default()
+            .build()
+            .expect("ConfigServiceBuilder should build successfully in tests");
 
         // publish a config
         let _publish_resp = config_service
@@ -374,7 +376,7 @@ mod tests {
                 Some("text".to_string()),
             )
             .await
-            .unwrap();
+            .expect("ConfigServiceBuilder should build successfully in tests");
         // sleep for config sync in server
         sleep(Duration::from_millis(111)).await;
 
@@ -407,7 +409,7 @@ mod tests {
                 Some("text".to_string()),
             )
             .await
-            .unwrap();
+            .expect("ConfigServiceBuilder should build successfully in tests");
 
         // example get a config not exit
         let config_resp = config_service
@@ -442,7 +444,9 @@ mod tests {
             .with_max_level(tracing::Level::DEBUG)
             .init();
 
-        let config_service = ConfigServiceBuilder::default().build().unwrap();
+        let config_service = ConfigServiceBuilder::default()
+            .build()
+            .expect("ConfigServiceBuilder should build successfully in tests");
 
         // remove a config not exit
         let remove_resp = config_service
@@ -461,7 +465,9 @@ mod tests {
             .with_max_level(tracing::Level::DEBUG)
             .init();
 
-        let config_service = ConfigServiceBuilder::default().build().unwrap();
+        let config_service = ConfigServiceBuilder::default()
+            .build()
+            .expect("ConfigServiceBuilder should build successfully in tests");
 
         // publish a config
         let publish_resp = config_service
@@ -472,7 +478,7 @@ mod tests {
                 Some("text".to_string()),
             )
             .await
-            .unwrap();
+            .expect("ConfigServiceBuilder should build successfully in tests");
         tracing::info!("publish a config: {}", publish_resp);
         assert_eq!(true, publish_resp);
     }
@@ -484,7 +490,9 @@ mod tests {
             .with_max_level(tracing::Level::DEBUG)
             .init();
 
-        let config_service = ConfigServiceBuilder::default().build().unwrap();
+        let config_service = ConfigServiceBuilder::default()
+            .build()
+            .expect("ConfigServiceBuilder should build successfully in tests");
 
         let mut params = HashMap::new();
         params.insert(
@@ -502,7 +510,7 @@ mod tests {
                 params,
             )
             .await
-            .unwrap();
+            .expect("ConfigServiceBuilder should build successfully in tests");
         tracing::info!("publish a config with param: {}", publish_resp);
         assert_eq!(true, publish_resp);
     }
@@ -514,7 +522,9 @@ mod tests {
             .with_max_level(tracing::Level::DEBUG)
             .init();
 
-        let config_service = ConfigServiceBuilder::default().build().unwrap();
+        let config_service = ConfigServiceBuilder::default()
+            .build()
+            .expect("ConfigServiceBuilder should build successfully in tests");
 
         // publish a config with beta
         let publish_resp = config_service
@@ -526,7 +536,7 @@ mod tests {
                 "127.0.0.1,192.168.0.1".to_string(),
             )
             .await
-            .unwrap();
+            .expect("ConfigServiceBuilder should build successfully in tests");
         tracing::info!("publish a config with beta: {}", publish_resp);
         assert_eq!(true, publish_resp);
     }
@@ -538,7 +548,9 @@ mod tests {
             .with_max_level(tracing::Level::DEBUG)
             .init();
 
-        let config_service = ConfigServiceBuilder::default().build().unwrap();
+        let config_service = ConfigServiceBuilder::default()
+            .build()
+            .expect("ConfigServiceBuilder should build successfully in tests");
 
         let data_id = "test_api_config_service_publish_config_cas".to_string();
         let group = "TEST".to_string();
@@ -551,7 +563,7 @@ mod tests {
                 None,
             )
             .await
-            .unwrap();
+            .expect("ConfigServiceBuilder should build successfully in tests");
         assert_eq!(true, publish_resp);
 
         // sleep for config sync in server
@@ -561,7 +573,7 @@ mod tests {
         let config_resp = config_service
             .get_config(data_id.clone(), group.clone())
             .await
-            .unwrap();
+            .expect("ConfigServiceBuilder should build successfully in tests");
 
         // publish a config with cas
         let content_cas_md5 =
@@ -575,7 +587,7 @@ mod tests {
                 config_resp.md5().to_string(),
             )
             .await
-            .unwrap();
+            .expect("ConfigServiceBuilder should build successfully in tests");
         tracing::info!("publish a config with cas: {}", publish_resp);
         assert_eq!(true, publish_resp);
 
@@ -599,7 +611,7 @@ mod tests {
         let config_resp = config_service
             .get_config(data_id.clone(), group.clone())
             .await
-            .unwrap();
+            .expect("ConfigServiceBuilder should build successfully in tests");
         assert_ne!(content_cas_md5_not_right, config_resp.content().as_str());
         assert_eq!(content_cas_md5.as_str(), config_resp.content().as_str());
     }

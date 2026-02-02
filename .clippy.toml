@@ -7,6 +7,10 @@ disallowed-methods = [
 
     # Use tokio::time::sleep instead.
     "std::thread::sleep",
+
+    # 将 unwrap 的使用视为错误(deny)或警告(warn)
+    "std::result::Result::unwrap",
+    "std::option::Option::unwrap",
 ]
 disallowed-types = [
     # Use tokio::time::Instant instead.

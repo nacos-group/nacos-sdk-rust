@@ -106,7 +106,9 @@ impl ConfigWorker {
             data_id,
             group,
             namespace,
-            config_resp.content.unwrap(),
+            config_resp
+                .content
+                .expect("Config content should exist in response"),
             config_resp.encrypted_data_key.unwrap_or_default(),
         );
         for config_filter in self.config_filters.iter() {
@@ -118,8 +120,12 @@ impl ConfigWorker {
             conf_resp.group,
             conf_resp.namespace,
             conf_resp.content,
-            config_resp.content_type.unwrap(),
-            config_resp.md5.unwrap(),
+            config_resp
+                .content_type
+                .expect("Config content_type should exist in response"),
+            config_resp
+                .md5
+                .expect("Config md5 should exist in response"),
         ))
     }
 
@@ -375,19 +381,15 @@ impl ConfigWorker {
                     .in_current_span()
                     .await;
 
-                if let Ok(resp) = resp {
-                    if resp.is_success() {
-                        if let Some(change_context_vec) = resp.changed_configs {
-                            for context in change_context_vec {
-                                // notify config change
-                                let group_key = util::group_key(
-                                    &context.data_id,
-                                    &context.group,
-                                    &context.namespace,
-                                );
-                                let _ = notify_change_tx.send(group_key).await;
-                            }
-                        }
+                if let Ok(resp) = resp
+                    && resp.is_success()
+                    && let Some(change_context_vec) = resp.changed_configs
+                {
+                    for context in change_context_vec {
+                        // notify config change
+                        let group_key =
+                            util::group_key(&context.data_id, &context.group, &context.namespace);
+                        let _ = notify_change_tx.send(group_key).await;
                     }
                 }
             }
@@ -398,9 +400,13 @@ impl ConfigWorker {
     }
 
     async fn fill_data_and_notify(cache_data: &mut CacheData, config_resp: ConfigQueryResponse) {
-        cache_data.content_type = config_resp.content_type.unwrap();
-        cache_data.content = config_resp.content.unwrap();
-        cache_data.md5 = config_resp.md5.unwrap();
+        cache_data.content_type = config_resp
+            .content_type
+            .expect("Config content_type missing in response");
+        cache_data.content = config_resp
+            .content
+            .expect("Config content missing in response");
+        cache_data.md5 = config_resp.md5.expect("Config md5 missing in response");
         // Compatibility None < 2.1.0
         cache_data.encrypted_data_key = config_resp.encrypted_data_key.unwrap_or_default();
         cache_data.last_modified = config_resp.last_modified;
@@ -477,13 +483,15 @@ impl ConfigWorker {
             Err(crate::api::error::Error::ConfigNotFound(format!(
                 "error_code={},message={}",
                 resp.error_code,
-                resp.message.unwrap()
+                resp.message
+                    .expect("Error message should exist for error response")
             )))
         } else if resp.is_query_conflict() {
             Err(crate::api::error::Error::ConfigQueryConflict(format!(
                 "error_code={},message={}",
                 resp.error_code,
-                resp.message.unwrap()
+                resp.message
+                    .expect("Error message should exist for error response")
             )))
         } else {
             let ConfigQueryResponse {
@@ -600,7 +608,7 @@ mod tests {
             Vec::new(),
             "test_config".to_string(),
         )
-        .unwrap();
+        .expect("Failed to create ConfigWorker in test");
 
         // test add listener1
         let lis1_arc = Arc::new(TestConfigChangeListener1 {});
@@ -615,8 +623,13 @@ mod tests {
         let group_key = util::group_key(&d, &g, &n);
         {
             let cache_data_map_mutex = client_worker.cache_data_map.lock().await;
-            let cache_data = cache_data_map_mutex.get(group_key.as_str()).unwrap();
-            let listen_mutex = cache_data.listeners.lock().unwrap();
+            let cache_data = cache_data_map_mutex
+                .get(group_key.as_str())
+                .expect("Cache data should exist for group key");
+            let listen_mutex = cache_data
+                .listeners
+                .lock()
+                .expect("Failed to lock cache data listeners");
             assert_eq!(2, listen_mutex.len());
         }
     }
@@ -632,7 +645,7 @@ mod tests {
             Vec::new(),
             "test_config".to_string(),
         )
-        .unwrap();
+        .expect("Failed to create ConfigWorker in test");
 
         // test add listener1
         let lis1_arc = Arc::new(TestConfigChangeListener1 {});
@@ -642,8 +655,13 @@ mod tests {
         let group_key = util::group_key(&d, &g, &n);
         {
             let cache_data_map_mutex = client_worker.cache_data_map.lock().await;
-            let cache_data = cache_data_map_mutex.get(group_key.as_str()).unwrap();
-            let listen_mutex = cache_data.listeners.lock().unwrap();
+            let cache_data = cache_data_map_mutex
+                .get(group_key.as_str())
+                .expect("Cache data should exist for group key");
+            let listen_mutex = cache_data
+                .listeners
+                .lock()
+                .expect("Failed to lock cache data listeners");
             assert_eq!(1, listen_mutex.len());
         }
 
@@ -652,8 +670,13 @@ mod tests {
             .await;
         {
             let cache_data_map_mutex = client_worker.cache_data_map.lock().await;
-            let cache_data = cache_data_map_mutex.get(group_key.as_str()).unwrap();
-            let listen_mutex = cache_data.listeners.lock().unwrap();
+            let cache_data = cache_data_map_mutex
+                .get(group_key.as_str())
+                .expect("Cache data should exist for group key");
+            let listen_mutex = cache_data
+                .listeners
+                .lock()
+                .expect("Failed to lock cache data listeners");
             assert_eq!(0, listen_mutex.len());
         }
     }

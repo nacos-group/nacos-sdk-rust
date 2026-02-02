@@ -22,7 +22,7 @@ impl ServerRequestHandler for DefaultHandler {
                 error!("unknown payload convert to string failed. {}", e);
                 r_body = Default::default();
             } else {
-                r_body = body_str.unwrap();
+                r_body = body_str.expect("body_str should be valid UTF-8");
             }
         } else {
             r_body = Default::default();

@@ -30,11 +30,17 @@ impl PollingServerListService {
                 if vec.len() != 2 {
                     return false;
                 }
-                vec.get(0).is_some() && vec.get(1).is_some()
+                !vec.is_empty() && vec.get(1).is_some()
             })
             .filter_map(|vec| {
-                let address = vec.get(0).unwrap().clone();
-                let port = vec.get(1).unwrap().clone();
+                let address = vec
+                    .first()
+                    .expect("Address should exist after checking it's some")
+                    .clone();
+                let port = vec
+                    .get(1)
+                    .expect("Port should exist after checking it's some")
+                    .clone();
 
                 let port = port.parse::<u32>();
 
@@ -156,31 +162,52 @@ pub mod tests {
             ]);
 
             let _ = poll_fn(|cx| service.poll_ready(cx)).await;
-            let server1 = service.call(()).await.unwrap();
+            let server1 = service
+                .call(())
+                .await
+                .expect("Failed to get server from service");
             debug!("ip:{}, port:{}", server1.host(), server1.port());
 
             let _ = poll_fn(|cx| service.poll_ready(cx)).await;
-            let server2 = service.call(()).await.unwrap();
+            let server2 = service
+                .call(())
+                .await
+                .expect("Failed to get server from service");
             debug!("ip:{}, port:{}", server2.host(), server2.port());
 
             let _ = poll_fn(|cx| service.poll_ready(cx)).await;
-            let server3 = service.call(()).await.unwrap();
+            let server3 = service
+                .call(())
+                .await
+                .expect("Failed to get server from service");
             debug!("ip:{}, port:{}", server3.host(), server3.port());
 
             let _ = poll_fn(|cx| service.poll_ready(cx)).await;
-            let server4 = service.call(()).await.unwrap();
+            let server4 = service
+                .call(())
+                .await
+                .expect("Failed to get server from service");
             debug!("ip:{}, port:{}", server4.host(), server4.port());
 
             let _ = poll_fn(|cx| service.poll_ready(cx)).await;
-            let server5 = service.call(()).await.unwrap();
+            let server5 = service
+                .call(())
+                .await
+                .expect("Failed to get server from service");
             debug!("ip:{}, port:{}", server5.host(), server5.port());
 
             let _ = poll_fn(|cx| service.poll_ready(cx)).await;
-            let server6 = service.call(()).await.unwrap();
+            let server6 = service
+                .call(())
+                .await
+                .expect("Failed to get server from service");
             debug!("ip:{}, port:{}", server6.host(), server6.port());
 
             let _ = poll_fn(|cx| service.poll_ready(cx)).await;
-            let server7 = service.call(()).await.unwrap();
+            let server7 = service
+                .call(())
+                .await
+                .expect("Failed to get server from service");
             debug!("ip:{}, port:{}", server7.host(), server7.port());
         })
         .await;
