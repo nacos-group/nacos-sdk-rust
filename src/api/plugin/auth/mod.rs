@@ -115,7 +115,9 @@ pub fn init_auth_plugin(
 
     let wait_ret = thread::spawn(move || rx.blocking_recv());
 
-    let _ = wait_ret.join().unwrap();
+    let _ = wait_ret
+        .join()
+        .expect("auth plugin init thread should not panic");
 }
 
 #[derive(Debug, Default)]

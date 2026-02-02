@@ -61,12 +61,12 @@ impl<T> Callback<T> {
 
     pub(crate) async fn send(&mut self, data: T) -> Result<(), Error> {
         let sender = self.tx.take();
-        if let Some(sender) = sender {
-            if sender.send(data).is_err() {
-                return Err(ErrResult(
-                    "callback send failed. the receiver has been dropped".to_string(),
-                ));
-            }
+        if let Some(sender) = sender
+            && sender.send(data).is_err()
+        {
+            return Err(ErrResult(
+                "callback send failed. the receiver has been dropped".to_string(),
+            ));
         }
         Ok(())
     }
@@ -251,7 +251,10 @@ pub mod unary_call_layer_test {
         }
 
         fn call(&mut self, mut req: Payload) -> Self::Future {
-            let mut metadata = req.metadata.take().unwrap();
+            let mut metadata = req
+                .metadata
+                .take()
+                .expect("Metadata should be present in request");
             metadata
                 .headers
                 .insert("DynamicUnaryCallServiceA".to_string(), "ok".to_string());
@@ -291,7 +294,10 @@ pub mod unary_call_layer_test {
         }
 
         fn call(&mut self, mut req: Payload) -> Self::Future {
-            let mut metadata = req.metadata.take().unwrap();
+            let mut metadata = req
+                .metadata
+                .take()
+                .expect("Metadata should be present in request");
             metadata
                 .headers
                 .insert("DynamicUnaryCallServiceB".to_string(), "ok".to_string());
@@ -330,7 +336,10 @@ pub mod unary_call_layer_test {
         }
 
         fn call(&mut self, mut req: Payload) -> Self::Future {
-            let mut metadata = req.metadata.take().unwrap();
+            let mut metadata = req
+                .metadata
+                .take()
+                .expect("Metadata should be present in request");
             metadata
                 .headers
                 .insert("DynamicUnaryCallServiceC".to_string(), "ok".to_string());
@@ -368,7 +377,10 @@ pub mod unary_call_layer_test {
         }
 
         fn call(&mut self, mut req: Payload) -> Self::Future {
-            let mut metadata = req.metadata.take().unwrap();
+            let mut metadata = req
+                .metadata
+                .take()
+                .expect("Metadata should be present in request");
             metadata
                 .headers
                 .insert("RealDynamicUnaryCallService".to_string(), "ok".to_string());
@@ -450,26 +462,41 @@ pub mod unary_call_layer_test {
 
             assert!(ret.is_ok());
 
-            let mut ret = ret.unwrap();
+            let mut ret = ret.expect("Service call should have succeeded");
             let metadata = ret.metadata.take();
 
             assert!(metadata.is_some());
 
-            let metadata = metadata.unwrap();
+            let metadata = metadata.expect("Metadata should be present in response");
 
-            let init = metadata.headers.get("init").unwrap();
+            let init = metadata
+                .headers
+                .get("init")
+                .expect("init header should be present");
             assert!(init.eq("ok"));
 
-            let a = metadata.headers.get("DynamicUnaryCallServiceA").unwrap();
+            let a = metadata
+                .headers
+                .get("DynamicUnaryCallServiceA")
+                .expect("DynamicUnaryCallServiceA header should be present");
             assert!(a.eq("ok"));
 
-            let b = metadata.headers.get("DynamicUnaryCallServiceB").unwrap();
+            let b = metadata
+                .headers
+                .get("DynamicUnaryCallServiceB")
+                .expect("DynamicUnaryCallServiceB header should be present");
             assert!(b.eq("ok"));
 
-            let c = metadata.headers.get("DynamicUnaryCallServiceC").unwrap();
+            let c = metadata
+                .headers
+                .get("DynamicUnaryCallServiceC")
+                .expect("DynamicUnaryCallServiceC header should be present");
             assert!(c.eq("ok"));
 
-            let d = metadata.headers.get("RealDynamicUnaryCallService").unwrap();
+            let d = metadata
+                .headers
+                .get("RealDynamicUnaryCallService")
+                .expect("RealDynamicUnaryCallService header should be present");
             assert!(d.eq("ok"));
         })
         .await;

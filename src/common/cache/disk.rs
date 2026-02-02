@@ -57,7 +57,8 @@ where
             return default_map;
         }
 
-        let dir_iter = dir_iter.unwrap();
+        let dir_iter =
+            dir_iter.expect("Directory iterator should exist after checking it's not error");
 
         for entry in dir_iter {
             if entry.is_err() {
@@ -66,7 +67,7 @@ where
                 continue;
             }
 
-            let entry = entry.unwrap();
+            let entry = entry.expect("Directory entry should exist after checking it's not error");
             let path = entry.path();
             if path.is_dir() {
                 // directory skip
@@ -78,7 +79,7 @@ where
                 warn!("cannot open file {}, {}", path.display(), e);
                 continue;
             }
-            let file = file.unwrap();
+            let file = file.expect("File should exist after checking it's not error");
             let reader = std::io::BufReader::new(file);
 
             let ret = serde_json::from_reader::<BufReader<std::fs::File>, V>(reader);
@@ -87,14 +88,14 @@ where
                 continue;
             }
 
-            let value = ret.unwrap();
+            let value = ret.expect("Deserialized value should exist after checking it's not error");
             let key = path.file_name();
             if key.is_none() {
                 // skip
                 continue;
             }
 
-            let key = key.unwrap();
+            let key = key.expect("File name should exist after checking it's not none");
             let key: String = key.to_string_lossy().into();
 
             default_map.insert(key, value);
@@ -123,17 +124,15 @@ where
             return;
         }
 
-        let mut file = file.unwrap();
+        let mut file = file.expect("File should exist after checking it's not error");
         let ret = file.write(&value).await;
 
         if let Err(e) = ret {
             let str = String::from_utf8(value);
-            if str.is_ok() {
+            if let Ok(item) = str {
                 warn!(
                     "the data {} cannot write to file {}, {}.",
-                    str.unwrap(),
-                    write_path_display,
-                    e
+                    item, write_path_display, e
                 );
             } else {
                 warn!(

@@ -57,10 +57,10 @@ impl CacheData {
 
     /// Remove listener.
     pub fn remove_listener(&mut self, listener: Arc<dyn crate::api::config::ConfigChangeListener>) {
-        if let Ok(mut mutex) = self.listeners.lock() {
-            if let Some(idx) = Self::index_of_listener(mutex.deref(), Arc::clone(&listener)) {
-                mutex.swap_remove(idx);
-            }
+        if let Ok(mut mutex) = self.listeners.lock()
+            && let Some(idx) = Self::index_of_listener(mutex.deref(), Arc::clone(&listener))
+        {
+            mutex.swap_remove(idx);
         }
     }
 
@@ -189,7 +189,10 @@ mod tests {
         // test add a listener2 again
         let _listen = cache_data.add_listener(lis2_arc);
 
-        let listen_mutex = cache_data.listeners.lock().unwrap();
+        let listen_mutex = cache_data
+            .listeners
+            .lock()
+            .expect("mutex should not be poisoned");
         assert_eq!(2, listen_mutex.len());
     }
 
@@ -209,18 +212,27 @@ mod tests {
         let lis2_arc2 = Arc::clone(&lis2_arc);
         let _listen = cache_data.add_listener(lis2_arc);
         {
-            let listen_mutex = cache_data.listeners.lock().unwrap();
+            let listen_mutex = cache_data
+                .listeners
+                .lock()
+                .expect("mutex should not be poisoned");
             assert_eq!(2, listen_mutex.len());
         }
 
         cache_data.remove_listener(lis1_arc2);
         {
-            let listen_mutex = cache_data.listeners.lock().unwrap();
+            let listen_mutex = cache_data
+                .listeners
+                .lock()
+                .expect("mutex should not be poisoned");
             assert_eq!(1, listen_mutex.len());
         }
         cache_data.remove_listener(lis2_arc2);
         {
-            let listen_mutex = cache_data.listeners.lock().unwrap();
+            let listen_mutex = cache_data
+                .listeners
+                .lock()
+                .expect("mutex should not be poisoned");
             assert_eq!(0, listen_mutex.len());
         }
     }

@@ -32,7 +32,8 @@ impl ServerRequestHandler for NamingPushRequestHandler {
             error!("convert payload to NotifySubscriberRequest error. {e:?}");
             return None;
         }
-        let request = request.unwrap();
+        let request =
+            request.expect("Request should exist after checking deserialization is not error");
 
         let body = request.into_body();
         info!("receive NotifySubscriberRequest from nacos server: {body:?}");
@@ -52,7 +53,8 @@ impl ServerRequestHandler for NamingPushRequestHandler {
             error!("occur an error when handing NotifySubscriberRequest. {e:?}");
             return None;
         }
-        let payload = payload.unwrap();
+        let payload =
+            payload.expect("Payload should exist after checking serialization is not error");
 
         return Some(payload);
     }

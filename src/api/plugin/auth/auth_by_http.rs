@@ -41,14 +41,22 @@ impl AuthPlugin for HttpLoginAuthPlugin {
             return;
         }
 
-        let username = auth_context.params.get(USERNAME).unwrap().to_owned();
-        let password = auth_context.params.get(PASSWORD).unwrap().to_owned();
+        let username = auth_context
+            .params
+            .get(USERNAME)
+            .expect("Username parameter should exist for HTTP auth")
+            .to_owned();
+        let password = auth_context
+            .params
+            .get(PASSWORD)
+            .expect("Password parameter should exist for HTTP auth")
+            .to_owned();
 
         let server_addr = {
             // random one
             server_list
                 .get(rand::thread_rng().gen_range(0..server_list.len()))
-                .unwrap()
+                .expect("Server list should not be empty")
                 .to_string()
         };
 
@@ -75,7 +83,10 @@ impl AuthPlugin for HttpLoginAuthPlugin {
                     None
                 }
                 Ok(resp) => {
-                    let resp_text = resp.text().await.unwrap();
+                    let resp_text = resp
+                        .text()
+                        .await
+                        .expect("Response text conversion should succeed");
                     let resp_obj = serde_json::from_str::<HttpLoginResponse>(&resp_text);
                     match resp_obj {
                         Err(e) => {

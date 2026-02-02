@@ -20,7 +20,7 @@ static RT: std::sync::LazyLock<Runtime> = std::sync::LazyLock::new(|| {
         .thread_name("nacos-client-thread-pool")
         .worker_threads(*COMMON_THREAD_CORES)
         .build()
-        .unwrap()
+        .expect("Thread pool should build successfully with valid configuration")
 });
 
 pub(crate) fn spawn<F>(future: F) -> JoinHandle<F::Output>
@@ -95,7 +95,11 @@ mod tests {
         let num_cpus = std::env::var(ENV_NACOS_CLIENT_COMMON_THREAD_CORES)
             .ok()
             .and_then(|v| v.parse::<usize>().ok().filter(|n| *n > 0))
-            .unwrap_or(std::thread::available_parallelism().unwrap().get());
+            .unwrap_or(
+                std::thread::available_parallelism()
+                    .expect("Should get available parallelism")
+                    .get(),
+            );
         assert!(num_cpus > 0);
 
         unsafe {
@@ -104,7 +108,11 @@ mod tests {
         let num_cpus = std::env::var(ENV_NACOS_CLIENT_COMMON_THREAD_CORES)
             .ok()
             .and_then(|v| v.parse::<usize>().ok().filter(|n| *n > 0))
-            .unwrap_or(std::thread::available_parallelism().unwrap().get());
+            .unwrap_or(
+                std::thread::available_parallelism()
+                    .expect("Should get available parallelism")
+                    .get(),
+            );
         assert_eq!(num_cpus, 4);
     }
 
@@ -115,7 +123,7 @@ mod tests {
             5
         });
         let ret = RT.block_on(handler);
-        let ret = ret.unwrap();
+        let ret = ret.expect("Runtime block_on should succeed");
         assert_eq!(ret, 5);
     }
 
@@ -130,7 +138,7 @@ mod tests {
         );
 
         let ret = RT.block_on(handler);
-        let ret = ret.unwrap();
+        let ret = ret.expect("Runtime block_on should succeed");
         assert_eq!(ret, 5);
     }
 

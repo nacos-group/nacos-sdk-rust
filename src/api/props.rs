@@ -320,7 +320,7 @@ mod tests {
         let result1 = client_props.get_server_list();
         assert!(result1.is_err());
         assert_eq!(
-            format!("{}", result1.err().unwrap()),
+            format!("{}", result1.err().expect("expected error result")),
             format!(
                 "{}",
                 Error::WrongServerAddress("Server address is empty".to_string())

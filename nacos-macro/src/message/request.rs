@@ -97,12 +97,12 @@ pub(crate) fn grpc_request(
             .parse2(quote! {
                 pub headers: #std::collections::HashMap<String, String>
             })
-            .unwrap();
+            .expect("Failed to parse headers field for request struct");
         let request_id_field = syn::Field::parse_named
             .parse2(quote! {
                 pub request_id: Option<String>
             })
-            .unwrap();
+            .expect("Failed to parse request_id field for request struct");
 
         fields.named.push(headers_field);
         fields.named.push(request_id_field);
@@ -146,18 +146,18 @@ fn naming_request(item_struct: &mut ItemStruct) {
             .parse2(quote! {
                 pub namespace: Option<String>
             })
-            .unwrap();
+            .expect("Failed to parse namespace field for request struct");
         let service_name_field = syn::Field::parse_named
             .parse2(quote! {
                 pub service_name: Option<String>
             })
-            .unwrap();
+            .expect("Failed to parse service_name field for request struct");
 
         let group_name_field = syn::Field::parse_named
             .parse2(quote! {
                 pub group_name: Option<String>
             })
-            .unwrap();
+            .expect("Failed to parse group_name field for request struct");
 
         fields.named.push(namespace_field);
         fields.named.push(service_name_field);
@@ -174,18 +174,18 @@ fn config_request(item_struct: &mut ItemStruct) {
                 #[serde(rename = "tenant")]
                 pub namespace: Option<String>
             })
-            .unwrap();
+            .expect("Failed to parse namespace field");
         let data_id_field = syn::Field::parse_named
             .parse2(quote! {
                 pub data_id: Option<String>
             })
-            .unwrap();
+            .expect("Failed to parse data_id field");
 
         let group_field = syn::Field::parse_named
             .parse2(quote! {
                 pub group: Option<String>
             })
-            .unwrap();
+            .expect("Failed to parse group field");
 
         fields.named.push(namespace_field);
         fields.named.push(data_id_field);

@@ -26,7 +26,7 @@ static CONFIG_SERVICE: LazyLock<ConfigService> = LazyLock::new(|| {
     let config_service = ConfigServiceBuilder::new(CLIENT_PROPS.clone())
         .enable_auth_plugin_http() // TODO You can choose not to enable auth
         .build()
-        .unwrap();
+        .expect("Failed to build config service");
     config_service
 });
 
@@ -36,7 +36,7 @@ static NAMING_SERVICE: LazyLock<NamingService> = LazyLock::new(|| {
     let naming_service = NamingServiceBuilder::new(CLIENT_PROPS.clone())
         .enable_auth_plugin_http() // TODO You can choose not to enable auth
         .build()
-        .unwrap();
+        .expect("Failed to build naming service");
     naming_service
 });
 

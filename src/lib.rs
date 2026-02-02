@@ -157,11 +157,17 @@ mod tests {
         };
         // println!("{:?}", payload);
         assert_eq!(
-            payload.metadata.unwrap().r#type,
+            payload
+                .metadata
+                .expect("Metadata should exist after checking it's some")
+                .r#type,
             "com.alibaba.nacos.api.naming.remote.request.ServiceQueryRequest"
         );
         assert_eq!(
-            payload.body.unwrap().value,
+            payload
+                .body
+                .expect("Body should exist after checking it's some")
+                .value,
             Vec::from("{\"cluster\":\"DEFAULT\",\"healthyOnly\":true}")
         );
     }

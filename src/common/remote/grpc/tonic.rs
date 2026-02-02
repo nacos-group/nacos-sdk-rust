@@ -67,7 +67,7 @@ impl Tonic {
             .authority(url_authority)
             .path_and_query("/")
             .build()
-            .unwrap();
+            .expect("Endpoint URI construction should not fail with valid inputs");
 
         debug!("create new endpoint :{}", endpoint_uri);
         let mut endpoint = Endpoint::from(endpoint_uri.clone());
@@ -77,7 +77,9 @@ impl Tonic {
         }
 
         if let Some(user_agent) = grpc_config.user_agent {
-            endpoint = endpoint.user_agent(user_agent).unwrap();
+            endpoint = endpoint
+                .user_agent(user_agent)
+                .expect("User agent should be settable with valid input");
         }
 
         if let Some(timeout) = grpc_config.timeout {
@@ -666,16 +668,16 @@ pub mod tonic_unary_call_tests {
             let response = rx.await;
             assert!(response.is_ok());
 
-            let response = response.unwrap();
+            let response = response.expect("Response should exist after checking it's not error");
             assert!(response.is_ok());
 
-            let mut response = response.unwrap();
+            let mut response = response.expect("Response should exist after checking it's ok");
 
             let metadata = response.metadata.take();
 
             assert!(metadata.is_some());
 
-            let metadata = metadata.unwrap();
+            let metadata = metadata.expect("Metadata should exist after checking it's some");
 
             assert_eq!(metadata.r#type, "test_type".to_string());
         })
@@ -707,7 +709,7 @@ pub mod tonic_unary_call_tests {
             let response = rx.await;
             assert!(response.is_ok());
 
-            let response = response.unwrap();
+            let response = response.expect("Test response should be received");
             assert!(response.is_err());
 
             let error = response.unwrap_err();
@@ -946,26 +948,26 @@ pub mod tonic_bi_call_tests {
             let response = rx.await;
             assert!(response.is_ok());
 
-            let response = response.unwrap();
+            let response = response.expect("Test response should be received");
             assert!(response.is_ok());
 
-            let mut response = response.unwrap();
+            let mut response = response.expect("Response stream should be available");
 
             let response = response.next().await;
 
             assert!(response.is_some());
 
-            let response = response.unwrap();
+            let response = response.expect("Test response should be received");
 
             assert!(response.is_ok());
 
-            let mut response = response.unwrap();
+            let mut response = response.expect("Response stream should be available");
 
             let metadata = response.metadata.take();
 
             assert!(metadata.is_some());
 
-            let metadata = metadata.unwrap();
+            let metadata = metadata.expect("Metadata should exist after checking it's some");
 
             assert_eq!(metadata.r#type, "test_type".to_string());
         })
@@ -1004,16 +1006,16 @@ pub mod tonic_bi_call_tests {
             let response = rx.await;
             assert!(response.is_ok());
 
-            let response = response.unwrap();
+            let response = response.expect("Test response should be received");
             assert!(response.is_ok());
 
-            let mut response = response.unwrap();
+            let mut response = response.expect("Response stream should be available");
 
             let response = response.next().await;
 
             assert!(response.is_some());
 
-            let response = response.unwrap();
+            let response = response.expect("Test response should be received");
 
             assert!(response.is_err());
 

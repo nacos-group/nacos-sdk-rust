@@ -22,7 +22,8 @@ impl ServerRequestHandler for ClientDetectionRequestHandler {
             return None;
         }
 
-        let request_message = request_message.unwrap();
+        let request_message =
+            request_message.expect("ClientDetectionRequest should be convertible from payload");
         let request_message = request_message.into_body();
         debug!("ClientDetectionRequestHandler receive a request: {request_message:?}");
         let request_id = request_message.request_id;
@@ -36,7 +37,7 @@ impl ServerRequestHandler for ClientDetectionRequestHandler {
             error!("occur an error when handing ClientDetectionRequest. {e:?}");
             return None;
         }
-        let payload = payload.unwrap();
+        let payload = payload.expect("Failed to convert ClientDetectionResponse to payload");
         Some(payload)
     }
 }
@@ -60,23 +61,28 @@ pub mod tests {
         let mut request = ClientDetectionRequest::default();
         request.request_id = Some("test-request-id".to_string());
         let request_message = GrpcMessageBuilder::new(request).build();
-        let payload = request_message.into_payload().unwrap();
+        let payload = request_message
+            .into_payload()
+            .expect("Failed to convert request to payload");
 
         let handler = ClientDetectionRequestHandler;
         let reply = handler.request_reply(payload).await;
 
         assert!(reply.is_some());
 
-        let reply = reply.unwrap();
+        let reply = reply.expect("Reply should be present");
 
         let response = GrpcMessage::<ClientDetectionResponse>::from_payload(reply);
 
         assert!(response.is_ok());
 
-        let response = response.unwrap();
+        let response = response.expect("Response should be convertible from payload");
 
         let response = response.into_body();
 
-        assert_eq!(response.request_id.unwrap(), "test-request-id".to_string());
+        assert_eq!(
+            response.request_id.expect("Request ID should be present"),
+            "test-request-id".to_string()
+        );
     }
 }

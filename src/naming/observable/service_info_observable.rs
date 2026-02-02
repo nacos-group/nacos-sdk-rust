@@ -79,7 +79,7 @@ impl ServiceInfoObserver {
                 warn!("the key {key:?} is not subscribed.");
                 continue;
             }
-            let listeners = listeners.unwrap();
+            let listeners = listeners.expect("Listeners should exist after checking it's not none");
             if listeners.is_empty() {
                 warn!("the subscriber listener set of key {key:?} is empty.");
                 continue;
@@ -134,7 +134,7 @@ impl ServiceInfoObserver {
             return;
         }
 
-        let listeners = listeners.unwrap();
+        let listeners = listeners.expect("Listeners should exist after checking it's not none");
 
         let index = Self::index_of_listener(listeners, &listener);
         if index.is_none() {
@@ -142,7 +142,7 @@ impl ServiceInfoObserver {
             return;
         }
 
-        let index = index.unwrap();
+        let index = index.expect("Listener index should exist after checking it's not none");
         listeners.remove(index);
     }
 }
@@ -238,7 +238,8 @@ impl ServiceInfoEmitter {
             return true;
         }
 
-        let old_service = old_service.unwrap();
+        let old_service =
+            old_service.expect("Old service should exist after checking it's not none");
 
         if old_service.last_ref_time > new_service.last_ref_time {
             warn!(
@@ -259,8 +260,8 @@ impl ServiceInfoEmitter {
             return true;
         }
 
-        let old_hosts = old_hosts.unwrap();
-        let new_hosts = new_hosts.unwrap();
+        let old_hosts = old_hosts.expect("Old hosts should exist after checking neither is none");
+        let new_hosts = new_hosts.expect("New hosts should exist after checking neither is none");
 
         let new_hosts_map: HashMap<String, &ServiceInstance> = new_hosts
             .iter()
@@ -284,7 +285,7 @@ impl ServiceInfoEmitter {
                 continue;
             }
 
-            let old_host = old_host.unwrap();
+            let old_host = old_host.expect("Old host should exist after checking it's not none");
             if !old_host.is_same_instance(new_host) {
                 modified_hosts.push(*new_host);
             }
