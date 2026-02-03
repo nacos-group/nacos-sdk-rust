@@ -18,6 +18,8 @@ pub struct ClientProps {
     naming_push_empty_protection: bool,
     /// naming load_cache_at_start, default false
     naming_load_cache_at_start: bool,
+    /// config load_cache_at_start, default false
+    config_load_cache_at_start: bool,
     /// env_first when get props, default true
     env_first: bool,
     /// metadata
@@ -81,6 +83,17 @@ impl ClientProps {
             )
         } else {
             self.naming_load_cache_at_start
+        }
+    }
+
+    pub(crate) fn get_config_load_cache_at_start(&self) -> bool {
+        if self.env_first {
+            get_value_bool(
+                ENV_NACOS_CLIENT_CONFIG_LOAD_CACHE_AT_START,
+                self.config_load_cache_at_start,
+            )
+        } else {
+            self.config_load_cache_at_start
         }
     }
 
@@ -171,6 +184,7 @@ impl ClientProps {
             app_name: UNKNOWN.to_string(),
             naming_push_empty_protection: true,
             naming_load_cache_at_start: false,
+            config_load_cache_at_start: false,
             env_first: true,
             labels: HashMap::default(),
             client_version,
@@ -213,6 +227,19 @@ impl ClientProps {
     /// Sets the naming_load_cache_at_start.
     pub fn naming_load_cache_at_start(mut self, naming_load_cache_at_start: bool) -> Self {
         self.naming_load_cache_at_start = naming_load_cache_at_start;
+        self
+    }
+
+    /// Sets the config_load_cache_at_start.
+    pub fn config_load_cache_at_start(mut self, config_load_cache_at_start: bool) -> Self {
+        self.config_load_cache_at_start = config_load_cache_at_start;
+        self
+    }
+
+    /// Sets the config_load_cache_at_start / naming_load_cache_at_start.
+    pub fn load_cache_at_start(mut self, load_cache_at_start: bool) -> Self {
+        self.naming_load_cache_at_start = load_cache_at_start;
+        self.config_load_cache_at_start = load_cache_at_start;
         self
     }
 
@@ -300,6 +327,7 @@ mod tests {
             app_name: "test_app".to_string(),
             naming_push_empty_protection: true,
             naming_load_cache_at_start: false,
+            config_load_cache_at_start: false,
             env_first: true,
             labels: HashMap::new(),
             client_version: "test_version".to_string(),
