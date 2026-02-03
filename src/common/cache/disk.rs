@@ -6,7 +6,7 @@ use tokio::{
     fs::{OpenOptions, remove_file},
     io::AsyncWriteExt,
 };
-use tracing::{debug, instrument, warn};
+use tracing::{debug, info, instrument, warn};
 
 use super::Store;
 
@@ -26,13 +26,14 @@ where
     V: de::DeserializeOwned,
 {
     fn name(&self) -> Cow<'_, str> {
-        Cow::from("disk store")
+        Cow::from("disk-store")
     }
 
     fn load(&mut self) -> HashMap<String, V> {
         let mut default_map = HashMap::default();
 
         let disk_path_display = self.disk_path.display();
+        info!("DiskStore load the disk_path={}", disk_path_display);
 
         if !self.disk_path.exists() {
             warn!("disk path is not exists, trying create it.");

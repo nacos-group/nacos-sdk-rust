@@ -16,6 +16,7 @@ static CLIENT_PROPS: LazyLock<ClientProps> = LazyLock::new(|| {
         // Attention! "public" is "", it is recommended to customize the namespace with clear meaning.
         .namespace("")
         .app_name("lazy_app")
+        // .load_cache_at_start(true)// TODO you can choose load_cache_at_start
         .auth_username("nacos") // TODO You can choose not to enable auth
         .auth_password("nacos") // TODO You can choose not to enable auth
 });

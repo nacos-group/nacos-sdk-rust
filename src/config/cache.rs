@@ -5,36 +5,8 @@ use serde::{Deserialize, Serialize};
 use std::ops::Deref;
 use std::sync::{Arc, Mutex};
 
-/// Persistent Config Data for serialization
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub(crate) struct PersistentConfigData {
-    pub data_id: String,
-    pub group: String,
-    pub namespace: String,
-    pub content_type: String,
-    pub content: String,
-    pub md5: String,
-    pub encrypted_data_key: String,
-    pub last_modified: i64,
-}
-
-impl From<&CacheData> for PersistentConfigData {
-    fn from(cache_data: &CacheData) -> Self {
-        Self {
-            data_id: cache_data.data_id.clone(),
-            group: cache_data.group.clone(),
-            namespace: cache_data.namespace.clone(),
-            content_type: cache_data.content_type.clone(),
-            content: cache_data.content.clone(),
-            md5: cache_data.md5.clone(),
-            encrypted_data_key: cache_data.encrypted_data_key.clone(),
-            last_modified: cache_data.last_modified,
-        }
-    }
-}
-
 /// Cache Data for Config
-#[derive(Default)]
+#[derive(Default, Serialize, Deserialize)]
 pub(crate) struct CacheData {
     pub data_id: String,
     pub group: String,
@@ -48,11 +20,14 @@ pub(crate) struct CacheData {
     pub last_modified: i64,
 
     /// There are some logical differences in the initialization phase, such as no notification of config changed
+    #[serde(skip)]
     pub initializing: bool,
 
-    /// who listen of config change.
+    /// who listen of config change. (runtime only, don't persist)
+    #[serde(skip)]
     pub listeners: Arc<Mutex<Vec<ListenerWrapper>>>,
 
+    #[serde(skip)]
     pub config_filters: Arc<Vec<Box<dyn ConfigFilter>>>,
 }
 

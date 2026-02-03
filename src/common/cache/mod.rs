@@ -15,7 +15,7 @@ use dashmap::{
     mapref::one::{Ref, RefMut},
 };
 use tokio::sync::mpsc::{Receiver, Sender, channel};
-use tracing::{Instrument, debug, debug_span, warn};
+use tracing::{Instrument, debug, debug_span, info, warn};
 
 use crate::common::cache::disk::DiskStore;
 
@@ -37,6 +37,7 @@ where
 
         let (dash_map, sender) = if let Some(mut store) = store {
             let map = if load_cache_at_start {
+                info!("load_cache_at_start call store.load, store-name={}", store.name());
                 store.load()
             } else {
                 HashMap::new()
@@ -95,6 +96,11 @@ where
                         }
                     };
                     if let Some(value) = value {
+                        info!(
+                            "sync_data save current_version={}, cache-data into {}",
+                            current_version,
+                            key.as_str()
+                        );
                         store.save(key.as_str(), value).await;
                     }
                 }
@@ -154,6 +160,17 @@ where
 
     pub(crate) fn contains_key(&self, key: &String) -> bool {
         self.inner.contains_key(key)
+    }
+
+    pub(crate) fn for_each<F>(&self, mut f: F)
+    where
+        F: FnMut(&String, &V),
+    {
+        for item in self.inner.iter() {
+            let key = &item.key().0.raw_key;
+            let value = item.value();
+            f(key, value);
+        }
     }
 }
 
@@ -358,6 +375,9 @@ where
         disk_path.push("nacos");
         disk_path.push(self.module.clone());
         disk_path.push(self.namespace.clone());
+
+        let path_buf = disk_path.clone();
+        executor::spawn(async { tokio::fs::create_dir_all(path_buf).await });
 
         let disk_store = Box::new(DiskStore::new(disk_path)) as Box<dyn Store<V>>;
 
