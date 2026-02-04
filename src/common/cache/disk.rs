@@ -44,9 +44,13 @@ impl DiskStore {
         // Ensure data is flushed to disk before renaming
         file.sync_all().await?;
 
+        debug!(tmp_path = %tmp_path.display(), "Write and flushed temp file");
+
         // Drop the file handle
         drop(file);
 
+        debug!(tmp_path = %tmp_path.display(), write_path = %write_path.display(),
+            "Atomic rename from temp file to target file");
         // Atomic rename from temp file to target file
         rename(tmp_path, write_path).await?;
 

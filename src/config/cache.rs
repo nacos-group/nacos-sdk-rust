@@ -110,8 +110,8 @@ impl CacheData {
         }
     }
 
-    /// inner method, will invoke config_filter
-    async fn get_config_resp_after_filter(&self) -> ConfigResponse {
+    /// Get config response after applying config_filters
+    pub(crate) async fn get_config_resp_after_filter(&self) -> ConfigResponse {
         let mut conf_resp = ConfigResp::new(
             self.data_id.clone(),
             self.group.clone(),

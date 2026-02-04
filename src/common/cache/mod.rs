@@ -58,14 +58,10 @@ where
     }
 
     pub(crate) fn get_mut(&self, key: &String) -> Option<CacheRefMut<'_, V>> {
-        self.inner.get_mut(key).map(|dash_map_ref_mut| {
-            let key = dash_map_ref_mut.key().clone();
-            CacheRefMut {
-                dash_map_ref_mut,
-                store: self.store.clone(),
-                inner: self.inner.clone(),
-                key,
-            }
+        self.inner.get_mut(key).map(|dash_map_ref_mut| CacheRefMut {
+            dash_map_ref_mut,
+            store: self.store.clone(),
+            inner: self.inner.clone(),
         })
     }
 
@@ -133,7 +129,6 @@ where
     dash_map_ref_mut: RefMut<'a, String, V>,
     store: Option<Arc<dyn Store<V>>>,
     inner: Arc<DashMap<String, V>>,
-    key: String,
 }
 
 impl<V> Deref for CacheRefMut<'_, V>
@@ -163,7 +158,7 @@ where
     fn drop(&mut self) {
         if let Some(store) = self.store.take() {
             let inner = self.inner.clone();
-            let key = self.key.clone();
+            let key = self.dash_map_ref_mut.key().clone();
 
             executor::spawn(
                 async move {
@@ -329,6 +324,7 @@ pub mod tests {
             }
 
             {
+                sleep(Duration::from_millis(222)); // sleep for cache already write into disk
                 let ret = cache.remove(&key);
                 assert!(ret.is_some());
                 let ret = ret.expect("Removed value should be present");

@@ -103,6 +103,18 @@ impl ConfigWorker {
         group: String,
     ) -> crate::api::error::Result<ConfigResponse> {
         let namespace = self.client_props.get_namespace();
+        let group_key = util::group_key(&data_id, &group, &namespace);
+
+        // Try to get config from cache first (if cache exists and content is complete)
+        if let Some(cache_ref) = self.unified_cache.get(&group_key) {
+            // Check if cache has complete content (not empty and has md5)
+            if !cache_ref.content.is_empty() && !cache_ref.md5.is_empty() {
+                tracing::info!("get_config from cache, group_key={}", group_key);
+                return Ok(cache_ref.get_config_resp_after_filter().await);
+            }
+        }
+
+        // Cache miss or incomplete content, fetch from server
         let config_resp = Self::get_config_inner_async(
             self.remote_client.clone(),
             data_id.clone(),
