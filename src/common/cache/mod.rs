@@ -221,8 +221,7 @@ where
     }
 
     pub(crate) fn disk_store(self) -> Self {
-        let user_home =
-            home::home_dir().expect("Failed to get user home directory from system environment");
+        let user_home = std::path::PathBuf::from(crate::common::util::HOME_DIR.to_owned());
 
         let mut disk_path = user_home;
         disk_path.push("nacos");
@@ -343,7 +342,7 @@ pub mod tests {
                 sleep(Duration::from_secs(1));
             }
 
-            let user_home = home::home_dir();
+            let user_home = std::env::home_dir();
 
             let mut disk_path =
                 user_home.expect("Failed to get user home directory from system environment");

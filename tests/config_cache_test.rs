@@ -93,7 +93,7 @@ mod config_cache_tests {
         tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
 
         // Check cache directory structure
-        let mut cache_dir = home::home_dir().expect("Failed to get home directory");
+        let mut cache_dir = std::env::temp_dir();
         cache_dir.push("nacos/config/public");
 
         if cache_dir.exists() {
