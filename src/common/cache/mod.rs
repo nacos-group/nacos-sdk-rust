@@ -1,21 +1,12 @@
 use core::ops::{Deref, DerefMut};
-use std::{
-    borrow::{Borrow, Cow},
-    collections::HashMap,
-    marker::PhantomData,
-    sync::{
-        Arc,
-        atomic::{AtomicUsize, Ordering},
-    },
-};
+use std::{borrow::Cow, collections::HashMap, marker::PhantomData, sync::Arc};
 
 use async_trait::async_trait;
 use dashmap::{
     DashMap,
     mapref::one::{Ref, RefMut},
 };
-use tokio::sync::mpsc::{Receiver, Sender, channel};
-use tracing::{Instrument, debug, debug_span, info, warn};
+use tracing::{Instrument, info, info_span};
 
 use crate::common::cache::disk::DiskStore;
 
@@ -24,138 +15,89 @@ use super::executor;
 mod disk;
 
 pub(crate) struct Cache<V> {
-    inner: Arc<DashMap<VersionKeyWrapper, V>>,
-    sender: Option<Sender<ChangeEvent>>,
+    inner: Arc<DashMap<String, V>>,
+    store: Option<Arc<dyn Store<V>>>,
 }
 
 impl<V> Cache<V>
 where
     V: serde::Serialize + serde::de::DeserializeOwned + Send + Sync + 'static,
 {
-    fn new(id: String, store: Option<Box<dyn Store<V>>>, load_cache_at_start: bool) -> Self {
-        let _span_enter = debug_span!("cache", id = id).entered();
+    fn new(id: &str, store: Option<Arc<dyn Store<V>>>, load_cache_at_start: bool) -> Self {
+        let _span_enter = info_span!("cache", id = id).entered();
 
-        let (dash_map, sender) = if let Some(mut store) = store {
-            let map = if load_cache_at_start {
-                info!("load_cache_at_start call store.load, store-name={}", store.name());
-                store.load()
-            } else {
-                HashMap::new()
-            };
+        let inner = match &store {
+            Some(store) => {
+                let map: HashMap<String, V> = if load_cache_at_start {
+                    info!("Loading cache by {}", store.name());
+                    store.load()
+                } else {
+                    info!("Skip loading cache by {}", store.name());
+                    HashMap::new()
+                };
 
-            let dash_map: DashMap<VersionKeyWrapper, V> = DashMap::with_capacity(map.len());
-            let dash_map = Arc::new(dash_map);
-            for (k, v) in map {
-                dash_map.insert(VersionKeyWrapper::new(k), v);
+                let dash_map: DashMap<String, V> = DashMap::with_capacity(map.len());
+                for (k, v) in map {
+                    dash_map.insert(k, v);
+                }
+                Arc::new(dash_map)
             }
-
-            let (sender, receiver) = channel::<ChangeEvent>(1024);
-            executor::spawn(Cache::sync_data(dash_map.clone(), receiver, store).in_current_span());
-
-            (dash_map, Some(sender))
-        } else {
-            (Arc::new(DashMap::new()), None)
+            None => {
+                info!("Creating memory-only cache (no disk store)");
+                Arc::new(DashMap::new())
+            }
         };
 
-        Self {
-            inner: dash_map,
-            sender,
-        }
-    }
-
-    async fn sync_data(
-        cache: Arc<DashMap<VersionKeyWrapper, V>>,
-        mut receiver: Receiver<ChangeEvent>,
-        mut store: Box<dyn Store<V>>,
-    ) {
-        debug!("sync to {} started!", store.name());
-
-        while let Some(event) = receiver.recv().await {
-            match event {
-                ChangeEvent::Insert(current_version, key)
-                | ChangeEvent::Modify(current_version, key) => {
-                    let refresh_ret = key.sync(current_version);
-                    if !refresh_ret {
-                        continue;
-                    }
-
-                    let value = {
-                        let data = cache.get(&key);
-                        if let Some(data) = data {
-                            let value = data.value();
-                            let value = serde_json::ser::to_vec(value);
-                            if let Err(e) = value {
-                                warn!("cache data cannot serialize to bytes. {}", e);
-                                continue;
-                            }
-
-                            let value = value.expect("Failed to serialize cache data to bytes");
-                            Some(value)
-                        } else {
-                            None
-                        }
-                    };
-                    if let Some(value) = value {
-                        info!(
-                            "sync_data save current_version={}, cache-data into {}",
-                            current_version,
-                            key.as_str()
-                        );
-                        store.save(key.as_str(), value).await;
-                    }
-                }
-                ChangeEvent::Remove(current_version, key) => {
-                    let refresh_ret = key.sync(current_version);
-                    if !refresh_ret {
-                        continue;
-                    }
-                    store.remove(key.as_str()).await;
-                }
-            }
-        }
-        debug!("sync to {} quit!", store.name());
+        Self { inner, store }
     }
 
     pub(crate) fn get(&self, key: &String) -> Option<CacheRef<'_, V>> {
-        let value = self.inner.get(key);
-        value.map(|dash_map_ref| CacheRef { dash_map_ref })
+        self.inner
+            .get(key)
+            .map(|dash_map_ref| CacheRef { dash_map_ref })
     }
 
     pub(crate) fn get_mut(&self, key: &String) -> Option<CacheRefMut<'_, V>> {
-        let value = self.inner.get_mut(key);
-        value.map(|dash_map_ref_mut| CacheRefMut {
-            dash_map_ref_mut,
-            sender: self.sender.clone(),
+        self.inner.get_mut(key).map(|dash_map_ref_mut| {
+            let key = dash_map_ref_mut.key().clone();
+            CacheRefMut {
+                dash_map_ref_mut,
+                store: self.store.clone(),
+                inner: self.inner.clone(),
+                key,
+            }
         })
     }
 
     pub(crate) fn insert(&self, key: String, value: V) -> Option<V> {
-        let key = VersionKeyWrapper::new(key);
-        let ret = self.inner.insert(key.clone(), value);
-
-        if let Some(ref sender) = self.sender {
-            let insert_event = ChangeEvent::Insert(key.refresh(), key);
-            let sender = sender.clone();
-            executor::spawn(async move { sender.send(insert_event).await });
+        if let Some(ref store) = self.store
+            && let Ok(bytes) = serde_json::to_vec(&value)
+        {
+            let store = store.clone();
+            let key_str = key.clone();
+            executor::spawn(async move { store.save(&key_str, bytes).await }.in_current_span());
         }
 
-        ret
+        self.inner.insert(key, value)
     }
 
+    #[allow(dead_code)]
     pub(crate) fn remove(&self, key: &String) -> Option<V> {
-        let ret = self.inner.remove(key);
-        match ret {
-            None => None,
-            Some((key, value)) => {
-                if let Some(ref sender) = self.sender {
-                    let remove_event = ChangeEvent::Remove(key.refresh(), key);
-                    let sender = sender.clone();
-                    executor::spawn(async move { sender.send(remove_event).await });
-                }
+        let ret = self.inner.remove(key)?;
 
-                Some(value)
-            }
+        if let Some(ref store) = self.store {
+            let key_str = ret.0.clone();
+            let store = store.clone();
+
+            executor::spawn(
+                async move {
+                    store.remove(&key_str).await;
+                }
+                .in_current_span(),
+            );
         }
+
+        Some(ret.1)
     }
 
     pub(crate) fn contains_key(&self, key: &String) -> bool {
@@ -167,116 +109,13 @@ where
         F: FnMut(&String, &V),
     {
         for item in self.inner.iter() {
-            let key = &item.key().0.raw_key;
-            let value = item.value();
-            f(key, value);
+            f(item.key(), item.value());
         }
-    }
-}
-
-#[derive(Debug, Hash, PartialEq, Eq)]
-struct VersionKeyWrapper(Arc<VersionKey>);
-
-impl Clone for VersionKeyWrapper {
-    fn clone(&self) -> Self {
-        Self(Arc::clone(&self.0))
-    }
-}
-
-impl VersionKeyWrapper {
-    fn new(key: String) -> Self {
-        Self(Arc::new(VersionKey::new(key)))
-    }
-
-    fn refresh(&self) -> usize {
-        self.0.refresh()
-    }
-
-    fn sync(&self, version: usize) -> bool {
-        self.0.sync(version)
-    }
-}
-
-impl Borrow<String> for VersionKeyWrapper {
-    fn borrow(&self) -> &String {
-        &self.0
-    }
-}
-
-impl Deref for VersionKeyWrapper {
-    type Target = String;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-#[derive(Debug)]
-struct VersionKey {
-    raw_key: String,
-    version: AtomicUsize,
-    sync_version: AtomicUsize,
-}
-
-impl std::hash::Hash for VersionKey {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.raw_key.hash(state);
-    }
-}
-
-impl PartialEq for VersionKey {
-    fn eq(&self, other: &Self) -> bool {
-        self.raw_key == other.raw_key
-    }
-}
-
-impl std::cmp::Eq for VersionKey {}
-
-impl VersionKey {
-    fn new(key: String) -> Self {
-        Self {
-            raw_key: key,
-            version: AtomicUsize::new(1),
-            sync_version: AtomicUsize::new(1),
-        }
-    }
-
-    fn refresh(&self) -> usize {
-        self.version.fetch_add(1, Ordering::SeqCst) + 1
-    }
-
-    fn sync(&self, version: usize) -> bool {
-        loop {
-            let sync_version = self.sync_version.load(Ordering::Acquire);
-            if version > sync_version {
-                let ret = self.sync_version.compare_exchange(
-                    sync_version,
-                    version,
-                    Ordering::SeqCst,
-                    Ordering::Acquire,
-                );
-                if ret.is_ok() {
-                    return true;
-                } else {
-                    continue;
-                }
-            } else {
-                return false;
-            }
-        }
-    }
-}
-
-impl Deref for VersionKey {
-    type Target = String;
-
-    fn deref(&self) -> &Self::Target {
-        &self.raw_key
     }
 }
 
 pub(crate) struct CacheRef<'a, V> {
-    dash_map_ref: Ref<'a, VersionKeyWrapper, V>,
+    dash_map_ref: Ref<'a, String, V>,
 }
 
 impl<V> Deref for CacheRef<'_, V> {
@@ -287,12 +126,20 @@ impl<V> Deref for CacheRef<'_, V> {
     }
 }
 
-pub(crate) struct CacheRefMut<'a, V> {
-    dash_map_ref_mut: RefMut<'a, VersionKeyWrapper, V>,
-    sender: Option<Sender<ChangeEvent>>,
+pub(crate) struct CacheRefMut<'a, V>
+where
+    V: serde::Serialize + Send + Sync + 'static,
+{
+    dash_map_ref_mut: RefMut<'a, String, V>,
+    store: Option<Arc<dyn Store<V>>>,
+    inner: Arc<DashMap<String, V>>,
+    key: String,
 }
 
-impl<V> Deref for CacheRefMut<'_, V> {
+impl<V> Deref for CacheRefMut<'_, V>
+where
+    V: serde::Serialize + Send + Sync + 'static,
+{
     type Target = V;
 
     fn deref(&self) -> &Self::Target {
@@ -300,20 +147,35 @@ impl<V> Deref for CacheRefMut<'_, V> {
     }
 }
 
-impl<V> DerefMut for CacheRefMut<'_, V> {
+impl<V> DerefMut for CacheRefMut<'_, V>
+where
+    V: serde::Serialize + Send + Sync + 'static,
+{
     fn deref_mut(&mut self) -> &mut Self::Target {
         self.dash_map_ref_mut.value_mut()
     }
 }
 
-impl<V> Drop for CacheRefMut<'_, V> {
+impl<V> Drop for CacheRefMut<'_, V>
+where
+    V: serde::Serialize + Send + Sync + 'static,
+{
     fn drop(&mut self) {
-        let key = self.dash_map_ref_mut.key().clone();
+        if let Some(store) = self.store.take() {
+            let inner = self.inner.clone();
+            let key = self.key.clone();
 
-        if let Some(ref sender) = self.sender {
-            let modify_event = ChangeEvent::Modify(key.refresh(), key);
-            let sender = sender.clone();
-            executor::spawn(async move { sender.send(modify_event).await });
+            executor::spawn(
+                async move {
+                    let bytes = inner
+                        .get(&key)
+                        .and_then(|data| serde_json::to_vec(data.value()).ok());
+                    if let Some(bytes) = bytes {
+                        store.save(&key, bytes).await;
+                    }
+                }
+                .in_current_span(),
+            );
         }
     }
 }
@@ -326,7 +188,7 @@ where
     namespace: String,
     module: String,
     load_cache_at_start: bool,
-    store: Option<Box<dyn Store<V>>>,
+    store: Option<Arc<dyn Store<V>>>,
 }
 
 const CONFIG_MODULE: &str = "config";
@@ -364,14 +226,10 @@ where
     }
 
     pub(crate) fn disk_store(self) -> Self {
-        // get user home directory
-        let user_home = home::home_dir();
-        if user_home.is_none() {
-            panic!("cannot read user home variable from system environment.")
-        }
+        let user_home =
+            home::home_dir().expect("Failed to get user home directory from system environment");
 
-        let mut disk_path =
-            user_home.expect("Failed to get user home directory from system environment");
+        let mut disk_path = user_home;
         disk_path.push("nacos");
         disk_path.push(self.module.clone());
         disk_path.push(self.namespace.clone());
@@ -379,7 +237,7 @@ where
         let path_buf = disk_path.clone();
         executor::spawn(async { tokio::fs::create_dir_all(path_buf).await });
 
-        let disk_store = Box::new(DiskStore::new(disk_path)) as Box<dyn Store<V>>;
+        let disk_store = Arc::new(DiskStore::new(disk_path));
 
         Self {
             store: Some(disk_store),
@@ -388,25 +246,22 @@ where
     }
 
     pub(crate) fn build(self, id: String) -> Cache<V> {
-        Cache::new(id, self.store, self.load_cache_at_start)
+        Cache::new(&id, self.store, self.load_cache_at_start)
     }
 }
 
-enum ChangeEvent {
-    Insert(usize, VersionKeyWrapper),
-    Remove(usize, VersionKeyWrapper),
-    Modify(usize, VersionKeyWrapper),
-}
-
+// Store trait with separate constraints for load and save operations
 #[async_trait]
-trait Store<V>: Send {
+trait Store<V>: Send + Sync {
     fn name(&self) -> Cow<'_, str>;
 
-    fn load(&mut self) -> HashMap<String, V>;
+    fn load(&self) -> HashMap<String, V>
+    where
+        V: serde::de::DeserializeOwned;
 
-    async fn save(&mut self, key: &str, value: Vec<u8>);
+    async fn save(&self, key: &str, value: Vec<u8>);
 
-    async fn remove(&mut self, key: &str);
+    async fn remove(&self, key: &str);
 }
 
 #[cfg(test)]
