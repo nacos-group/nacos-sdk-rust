@@ -4,7 +4,7 @@ use crate::api::props::ClientProps;
 use crate::common::cache::{Cache, CacheBuilder};
 use crate::common::remote::grpc::message::GrpcResponseMessage;
 use crate::common::remote::grpc::{NacosGrpcClient, NacosGrpcClientBuilder};
-use crate::config::cache::{CacheData, PersistentConfigData};
+use crate::config::cache::CacheData;
 use crate::config::handler::ConfigChangeNotifyHandler;
 use crate::config::message::request::*;
 use crate::config::message::response::*;
@@ -12,15 +12,13 @@ use crate::config::util;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use tokio::sync::Mutex;
 use tracing::{Instrument, instrument};
 
 #[derive(Clone)]
 pub(crate) struct ConfigWorker {
     pub(crate) client_props: ClientProps,
     remote_client: Arc<NacosGrpcClient>,
-    runtime_cache: Arc<Mutex<HashMap<String, CacheData>>>,
-    persistent_cache: Arc<Cache<PersistentConfigData>>,
+    unified_cache: Arc<Cache<CacheData>>,
     config_filters: Arc<Vec<Box<dyn ConfigFilter>>>,
 }
 
@@ -31,19 +29,17 @@ impl ConfigWorker {
         config_filters: Vec<Box<dyn ConfigFilter>>,
         client_id: String,
     ) -> crate::api::error::Result<Self> {
-        let mut persistent_ns = client_props.get_namespace();
-        if persistent_ns.is_empty() {
-            persistent_ns = crate::api::constants::DEFAULT_NAMESPACE.to_owned();
+        let mut cache_ns = client_props.get_namespace();
+        if cache_ns.is_empty() {
+            cache_ns = crate::api::constants::DEFAULT_NAMESPACE.to_owned();
         }
-        // Create persistent cache using the Cache framework
-        let persistent_cache: Cache<PersistentConfigData> = CacheBuilder::config(persistent_ns)
+
+        // Create unified cache using the Cache framework with CacheData directly
+        let unified_cache: Cache<CacheData> = CacheBuilder::config(cache_ns)
             .load_cache_at_start(client_props.get_config_load_cache_at_start())
             .disk_store()
             .build(client_id.clone());
-        let persistent_cache = Arc::new(persistent_cache);
-
-        // Runtime cache for in-memory operations and listeners
-        let runtime_cache = Arc::new(Mutex::new(HashMap::new()));
+        let unified_cache = Arc::new(unified_cache);
         let config_filters = Arc::new(config_filters);
 
         // group_key: String
@@ -80,22 +76,20 @@ impl ConfigWorker {
         // todo Event/Subscriber instead of mpsc Sender/Receiver
         crate::common::executor::spawn(Self::notify_change_to_cache_data(
             Arc::clone(&remote_client),
-            Arc::clone(&runtime_cache),
-            Arc::clone(&persistent_cache),
+            Arc::clone(&unified_cache),
             notify_change_rx,
         ));
 
         crate::common::executor::spawn(Self::list_ensure_cache_data_newest(
             Arc::clone(&remote_client),
-            Arc::clone(&runtime_cache),
+            Arc::clone(&unified_cache),
             notify_change_tx_clone,
         ));
 
         Ok(Self {
             client_props,
             remote_client,
-            runtime_cache,
-            persistent_cache,
+            unified_cache,
             config_filters,
         })
     }
@@ -109,6 +103,18 @@ impl ConfigWorker {
         group: String,
     ) -> crate::api::error::Result<ConfigResponse> {
         let namespace = self.client_props.get_namespace();
+        let group_key = util::group_key(&data_id, &group, &namespace);
+
+        // Try to get config from cache first (if cache exists and content is complete)
+        if let Some(cache_ref) = self.unified_cache.get(&group_key) {
+            // Check if cache has complete content (not empty and has md5)
+            if !cache_ref.content.is_empty() && !cache_ref.md5.is_empty() {
+                tracing::info!("get_config from cache, group_key={}", group_key);
+                return Ok(cache_ref.get_config_resp_after_filter().await);
+            }
+        }
+
+        // Cache miss or incomplete content, fetch from server
         let config_resp = Self::get_config_inner_async(
             self.remote_client.clone(),
             data_id.clone(),
@@ -290,26 +296,9 @@ impl ConfigWorker {
         let namespace = self.client_props.get_namespace();
         let group_key = util::group_key(&data_id, &group, &namespace);
 
-        let mut runtime_mutex = self.runtime_cache.lock().await;
-        if !runtime_mutex.contains_key(group_key.as_str()) {
+        if !self.unified_cache.contains_key(&group_key) {
             let mut cache_data =
                 CacheData::new(self.config_filters.clone(), data_id, group, namespace);
-
-            // Check if we have persistent data to load
-            if let Some(persistent_data) = self.persistent_cache.get(&group_key) {
-                // Convert persistent data to cache data
-                cache_data.content_type = persistent_data.content_type.clone();
-                cache_data.content = persistent_data.content.clone();
-                cache_data.md5 = persistent_data.md5.clone();
-                cache_data.encrypted_data_key = persistent_data.encrypted_data_key.clone();
-                cache_data.last_modified = persistent_data.last_modified;
-                tracing::info!(
-                    "Loaded config from cache: dataId={}, group={}, namespace={}",
-                    cache_data.data_id,
-                    cache_data.group,
-                    cache_data.namespace
-                );
-            }
 
             // listen immediately upon initialization
             let config_resp = Self::get_config_inner_async(
@@ -323,18 +312,9 @@ impl ConfigWorker {
             match config_resp {
                 Ok(config_resp) => {
                     Self::fill_data_and_notify(&mut cache_data, config_resp).await;
-                    // Save to persistent cache
-                    let persistent_data = PersistentConfigData::from(&cache_data);
-                    self.persistent_cache
-                        .insert(group_key.clone(), persistent_data);
                 }
                 Err(e) => {
                     tracing::error!("get_config_inner_async, config_resp err={e:?}");
-                    // If we have cache but no server response, still notify from cache
-                    if !cache_data.content.is_empty() {
-                        cache_data.initializing = false;
-                        cache_data.notify_listener().await;
-                    }
                 }
             }
             let req = ConfigBatchListenRequest::new(true).add_config_listen_context(
@@ -356,12 +336,13 @@ impl ConfigWorker {
                 }
                 .in_current_span(),
             );
-
-            runtime_mutex.insert(group_key.clone(), cache_data);
+            // Save to unified cache (will persist to disk)
+            self.unified_cache.insert(group_key.clone(), cache_data);
         }
-        let _ = runtime_mutex
-            .get_mut(group_key.as_str())
-            .map(|c| c.add_listener(listener));
+        // Add listener to existing cache data
+        if let Some(mut cache_ref_mut) = self.unified_cache.get_mut(&group_key) {
+            cache_ref_mut.add_listener(listener);
+        }
     }
 
     /// Remove listener.
@@ -375,13 +356,9 @@ impl ConfigWorker {
         let namespace = self.client_props.get_namespace();
         let group_key = util::group_key(&data_id, &group, &namespace);
 
-        let mut runtime_mutex = self.runtime_cache.lock().await;
-        if !runtime_mutex.contains_key(group_key.as_str()) {
-            return;
+        if let Some(mut cache_ref_mut) = self.unified_cache.get_mut(&group_key) {
+            cache_ref_mut.remove_listener(listener);
         }
-        let _ = runtime_mutex
-            .get_mut(group_key.as_str())
-            .map(|c| c.remove_listener(listener));
     }
 }
 
@@ -390,27 +367,25 @@ impl ConfigWorker {
     #[instrument(skip_all)]
     async fn list_ensure_cache_data_newest(
         remote_client: Arc<NacosGrpcClient>,
-        runtime_cache: Arc<Mutex<HashMap<String, CacheData>>>,
+        unified_cache: Arc<Cache<CacheData>>,
         notify_change_tx: tokio::sync::mpsc::Sender<String>,
     ) {
         tracing::info!("list_ensure_cache_data_newest started");
         loop {
             tracing::debug!("list_ensure_cache_data_newest refreshing");
             // todo invoke remove_listener with ConfigBatchListenClientRequest::new(false) when is_empty(),
-            //  and then remove cache_data from cache_data_map.
+            //  and then remove cache_data from unified_cache.
             let mut listen_context_vec = Vec::with_capacity(6);
             {
-                // try_lock, The failure to acquire the lock can be handled by the next loop.
-                if let Ok(mutex) = runtime_cache.try_lock() {
-                    for c in mutex.values() {
-                        listen_context_vec.push(ConfigListenContext::new(
-                            c.data_id.clone(),
-                            c.group.clone(),
-                            c.namespace.clone(),
-                            c.md5.clone(),
-                        ));
-                    }
-                }
+                // Use foreach to iterate over all cached configs
+                unified_cache.for_each(|_key, c| {
+                    listen_context_vec.push(ConfigListenContext::new(
+                        c.data_id.clone(),
+                        c.group.clone(),
+                        c.namespace.clone(),
+                        c.md5.clone(),
+                    ));
+                });
             }
             if !listen_context_vec.is_empty() {
                 tracing::debug!("list_ensure_cache_data_newest context={listen_context_vec:?}");
@@ -464,8 +439,7 @@ impl ConfigWorker {
     #[instrument(skip_all)]
     async fn notify_change_to_cache_data(
         remote_client: Arc<NacosGrpcClient>,
-        runtime_cache: Arc<Mutex<HashMap<String, CacheData>>>,
-        persistent_cache: Arc<Cache<PersistentConfigData>>,
+        unified_cache: Arc<Cache<CacheData>>,
         mut notify_change_rx: tokio::sync::mpsc::Receiver<String>,
     ) {
         loop {
@@ -477,27 +451,19 @@ impl ConfigWorker {
                     break;
                 }
                 Some(group_key) => {
-                    let mut runtime_mutex = runtime_cache.lock().await;
-
-                    if !runtime_mutex.contains_key(group_key.as_str()) {
-                        continue;
-                    }
-                    if let Some(data) = runtime_mutex.get_mut(group_key.as_str()) {
+                    if let Some(mut cache_ref_mut) = unified_cache.get_mut(&group_key) {
                         // get the newest config to notify
                         let config_resp = Self::get_config_inner_async(
                             remote_client.clone(),
-                            data.data_id.clone(),
-                            data.group.clone(),
-                            data.namespace.clone(),
+                            cache_ref_mut.data_id.clone(),
+                            cache_ref_mut.group.clone(),
+                            cache_ref_mut.namespace.clone(),
                         )
                         .in_current_span()
                         .await;
                         match config_resp {
                             Ok(config_resp) => {
-                                Self::fill_data_and_notify(data, config_resp).await;
-                                // Save updated data to persistent cache
-                                let persistent_data = PersistentConfigData::from(&*data);
-                                persistent_cache.insert(group_key, persistent_data);
+                                Self::fill_data_and_notify(&mut cache_ref_mut, config_resp).await;
                             }
                             Err(e) => {
                                 tracing::error!("get_config_inner_async, config_resp err={e:?}");
@@ -667,9 +633,9 @@ mod tests {
 
         let group_key = util::group_key(&d, &g, &n);
         {
-            let runtime_cache_map_mutex = client_worker.runtime_cache.lock().await;
-            let cache_data = runtime_cache_map_mutex
-                .get(group_key.as_str())
+            let cache_data = client_worker
+                .unified_cache
+                .get(&group_key)
                 .expect("Cache data should exist for group key");
             let listen_mutex = cache_data
                 .listeners
@@ -699,9 +665,9 @@ mod tests {
 
         let group_key = util::group_key(&d, &g, &n);
         {
-            let runtime_cache_map_mutex = client_worker.runtime_cache.lock().await;
-            let cache_data = runtime_cache_map_mutex
-                .get(group_key.as_str())
+            let cache_data = client_worker
+                .unified_cache
+                .get(&group_key)
                 .expect("Cache data should exist for group key");
             let listen_mutex = cache_data
                 .listeners
@@ -714,9 +680,9 @@ mod tests {
             .remove_listener(d.clone(), g.clone(), lis1_arc2)
             .await;
         {
-            let runtime_cache_map_mutex = client_worker.runtime_cache.lock().await;
-            let cache_data = runtime_cache_map_mutex
-                .get(group_key.as_str())
+            let cache_data = client_worker
+                .unified_cache
+                .get(&group_key)
                 .expect("Cache data should exist for group key");
             let listen_mutex = cache_data
                 .listeners

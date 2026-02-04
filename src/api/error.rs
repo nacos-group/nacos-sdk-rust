@@ -54,7 +54,7 @@ pub enum Error {
     TonicGrpcTransport(#[from] tonic::transport::Error),
 
     #[error("tonic grpc status error: {0}")]
-    TonicGrpcStatus(#[from] tonic::Status),
+    TonicGrpcStatus(#[from] Box<tonic::Status>),
 
     #[error("grpc request error: {0}")]
     GrpcBufferRequest(#[from] BoxError),

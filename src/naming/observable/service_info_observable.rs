@@ -218,8 +218,8 @@ impl ServiceInfoEmitter {
                 key,
                 service_info.hosts_to_json()
             );
+            let _ = self.cache.insert(key, service_info);
         }
-        let _ = self.cache.insert(key, service_info);
         changed
     }
 

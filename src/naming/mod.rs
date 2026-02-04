@@ -409,6 +409,10 @@ impl NacosNamingService {
                 let grouped_name =
                     ServiceInfo::get_grouped_service_name(&service_name, &group_name);
                 let key = ServiceInfo::get_key(&grouped_name, &cluster_str);
+                info!(
+                    "get_all_instances_async from cache, grouped_name={}",
+                    grouped_name
+                );
                 self.naming_cache.get(&key).map(|data| data.clone())
             };
 
