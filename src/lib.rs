@@ -45,7 +45,8 @@
 //!           .namespace("")
 //!           .app_name("todo-your-app-name"),
 //!   )
-//!   .build()?;
+//!   .build();
+//!   //.await?;
 //! ```
 //!
 //! ### Example of Naming
@@ -58,7 +59,8 @@
 //!           .namespace("")
 //!           .app_name("todo-your-app-name"),
 //!   )
-//!   .build()?;
+//!   .build();
+//!   //.await?;
 //! ```
 //!
 

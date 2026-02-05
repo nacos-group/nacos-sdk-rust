@@ -14,8 +14,8 @@ use std::sync::Arc;
 ///           .namespace("")
 ///           .app_name("todo-your-app-name"),
 ///   )
-///   .build()
-///   .await?;
+///   .build();
+///   //.await?;
 /// ```
 #[doc(alias("config", "sdk", "api"))]
 #[derive(Clone, Debug)]
@@ -248,8 +248,8 @@ pub mod constants {
 ///           .namespace("")
 ///           .app_name("todo-your-app-name"),
 ///   )
-///   .build()
-///   .await?;
+///   .build();
+///   //.await?;
 /// ```
 #[doc(alias("config", "builder"))]
 pub struct ConfigServiceBuilder {
@@ -357,12 +357,16 @@ mod tests {
         }
     }
 
+    fn tracing_log_try_init() {
+        let _ = tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::DEBUG)
+            .try_init();
+    }
+
     #[tokio::test]
     #[ignore]
     async fn test_api_config_service() {
-        tracing_subscriber::fmt()
-            .with_max_level(tracing::Level::DEBUG)
-            .init();
+        tracing_log_try_init();
 
         let (data_id, group) = ("test_api_config_service".to_string(), "TEST".to_string());
 
@@ -444,9 +448,7 @@ mod tests {
     #[tokio::test]
     #[ignore]
     async fn test_api_config_service_remove_config() {
-        tracing_subscriber::fmt()
-            .with_max_level(tracing::Level::DEBUG)
-            .init();
+        tracing_log_try_init();
 
         let config_service = ConfigServiceBuilder::default()
             .build()
@@ -466,9 +468,7 @@ mod tests {
     #[tokio::test]
     #[ignore]
     async fn test_api_config_service_publish_config() {
-        tracing_subscriber::fmt()
-            .with_max_level(tracing::Level::DEBUG)
-            .init();
+        tracing_log_try_init();
 
         let config_service = ConfigServiceBuilder::default()
             .build()
@@ -492,9 +492,7 @@ mod tests {
     #[tokio::test]
     #[ignore]
     async fn test_api_config_service_publish_config_param() {
-        tracing_subscriber::fmt()
-            .with_max_level(tracing::Level::DEBUG)
-            .init();
+        tracing_log_try_init();
 
         let config_service = ConfigServiceBuilder::default()
             .build()
@@ -525,9 +523,7 @@ mod tests {
     #[tokio::test]
     #[ignore]
     async fn test_api_config_service_publish_config_beta() {
-        tracing_subscriber::fmt()
-            .with_max_level(tracing::Level::DEBUG)
-            .init();
+        tracing_log_try_init();
 
         let config_service = ConfigServiceBuilder::default()
             .build()
@@ -552,9 +548,7 @@ mod tests {
     #[tokio::test]
     #[ignore]
     async fn test_api_config_service_publish_config_cas() {
-        tracing_subscriber::fmt()
-            .with_max_level(tracing::Level::DEBUG)
-            .init();
+        tracing_log_try_init();
 
         let config_service = ConfigServiceBuilder::default()
             .build()

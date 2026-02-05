@@ -1,3 +1,4 @@
+#![allow(unused_imports)]
 use nacos_sdk::api::config::ConfigServiceBuilder;
 use nacos_sdk::api::naming::{NamingServiceBuilder, ServiceInstance};
 use nacos_sdk::api::props::ClientProps;

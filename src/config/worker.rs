@@ -626,13 +626,19 @@ mod tests {
 
         // test add listener1
         let lis1_arc = Arc::new(TestConfigChangeListener1 {});
-        let _listen = client_worker.add_listener(d.clone(), g.clone(), lis1_arc);
+        let _listen = client_worker
+            .add_listener(d.clone(), g.clone(), lis1_arc)
+            .await;
 
         // test add listener2
         let lis2_arc = Arc::new(TestConfigChangeListener2 {});
-        let _listen = client_worker.add_listener(d.clone(), g.clone(), lis2_arc.clone());
+        let _listen = client_worker
+            .add_listener(d.clone(), g.clone(), lis2_arc.clone())
+            .await;
         // test add a listener2 again
-        let _listen = client_worker.add_listener(d.clone(), g.clone(), lis2_arc);
+        let _listen = client_worker
+            .add_listener(d.clone(), g.clone(), lis2_arc)
+            .await;
 
         let group_key = util::group_key(&d, &g, &n);
         {
@@ -665,7 +671,9 @@ mod tests {
         // test add listener1
         let lis1_arc = Arc::new(TestConfigChangeListener1 {});
         let lis1_arc2 = Arc::clone(&lis1_arc);
-        let _listen = client_worker.add_listener(d.clone(), g.clone(), lis1_arc);
+        let _listen = client_worker
+            .add_listener(d.clone(), g.clone(), lis1_arc)
+            .await;
 
         let group_key = util::group_key(&d, &g, &n);
         {

@@ -52,7 +52,7 @@ impl CacheData {
     /// Add listener.
     pub fn add_listener(&mut self, listener: Arc<dyn crate::api::config::ConfigChangeListener>) {
         if let Ok(mut mutex) = self.listeners.lock() {
-            if Self::index_of_listener(mutex.deref(), Arc::clone(&listener)).is_some() {
+            if Self::index_of_listener(mutex.deref(), &listener).is_some() {
                 return;
             }
             mutex.push(ListenerWrapper::new(Arc::clone(&listener)));
@@ -62,7 +62,7 @@ impl CacheData {
     /// Remove listener.
     pub fn remove_listener(&mut self, listener: Arc<dyn crate::api::config::ConfigChangeListener>) {
         if let Ok(mut mutex) = self.listeners.lock()
-            && let Some(idx) = Self::index_of_listener(mutex.deref(), Arc::clone(&listener))
+            && let Some(idx) = Self::index_of_listener(mutex.deref(), &listener)
         {
             mutex.swap_remove(idx);
         }
@@ -71,15 +71,11 @@ impl CacheData {
     /// fn inner, return idx if existed, else return None.
     fn index_of_listener(
         listen_warp_vec: &[ListenerWrapper],
-        listener: Arc<dyn crate::api::config::ConfigChangeListener>,
+        listener: &Arc<dyn crate::api::config::ConfigChangeListener>,
     ) -> Option<usize> {
-        for (idx, listen_warp) in listen_warp_vec.iter().enumerate() {
-            #[allow(ambiguous_wide_pointer_comparisons)]
-            if Arc::ptr_eq(&listen_warp.listener, &listener) {
-                return Some(idx);
-            }
-        }
-        None
+        listen_warp_vec
+            .iter()
+            .position(|listen_warp| Arc::ptr_eq(&listen_warp.listener, listener))
     }
 
     /// Notify listener. when last-md5 not equals the-newest-md5

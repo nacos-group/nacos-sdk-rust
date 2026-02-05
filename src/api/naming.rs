@@ -140,8 +140,8 @@ pub trait NamingEventListener: Send + Sync + 'static {
 ///           .namespace("")
 ///           .app_name("todo-your-app-name"),
 ///   )
-///   .build()
-///   .await?;
+///   .build();
+///   //.await?;
 /// ```
 #[doc(alias("naming", "sdk", "api"))]
 #[derive(Clone, Debug)]
@@ -276,8 +276,8 @@ impl NamingService {
 ///           .namespace("")
 ///           .app_name("todo-your-app-name"),
 ///   )
-///   .build()
-///   .await?;
+///   .build();
+///   //.await?;
 /// ```
 #[doc(alias("naming", "builder"))]
 pub struct NamingServiceBuilder {

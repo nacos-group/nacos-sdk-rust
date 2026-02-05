@@ -314,10 +314,8 @@ impl AuthPlugin for AliyunRamAuthPlugin {
 
 #[cfg(test)]
 mod test {
-    use crate::api::config::{ConfigChangeListener, ConfigResponse, ConfigService};
-    use crate::api::naming::{
-        NamingChangeEvent, NamingEventListener, NamingService, ServiceInstance,
-    };
+    use crate::api::config::{ConfigChangeListener, ConfigResponse};
+    use crate::api::naming::{NamingChangeEvent, NamingEventListener, ServiceInstance};
     use crate::api::plugin::auth::auth_by_aliyun_ram::{
         calculate_v4_signing_key_util, sign_utils, spas_adaptor,
     };
