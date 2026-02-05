@@ -166,6 +166,65 @@ impl NacosNamingService {
     {
         self.nacos_grpc_client.send_request::<R, P>(request).await
     }
+
+    fn handle_naming_response<T: GrpcResponseMessage>(
+        &self,
+        response: &T,
+        operation: &str,
+    ) -> Result<()> {
+        if !response.is_success() {
+            return Err(ErrResult(format!(
+                "naming service {} failed: resultCode: {}, errorCode:{}, message:{}",
+                operation,
+                response.result_code(),
+                response.error_code(),
+                response.message().map(|s| s.as_str()).unwrap_or("")
+            )));
+        }
+        Ok(())
+    }
+
+    /// Execute by register request with redo task (active → execute → frozen lifecycle)
+    async fn execute_by_register_with_redo<R, P>(&self, request: R, operation: &str) -> Result<()>
+    where
+        R: GrpcRequestMessage + AutomaticRequest + Clone + 'static,
+        P: GrpcResponseMessage + 'static,
+    {
+        // automatic request
+        let auto_request: Arc<dyn AutomaticRequest> = Arc::new(request.clone());
+        let redo_task = NamingRedoTask::new(self.nacos_grpc_client.clone(), auto_request);
+        let redo_task = Arc::new(redo_task);
+
+        // active redo task
+        redo_task.active();
+        // add redo task to executor
+        self.redo_task_executor.add_task(redo_task.clone()).await;
+
+        let response = self.request_to_server::<R, P>(request).await?;
+        self.handle_naming_response(&response, operation)?;
+
+        redo_task.frozen();
+        Ok(())
+    }
+
+    /// Execute by deregister request with immediate redo task cleanup
+    async fn execute_by_deregister_with_redo<R, P>(&self, request: R, operation: &str) -> Result<()>
+    where
+        R: GrpcRequestMessage + AutomaticRequest + Clone + 'static,
+        P: GrpcResponseMessage + 'static,
+    {
+        let auto_request: Arc<dyn AutomaticRequest> = Arc::new(request.clone());
+        let redo_task = NamingRedoTask::new(self.nacos_grpc_client.clone(), auto_request);
+
+        let response = self.request_to_server::<R, P>(request).await?;
+        self.handle_naming_response(&response, operation)?;
+
+        // remove redo task from executor
+        self.redo_task_executor
+            .remove_task(redo_task.task_key().as_str())
+            .await;
+        Ok(())
+    }
 }
 
 impl NacosNamingService {
@@ -189,32 +248,11 @@ impl NacosNamingService {
             Some(group_name),
         );
 
-        // automatic request
-        let auto_request: Arc<dyn AutomaticRequest> = Arc::new(request.clone());
-        let redo_task = Arc::new(NamingRedoTask::new(
-            self.nacos_grpc_client.clone(),
-            auto_request,
-        ));
-
-        // active redo task
-        redo_task.active();
-        // add redo task to executor
-        self.redo_task_executor.add_task(redo_task.clone()).await;
-
-        let body = self
-            .request_to_server::<InstanceRequest, InstanceResponse>(request)
-            .await?;
-        if !body.is_success() {
-            return Err(ErrResult(format!(
-                "naming service register ephemeral service failed: resultCode: {}, errorCode:{}, message:{}",
-                body.result_code,
-                body.error_code,
-                body.message.unwrap_or_default()
-            )));
-        }
-
-        redo_task.frozen();
-        Ok(())
+        self.execute_by_register_with_redo::<InstanceRequest, InstanceResponse>(
+            request,
+            "register_ephemeral_instance",
+        )
+        .await
     }
 
     async fn register_persistent_instance_async(
@@ -237,32 +275,11 @@ impl NacosNamingService {
             Some(group_name),
         );
 
-        // automatic request
-        let auto_request: Arc<dyn AutomaticRequest> = Arc::new(request.clone());
-        let redo_task = Arc::new(NamingRedoTask::new(
-            self.nacos_grpc_client.clone(),
-            auto_request,
-        ));
-
-        // active redo task
-        redo_task.active();
-        // add redo task to executor
-        self.redo_task_executor.add_task(redo_task.clone()).await;
-
-        let body = self
-            .request_to_server::<PersistentInstanceRequest, InstanceResponse>(request)
-            .await?;
-        if !body.is_success() {
-            return Err(ErrResult(format!(
-                "naming service register persistent service failed: resultCode: {}, errorCode:{}, message:{}",
-                body.result_code,
-                body.error_code,
-                body.message.unwrap_or_default()
-            )));
-        }
-
-        redo_task.frozen();
-        Ok(())
+        self.execute_by_register_with_redo::<PersistentInstanceRequest, InstanceResponse>(
+            request,
+            "register_persistent_instance",
+        )
+        .await
     }
 
     async fn deregister_ephemeral_instance_async(
@@ -286,28 +303,11 @@ impl NacosNamingService {
             Some(group_name),
         );
 
-        // automatic request
-        let auto_request: Arc<dyn AutomaticRequest> = Arc::new(request.clone());
-        let redo_task = NamingRedoTask::new(self.nacos_grpc_client.clone(), auto_request);
-
-        let body = self
-            .request_to_server::<InstanceRequest, InstanceResponse>(request)
-            .await?;
-
-        if !body.is_success() {
-            return Err(ErrResult(format!(
-                "naming service deregister ephemeral service failed: resultCode: {}, errorCode:{}, message:{}",
-                body.result_code,
-                body.error_code,
-                body.message.unwrap_or_default()
-            )));
-        }
-
-        // remove redo task from executor
-        self.redo_task_executor
-            .remove_task(redo_task.task_key().as_str())
-            .await;
-        Ok(())
+        self.execute_by_deregister_with_redo::<InstanceRequest, InstanceResponse>(
+            request,
+            "deregister_ephemeral_instance",
+        )
+        .await
     }
 
     async fn deregister_persistent_instance_async(
@@ -330,28 +330,11 @@ impl NacosNamingService {
             Some(group_name),
         );
 
-        // automatic request
-        let auto_request: Arc<dyn AutomaticRequest> = Arc::new(request.clone());
-        let redo_task = NamingRedoTask::new(self.nacos_grpc_client.clone(), auto_request);
-
-        let body = self
-            .request_to_server::<PersistentInstanceRequest, InstanceResponse>(request)
-            .await?;
-
-        if !body.is_success() {
-            return Err(ErrResult(format!(
-                "naming service deregister persistent service failed: resultCode: {}, errorCode:{}, message:{}",
-                body.result_code,
-                body.error_code,
-                body.message.unwrap_or_default()
-            )));
-        }
-
-        // remove redo task from executor
-        self.redo_task_executor
-            .remove_task(redo_task.task_key().as_str())
-            .await;
-        Ok(())
+        self.execute_by_deregister_with_redo::<PersistentInstanceRequest, InstanceResponse>(
+            request,
+            "deregister_persistent_instance",
+        )
+        .await
     }
 
     async fn batch_register_instance_async(
@@ -371,29 +354,11 @@ impl NacosNamingService {
             Some(group_name),
         );
 
-        // automatic request
-        let auto_request: Arc<dyn AutomaticRequest> = Arc::new(request.clone());
-        let redo_task = NamingRedoTask::new(self.nacos_grpc_client.clone(), auto_request);
-        let redo_task = Arc::new(redo_task);
-
-        // active redo task
-        redo_task.active();
-        // add redo task to executor
-        self.redo_task_executor.add_task(redo_task.clone()).await;
-
-        let body = self
-            .request_to_server::<BatchInstanceRequest, BatchInstanceResponse>(request)
-            .await?;
-        if !body.is_success() {
-            return Err(ErrResult(format!(
-                "naming service batch register services failed: resultCode: {}, errorCode:{}, message:{}",
-                body.result_code,
-                body.error_code,
-                body.message.unwrap_or_default()
-            )));
-        }
-        redo_task.frozen();
-        Ok(())
+        self.execute_by_register_with_redo::<BatchInstanceRequest, BatchInstanceResponse>(
+            request,
+            "batch_register_instance",
+        )
+        .await
     }
 
     async fn get_all_instances_async(
@@ -447,14 +412,7 @@ impl NacosNamingService {
             let response = self
                 .request_to_server::<ServiceQueryRequest, QueryServiceResponse>(request)
                 .await?;
-            if !response.is_success() {
-                return Err(ErrResult(format!(
-                    "naming service query services failed: resultCode: {}, errorCode:{}, message:{}",
-                    response.result_code,
-                    response.error_code,
-                    response.message.unwrap_or_default()
-                )));
-            }
+            self.handle_naming_response(&response, "get_all_instances")?;
             service_info = Some(response.service_info);
         }
         if service_info.is_none() {
@@ -546,14 +504,7 @@ impl NacosNamingService {
         let response = self
             .request_to_server::<ServiceListRequest, ServiceListResponse>(request)
             .await?;
-        if !response.is_success() {
-            return Err(ErrResult(format!(
-                "naming service list services failed: resultCode: {}, errorCode:{}, message:{}",
-                response.result_code,
-                response.error_code,
-                response.message.unwrap_or_default()
-            )));
-        }
+        self.handle_naming_response(&response, "get_service_list")?;
 
         Ok((response.service_names, response.count))
     }
@@ -608,14 +559,7 @@ impl NacosNamingService {
         let response = self
             .request_to_server::<SubscribeServiceRequest, SubscribeServiceResponse>(request)
             .await?;
-        if !response.is_success() {
-            return Err(ErrResult(format!(
-                "naming subscribe services failed: resultCode: {}, errorCode:{}, message:{}",
-                response.result_code,
-                response.error_code,
-                response.message.unwrap_or_default()
-            )));
-        }
+        self.handle_naming_response(&response, "subscribe")?;
 
         debug!("subscribe the {response:?}");
         redo_task.frozen();
@@ -663,14 +607,7 @@ impl NacosNamingService {
         let response = self
             .request_to_server::<SubscribeServiceRequest, SubscribeServiceResponse>(request)
             .await?;
-        if !response.is_success() {
-            return Err(ErrResult(format!(
-                "naming subscribe services failed: resultCode: {}, errorCode:{}, message:{}",
-                response.result_code,
-                response.error_code,
-                response.message.unwrap_or_default()
-            )));
-        }
+        self.handle_naming_response(&response, "unsubscribe")?;
         debug!("unsubscribe the {response:?}");
         self.redo_task_executor
             .remove_task(redo_task.task_key().as_str())
@@ -810,17 +747,21 @@ pub(crate) mod tests {
 
     use super::*;
 
-    #[tokio::test]
-    #[ignore]
-    async fn test_ephemeral_register_service() {
-        tracing_subscriber::fmt()
+    fn tracing_log_try_init() {
+        let _ = tracing_subscriber::fmt()
             .with_thread_names(true)
             .with_file(true)
             .with_level(true)
             .with_line_number(true)
             .with_thread_ids(true)
             .with_max_level(LevelFilter::DEBUG)
-            .init();
+            .try_init();
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn test_ephemeral_register_service() {
+        tracing_log_try_init();
 
         let props = ClientProps::new().server_addr("127.0.0.1:8848");
 
@@ -850,14 +791,7 @@ pub(crate) mod tests {
     #[tokio::test]
     #[ignore]
     async fn test_persistent_register_service() {
-        tracing_subscriber::fmt()
-            .with_thread_names(true)
-            .with_file(true)
-            .with_level(true)
-            .with_line_number(true)
-            .with_thread_ids(true)
-            .with_max_level(LevelFilter::DEBUG)
-            .init();
+        tracing_log_try_init();
 
         let props = ClientProps::new().server_addr("127.0.0.1:8848");
 
@@ -892,14 +826,7 @@ pub(crate) mod tests {
     #[tokio::test]
     #[ignore]
     async fn test_register_and_deregister_persistent_service() {
-        tracing_subscriber::fmt()
-            .with_thread_names(true)
-            .with_file(true)
-            .with_level(true)
-            .with_line_number(true)
-            .with_thread_ids(true)
-            .with_max_level(LevelFilter::DEBUG)
-            .init();
+        tracing_log_try_init();
 
         let props = ClientProps::new().server_addr("127.0.0.1:8848");
 
@@ -946,14 +873,7 @@ pub(crate) mod tests {
     #[tokio::test]
     #[ignore]
     async fn test_register_and_deregister_ephemeral_service() {
-        tracing_subscriber::fmt()
-            .with_thread_names(true)
-            .with_file(true)
-            .with_level(true)
-            .with_line_number(true)
-            .with_thread_ids(true)
-            .with_max_level(LevelFilter::DEBUG)
-            .init();
+        tracing_log_try_init();
 
         let props = ClientProps::new().server_addr("127.0.0.1:8848");
 
@@ -999,14 +919,7 @@ pub(crate) mod tests {
     #[tokio::test]
     #[ignore]
     async fn test_batch_register_service() {
-        tracing_subscriber::fmt()
-            .with_thread_names(true)
-            .with_file(true)
-            .with_level(true)
-            .with_line_number(true)
-            .with_thread_ids(true)
-            .with_max_level(LevelFilter::DEBUG)
-            .init();
+        tracing_log_try_init();
 
         let props = ClientProps::new().server_addr("127.0.0.1:8848");
 
@@ -1056,14 +969,7 @@ pub(crate) mod tests {
     #[tokio::test]
     #[ignore]
     async fn test_batch_register_service_and_query_all_instances() {
-        tracing_subscriber::fmt()
-            .with_thread_names(true)
-            .with_file(true)
-            .with_level(true)
-            .with_line_number(true)
-            .with_thread_ids(true)
-            .with_max_level(LevelFilter::DEBUG)
-            .init();
+        tracing_log_try_init();
 
         let props = ClientProps::new().server_addr("127.0.0.1:8848");
 
@@ -1124,14 +1030,7 @@ pub(crate) mod tests {
     #[tokio::test]
     #[ignore]
     async fn test_select_instance() {
-        tracing_subscriber::fmt()
-            .with_thread_names(true)
-            .with_file(true)
-            .with_level(true)
-            .with_line_number(true)
-            .with_thread_ids(true)
-            .with_max_level(LevelFilter::DEBUG)
-            .init();
+        tracing_log_try_init();
 
         let props = ClientProps::new().server_addr("127.0.0.1:8848");
 
@@ -1193,14 +1092,7 @@ pub(crate) mod tests {
     #[tokio::test]
     #[ignore]
     async fn test_select_one_healthy_instance() {
-        tracing_subscriber::fmt()
-            .with_thread_names(true)
-            .with_file(true)
-            .with_level(true)
-            .with_line_number(true)
-            .with_thread_ids(true)
-            .with_max_level(LevelFilter::DEBUG)
-            .init();
+        tracing_log_try_init();
 
         let props = ClientProps::new().server_addr("127.0.0.1:8848");
 
@@ -1263,14 +1155,7 @@ pub(crate) mod tests {
     #[tokio::test]
     #[ignore]
     async fn test_get_service_list() {
-        tracing_subscriber::fmt()
-            .with_thread_names(true)
-            .with_file(true)
-            .with_level(true)
-            .with_line_number(true)
-            .with_thread_ids(true)
-            .with_max_level(LevelFilter::DEBUG)
-            .init();
+        tracing_log_try_init();
 
         let props = ClientProps::new().server_addr("127.0.0.1:8848");
 
@@ -1333,14 +1218,7 @@ pub(crate) mod tests {
     #[tokio::test]
     #[ignore]
     async fn test_service_push() {
-        tracing_subscriber::fmt()
-            .with_thread_names(true)
-            .with_file(true)
-            .with_level(true)
-            .with_line_number(true)
-            .with_thread_ids(true)
-            .with_max_level(LevelFilter::DEBUG)
-            .init();
+        tracing_log_try_init();
 
         let props = ClientProps::new().server_addr("127.0.0.1:8848");
 
@@ -1394,7 +1272,7 @@ pub(crate) mod tests {
 
         info!("response. {ret:?}");
 
-        let ten_millis = time::Duration::from_secs(3000);
+        let ten_millis = time::Duration::from_secs(30);
         tokio::time::sleep(ten_millis).await;
     }
 }
