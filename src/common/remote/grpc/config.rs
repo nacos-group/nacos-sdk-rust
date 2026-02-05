@@ -23,105 +23,21 @@ pub(crate) struct GrpcConfiguration {
     pub(crate) http2_adaptive_window: Option<bool>,
 }
 
+#[allow(dead_code)]
 impl GrpcConfiguration {
-    pub(crate) fn with_host(mut self, host: String) -> Self {
-        self.host = host;
-        self
-    }
-
-    pub(crate) fn with_port(mut self, port: Option<u32>) -> Self {
-        self.port = port;
-        self
-    }
-
+    /// Set origin from a URI string. Returns self only if parsing succeeds.
     pub(crate) fn with_origin(mut self, uri: &str) -> Self {
-        let uri = uri.parse::<Uri>();
-        if uri.is_err() {
-            return self;
+        if let Ok(uri) = uri.parse::<Uri>() {
+            self.origin = Some(uri);
         }
-        self.origin = Some(uri.expect("Failed to parse URI"));
         self
     }
 
+    /// Set user agent from a string. Returns self only if parsing succeeds.
     pub(crate) fn with_user_agent(mut self, ua: String) -> Self {
-        let ua = HeaderValue::try_from(ua);
-        if ua.is_err() {
-            return self;
+        if let Ok(ua) = HeaderValue::try_from(ua) {
+            self.user_agent = Some(ua);
         }
-        let ua = ua.expect("Failed to parse user agent header value");
-        self.user_agent = Some(ua);
-        self
-    }
-
-    pub(crate) fn with_timeout(mut self, timeout: Duration) -> Self {
-        self.timeout = Some(timeout);
-        self
-    }
-
-    pub(crate) fn with_concurrency_limit(mut self, concurrency_limit: usize) -> Self {
-        self.concurrency_limit = Some(concurrency_limit);
-        self
-    }
-
-    pub(crate) fn with_rate_limit(mut self, rate_limit: (u64, Duration)) -> Self {
-        self.rate_limit = Some(rate_limit);
-        self
-    }
-
-    pub(crate) fn with_init_stream_window_size(mut self, init_stream_window_size: u32) -> Self {
-        self.init_stream_window_size = Some(init_stream_window_size);
-        self
-    }
-
-    pub(crate) fn with_init_connection_window_size(
-        mut self,
-        init_connection_window_size: u32,
-    ) -> Self {
-        self.init_connection_window_size = Some(init_connection_window_size);
-        self
-    }
-
-    pub(crate) fn with_tcp_keepalive(mut self, tcp_keepalive: Duration) -> Self {
-        self.tcp_keepalive = Some(tcp_keepalive);
-        self
-    }
-
-    pub(crate) fn with_tcp_nodelay(mut self, tcp_nodelay: bool) -> Self {
-        self.tcp_nodelay = tcp_nodelay;
-        self
-    }
-
-    pub(crate) fn with_http2_keep_alive_interval(
-        mut self,
-        http2_keep_alive_interval: Duration,
-    ) -> Self {
-        self.http2_keep_alive_interval = Some(http2_keep_alive_interval);
-        self
-    }
-
-    pub(crate) fn with_http2_keep_alive_timeout(
-        mut self,
-        http2_keep_alive_timeout: Duration,
-    ) -> Self {
-        self.http2_keep_alive_timeout = Some(http2_keep_alive_timeout);
-        self
-    }
-
-    pub(crate) fn with_http2_keep_alive_while_idle(
-        mut self,
-        http2_keep_alive_while_idle: bool,
-    ) -> Self {
-        self.http2_keep_alive_while_idle = Some(http2_keep_alive_while_idle);
-        self
-    }
-
-    pub(crate) fn with_connect_timeout(mut self, connect_timeout: Duration) -> Self {
-        self.connect_timeout = Some(connect_timeout);
-        self
-    }
-
-    pub(crate) fn with_http2_adaptive_window(mut self, http2_adaptive_window: bool) -> Self {
-        self.http2_adaptive_window = Some(http2_adaptive_window);
         self
     }
 }

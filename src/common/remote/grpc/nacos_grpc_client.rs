@@ -83,6 +83,7 @@ pub(crate) struct NacosGrpcClientBuilder {
     max_retries: Option<u32>,
 }
 
+#[allow(dead_code)]
 impl NacosGrpcClientBuilder {
     pub(crate) fn new(server_list: Vec<String>) -> Self {
         Self {
@@ -154,144 +155,84 @@ impl NacosGrpcClientBuilder {
         Self { ..self }
     }
 
-    pub(crate) fn host(self, host: String) -> Self {
-        let grpc_config = self.grpc_config.with_host(host);
-        Self {
-            grpc_config,
-            ..self
-        }
+    pub(crate) fn host(mut self, host: String) -> Self {
+        self.grpc_config.host = host;
+        self
     }
 
-    pub(crate) fn port(self, port: Option<u32>) -> Self {
-        let grpc_config = self.grpc_config.with_port(port);
-        Self {
-            grpc_config,
-            ..self
-        }
+    pub(crate) fn port(mut self, port: Option<u32>) -> Self {
+        self.grpc_config.port = port;
+        self
     }
 
-    pub(crate) fn origin(self, uri: &str) -> Self {
-        let grpc_config = self.grpc_config.with_origin(uri);
-        Self {
-            grpc_config,
-            ..self
-        }
+    pub(crate) fn origin(mut self, uri: &str) -> Self {
+        self.grpc_config = self.grpc_config.with_origin(uri);
+        self
     }
 
-    pub(crate) fn user_agent(self, ua: String) -> Self {
-        let grpc_config = self.grpc_config.with_user_agent(ua);
-        Self {
-            grpc_config,
-            ..self
-        }
+    pub(crate) fn user_agent(mut self, ua: String) -> Self {
+        self.grpc_config = self.grpc_config.with_user_agent(ua);
+        self
     }
 
-    pub(crate) fn timeout(self, timeout: Duration) -> Self {
-        let grpc_config = self.grpc_config.with_timeout(timeout);
-        Self {
-            grpc_config,
-            ..self
-        }
+    pub(crate) fn timeout(mut self, timeout: Duration) -> Self {
+        self.grpc_config.timeout = Some(timeout);
+        self
     }
 
-    pub(crate) fn concurrency_limit(self, concurrency_limit: usize) -> Self {
-        let grpc_config = self.grpc_config.with_concurrency_limit(concurrency_limit);
-        Self {
-            grpc_config,
-            ..self
-        }
+    pub(crate) fn concurrency_limit(mut self, concurrency_limit: usize) -> Self {
+        self.grpc_config.concurrency_limit = Some(concurrency_limit);
+        self
     }
 
-    pub(crate) fn rate_limit(self, rate_limit: (u64, Duration)) -> Self {
-        let grpc_config = self.grpc_config.with_rate_limit(rate_limit);
-        Self {
-            grpc_config,
-            ..self
-        }
+    pub(crate) fn rate_limit(mut self, rate_limit: (u64, Duration)) -> Self {
+        self.grpc_config.rate_limit = Some(rate_limit);
+        self
     }
 
-    pub(crate) fn init_stream_window_size(self, init_stream_window_size: u32) -> Self {
-        let grpc_config = self
-            .grpc_config
-            .with_init_stream_window_size(init_stream_window_size);
-        Self {
-            grpc_config,
-            ..self
-        }
+    pub(crate) fn init_stream_window_size(mut self, init_stream_window_size: u32) -> Self {
+        self.grpc_config.init_stream_window_size = Some(init_stream_window_size);
+        self
     }
 
-    pub(crate) fn init_connection_window_size(self, init_connection_window_size: u32) -> Self {
-        let grpc_config = self
-            .grpc_config
-            .with_init_connection_window_size(init_connection_window_size);
-        Self {
-            grpc_config,
-            ..self
-        }
+    pub(crate) fn init_connection_window_size(mut self, init_connection_window_size: u32) -> Self {
+        self.grpc_config.init_connection_window_size = Some(init_connection_window_size);
+        self
     }
 
-    pub(crate) fn tcp_keepalive(self, tcp_keepalive: Duration) -> Self {
-        let grpc_config = self.grpc_config.with_tcp_keepalive(tcp_keepalive);
-        Self {
-            grpc_config,
-            ..self
-        }
+    pub(crate) fn tcp_keepalive(mut self, tcp_keepalive: Duration) -> Self {
+        self.grpc_config.tcp_keepalive = Some(tcp_keepalive);
+        self
     }
 
-    pub(crate) fn tcp_nodelay(self, tcp_nodelay: bool) -> Self {
-        let grpc_config = self.grpc_config.with_tcp_nodelay(tcp_nodelay);
-        Self {
-            grpc_config,
-            ..self
-        }
+    pub(crate) fn tcp_nodelay(mut self, tcp_nodelay: bool) -> Self {
+        self.grpc_config.tcp_nodelay = tcp_nodelay;
+        self
     }
 
-    pub(crate) fn http2_keep_alive_interval(self, http2_keep_alive_interval: Duration) -> Self {
-        let grpc_config = self
-            .grpc_config
-            .with_http2_keep_alive_interval(http2_keep_alive_interval);
-        Self {
-            grpc_config,
-            ..self
-        }
+    pub(crate) fn http2_keep_alive_interval(mut self, http2_keep_alive_interval: Duration) -> Self {
+        self.grpc_config.http2_keep_alive_interval = Some(http2_keep_alive_interval);
+        self
     }
 
-    pub(crate) fn http2_keep_alive_timeout(self, http2_keep_alive_timeout: Duration) -> Self {
-        let grpc_config = self
-            .grpc_config
-            .with_http2_keep_alive_timeout(http2_keep_alive_timeout);
-        Self {
-            grpc_config,
-            ..self
-        }
+    pub(crate) fn http2_keep_alive_timeout(mut self, http2_keep_alive_timeout: Duration) -> Self {
+        self.grpc_config.http2_keep_alive_timeout = Some(http2_keep_alive_timeout);
+        self
     }
 
-    pub(crate) fn http2_keep_alive_while_idle(self, http2_keep_alive_while_idle: bool) -> Self {
-        let grpc_config = self
-            .grpc_config
-            .with_http2_keep_alive_while_idle(http2_keep_alive_while_idle);
-        Self {
-            grpc_config,
-            ..self
-        }
+    pub(crate) fn http2_keep_alive_while_idle(mut self, http2_keep_alive_while_idle: bool) -> Self {
+        self.grpc_config.http2_keep_alive_while_idle = Some(http2_keep_alive_while_idle);
+        self
     }
 
-    pub(crate) fn connect_timeout(self, connect_timeout: Duration) -> Self {
-        let grpc_config = self.grpc_config.with_connect_timeout(connect_timeout);
-        Self {
-            grpc_config,
-            ..self
-        }
+    pub(crate) fn connect_timeout(mut self, connect_timeout: Duration) -> Self {
+        self.grpc_config.connect_timeout = Some(connect_timeout);
+        self
     }
 
-    pub(crate) fn http2_adaptive_window(self, http2_adaptive_window: bool) -> Self {
-        let grpc_config = self
-            .grpc_config
-            .with_http2_adaptive_window(http2_adaptive_window);
-        Self {
-            grpc_config,
-            ..self
-        }
+    pub(crate) fn http2_adaptive_window(mut self, http2_adaptive_window: bool) -> Self {
+        self.grpc_config.http2_adaptive_window = Some(http2_adaptive_window);
+        self
     }
 
     pub(crate) fn auth_plugin(self, auth_plugin: Arc<dyn AuthPlugin>) -> Self {
