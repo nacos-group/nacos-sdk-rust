@@ -140,7 +140,8 @@ pub trait NamingEventListener: Send + Sync + 'static {
 ///           .namespace("")
 ///           .app_name("todo-your-app-name"),
 ///   )
-///   .build()?;
+///   .build()
+///   .await?;
 /// ```
 #[doc(alias("naming", "sdk", "api"))]
 #[derive(Clone, Debug)]
@@ -275,7 +276,8 @@ impl NamingService {
 ///           .namespace("")
 ///           .app_name("todo-your-app-name"),
 ///   )
-///   .build()?;
+///   .build()
+///   .await?;
 /// ```
 #[doc(alias("naming", "builder"))]
 pub struct NamingServiceBuilder {
@@ -307,7 +309,7 @@ impl NamingServiceBuilder {
         self
     }
 
-    pub fn build(self) -> Result<NamingService> {
+    pub async fn build(self) -> Result<NamingService> {
         #[cfg(feature = "tracing-log")]
         {
             // $HOME/logs/nacos
@@ -320,7 +322,7 @@ impl NamingServiceBuilder {
             None => Arc::new(plugin::NoopAuthPlugin::default()),
             Some(plugin) => plugin,
         };
-        let inner = NacosNamingService::new(self.client_props, auth_plugin)?;
+        let inner = NacosNamingService::new(self.client_props, auth_plugin).await?;
         let inner = Arc::new(inner);
         Ok(NamingService { inner })
     }

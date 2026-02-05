@@ -14,7 +14,8 @@ use std::sync::Arc;
 ///           .namespace("")
 ///           .app_name("todo-your-app-name"),
 ///   )
-///   .build()?;
+///   .build()
+///   .await?;
 /// ```
 #[doc(alias("config", "sdk", "api"))]
 #[derive(Clone, Debug)]
@@ -247,7 +248,8 @@ pub mod constants {
 ///           .namespace("")
 ///           .app_name("todo-your-app-name"),
 ///   )
-///   .build()?;
+///   .build()
+///   .await?;
 /// ```
 #[doc(alias("config", "builder"))]
 pub struct ConfigServiceBuilder {
@@ -315,7 +317,7 @@ impl ConfigServiceBuilder {
     }
 
     /// Builds a new [`ConfigService`].
-    pub fn build(self) -> error::Result<ConfigService> {
+    pub async fn build(self) -> error::Result<ConfigService> {
         #[cfg(feature = "tracing-log")]
         {
             // $HOME/logs/nacos
@@ -332,7 +334,8 @@ impl ConfigServiceBuilder {
             self.client_props,
             auth_plugin,
             self.config_filters,
-        )?;
+        )
+        .await?;
         let inner = Arc::new(inner);
         Ok(ConfigService { inner })
     }
@@ -365,6 +368,7 @@ mod tests {
 
         let config_service = ConfigServiceBuilder::default()
             .build()
+            .await
             .expect("ConfigServiceBuilder should build successfully in tests");
 
         // publish a config
@@ -446,6 +450,7 @@ mod tests {
 
         let config_service = ConfigServiceBuilder::default()
             .build()
+            .await
             .expect("ConfigServiceBuilder should build successfully in tests");
 
         // remove a config not exit
@@ -467,6 +472,7 @@ mod tests {
 
         let config_service = ConfigServiceBuilder::default()
             .build()
+            .await
             .expect("ConfigServiceBuilder should build successfully in tests");
 
         // publish a config
@@ -492,6 +498,7 @@ mod tests {
 
         let config_service = ConfigServiceBuilder::default()
             .build()
+            .await
             .expect("ConfigServiceBuilder should build successfully in tests");
 
         let mut params = HashMap::new();
@@ -524,6 +531,7 @@ mod tests {
 
         let config_service = ConfigServiceBuilder::default()
             .build()
+            .await
             .expect("ConfigServiceBuilder should build successfully in tests");
 
         // publish a config with beta
@@ -550,6 +558,7 @@ mod tests {
 
         let config_service = ConfigServiceBuilder::default()
             .build()
+            .await
             .expect("ConfigServiceBuilder should build successfully in tests");
 
         let data_id = "test_api_config_service_publish_config_cas".to_string();

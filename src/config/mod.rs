@@ -43,7 +43,7 @@ fn generate_client_id(server_addr: &str, namespace: &str) -> String {
 }
 
 impl NacosConfigService {
-    pub fn new(
+    pub async fn new(
         client_props: ClientProps,
         auth_plugin: std::sync::Arc<dyn AuthPlugin>,
         config_filters: Vec<Box<dyn ConfigFilter>>,
@@ -53,7 +53,7 @@ impl NacosConfigService {
             &client_props.get_namespace(),
         );
         let client_worker =
-            ConfigWorker::new(client_props, auth_plugin, config_filters, client_id.clone())?;
+            ConfigWorker::new(client_props, auth_plugin, config_filters, client_id.clone()).await?;
         Ok(Self {
             client_worker,
             client_id,

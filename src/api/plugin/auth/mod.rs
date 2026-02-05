@@ -8,8 +8,7 @@ mod auth_by_aliyun_ram;
 #[cfg(feature = "auth-by-aliyun")]
 pub use auth_by_aliyun_ram::*;
 
-use std::{collections::HashMap, sync::Arc, thread, time::Duration};
-use tokio::{sync::oneshot, time::sleep};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 use tracing::{Instrument, debug, debug_span, info};
 
 use crate::common::executor;
@@ -82,24 +81,24 @@ impl AuthPlugin for NoopAuthPlugin {
     }
 }
 
-pub fn init_auth_plugin(
+pub async fn init_auth_plugin(
     auth_plugin: Arc<dyn AuthPlugin>,
     server_list: Vec<String>,
     auth_params: HashMap<String, String>,
     id: String,
 ) {
-    let (tx, rx) = oneshot::channel::<()>();
+    info!("init auth task");
+    let auth_context = AuthContext::default().add_params(auth_params);
+    // First login
+    auth_plugin
+        .login(server_list.clone(), auth_context.clone())
+        .in_current_span()
+        .await;
+    info!("init auth finish");
+
     executor::spawn(
         async move {
-            info!("init auth task");
-            let auth_context = AuthContext::default().add_params(auth_params);
-            auth_plugin
-                .login(server_list.clone(), auth_context.clone())
-                .in_current_span()
-                .await;
-            info!("init auth finish");
-            let _ = tx.send(());
-
+            // Periodic refresh
             info!("auth plugin task start.");
             loop {
                 auth_plugin
@@ -107,17 +106,11 @@ pub fn init_auth_plugin(
                     .in_current_span()
                     .await;
                 debug!("auth_plugin schedule at fixed delay");
-                sleep(Duration::from_secs(30)).await;
+                tokio::time::sleep(Duration::from_secs(30)).await;
             }
         }
         .instrument(debug_span!("auth_task", id = id)),
     );
-
-    let wait_ret = thread::spawn(move || rx.blocking_recv());
-
-    let _ = wait_ret
-        .join()
-        .expect("auth plugin init thread should not panic");
 }
 
 #[derive(Debug, Default)]

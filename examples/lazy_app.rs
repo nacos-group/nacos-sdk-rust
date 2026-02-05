@@ -8,6 +8,7 @@ use nacos_sdk::api::naming::{
 use nacos_sdk::api::props::ClientProps;
 
 use std::sync::LazyLock;
+use tokio::sync::OnceCell;
 
 static CLIENT_PROPS: LazyLock<ClientProps> = LazyLock::new(|| {
     ClientProps::new()
@@ -23,23 +24,35 @@ static CLIENT_PROPS: LazyLock<ClientProps> = LazyLock::new(|| {
 
 // 请注意！一般情况下，应用下仅需一个 Config 客户端，而且需要长期持有直至应用停止。
 // 因为它内部会初始化与服务端的长链接，后续的数据交互及变更订阅，都是实时地通过长链接告知客户端的。
-static CONFIG_SERVICE: LazyLock<ConfigService> = LazyLock::new(|| {
-    let config_service = ConfigServiceBuilder::new(CLIENT_PROPS.clone())
-        .enable_auth_plugin_http() // TODO You can choose not to enable auth
-        .build()
-        .expect("Failed to build config service");
-    config_service
-});
+static CONFIG_SERVICE: OnceCell<ConfigService> = OnceCell::const_new();
 
 // 请注意！一般情况下，应用下仅需一个 Naming 客户端，而且需要长期持有直至应用停止。
 // 因为它内部会初始化与服务端的长链接，后续的数据交互及变更订阅，都是实时地通过长链接告知客户端的。
-static NAMING_SERVICE: LazyLock<NamingService> = LazyLock::new(|| {
-    let naming_service = NamingServiceBuilder::new(CLIENT_PROPS.clone())
-        .enable_auth_plugin_http() // TODO You can choose not to enable auth
-        .build()
-        .expect("Failed to build naming service");
-    naming_service
-});
+static NAMING_SERVICE: OnceCell<NamingService> = OnceCell::const_new();
+
+async fn get_config_service() -> &'static ConfigService {
+    CONFIG_SERVICE
+        .get_or_init(|| async {
+            ConfigServiceBuilder::new((*CLIENT_PROPS).clone())
+                .enable_auth_plugin_http() // TODO You can choose not to enable auth
+                .build()
+                .await
+                .expect("Failed to build config service")
+        })
+        .await
+}
+
+async fn get_naming_service() -> &'static NamingService {
+    NAMING_SERVICE
+        .get_or_init(|| async {
+            NamingServiceBuilder::new((*CLIENT_PROPS).clone())
+                .enable_auth_plugin_http() // TODO You can choose not to enable auth
+                .build()
+                .await
+                .expect("Failed to build naming service")
+        })
+        .await
+}
 
 /// enable https auth run with command:
 /// cargo run --example lazy_app --features default,tls
@@ -55,7 +68,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .init();
 
     // ----------  Config  -------------
-    let config_resp = CONFIG_SERVICE
+    let config_service = get_config_service().await;
+    let config_resp = config_service
         .get_config("todo-data-id".to_string(), "LOVE".to_string())
         .await;
     match config_resp {
@@ -63,7 +77,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Err(err) => tracing::error!("get the config {:?}", err),
     }
 
-    let _listen = CONFIG_SERVICE
+    let _listen = config_service
         .add_listener(
             "todo-data-id".to_string(),
             "LOVE".to_string(),
@@ -76,8 +90,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // ----------  Naming  -------------
+    let naming_service = get_naming_service().await;
     let listener = std::sync::Arc::new(SimpleInstanceChangeListener);
-    let _subscribe_ret = NAMING_SERVICE
+    let _subscribe_ret = naming_service
         .subscribe(
             "test-service".to_string(),
             Some(constants::DEFAULT_GROUP.to_string()),
@@ -91,7 +106,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         port: 9090,
         ..Default::default()
     };
-    let _register_instance_ret = NAMING_SERVICE
+    let _register_instance_ret = naming_service
         .batch_register_instance(
             "test-service".to_string(),
             Some(constants::DEFAULT_GROUP.to_string()),
@@ -100,7 +115,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await;
     tokio::time::sleep(tokio::time::Duration::from_millis(666)).await;
 
-    let instances_ret = NAMING_SERVICE
+    let instances_ret = naming_service
         .get_all_instances(
             "test-service".to_string(),
             Some(constants::DEFAULT_GROUP.to_string()),

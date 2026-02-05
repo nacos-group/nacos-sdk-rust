@@ -365,7 +365,7 @@ impl NacosGrpcClientBuilder {
         }
     }
 
-    pub(crate) fn build(mut self, id: String) -> NacosGrpcClient {
+    pub(crate) async fn build(mut self, id: String) -> NacosGrpcClient {
         self.server_request_handler_map.insert(
             ClientDetectionRequest::identity().to_string(),
             Arc::new(ClientDetectionRequestHandler),
@@ -410,7 +410,8 @@ impl NacosGrpcClientBuilder {
             self.server_list.clone(),
             self.auth_context.clone(),
             id,
-        );
+        )
+        .await;
 
         let app_name = self.app_name;
         let auth_plugin = self.auth_plugin;

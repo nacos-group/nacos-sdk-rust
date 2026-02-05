@@ -36,6 +36,7 @@ async fn run_naming_demo() {
     let naming_client = NamingServiceBuilder::new(ClientProps::new().server_addr(server_addr))
         .enable_auth_plugin_aliyun()
         .build()
+        .await
         .expect("Failed to build naming service with Aliyun RAM auth");
 
     let mut instance = ServiceInstance::default();
@@ -71,6 +72,7 @@ async fn run_config_demo() {
     let config_client = ConfigServiceBuilder::new(ClientProps::new().server_addr(server_addr))
         .enable_auth_plugin_aliyun()
         .build()
+        .await
         .expect("Failed to build config service with Aliyun RAM auth");
 
     println!(

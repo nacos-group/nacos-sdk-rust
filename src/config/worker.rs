@@ -23,7 +23,7 @@ pub(crate) struct ConfigWorker {
 }
 
 impl ConfigWorker {
-    pub(crate) fn new(
+    pub(crate) async fn new(
         client_props: ClientProps,
         auth_plugin: Arc<dyn AuthPlugin>,
         config_filters: Vec<Box<dyn ConfigFilter>>,
@@ -38,7 +38,8 @@ impl ConfigWorker {
         let unified_cache: Cache<CacheData> = CacheBuilder::config(cache_ns)
             .load_cache_at_start(client_props.get_config_load_cache_at_start())
             .disk_store()
-            .build(client_id.clone());
+            .build(client_id.clone())
+            .await;
         let unified_cache = Arc::new(unified_cache);
         let config_filters = Arc::new(config_filters);
 
@@ -70,7 +71,8 @@ impl ConfigWorker {
             .auth_plugin(auth_plugin)
             .auth_context(client_props.get_auth_context())
             .max_retries(client_props.get_max_retries())
-            .build(client_id);
+            .build(client_id)
+            .await;
 
         let remote_client = Arc::new(remote_client);
         // todo Event/Subscriber instead of mpsc Sender/Receiver
@@ -619,6 +621,7 @@ mod tests {
             Vec::new(),
             "test_config".to_string(),
         )
+        .await
         .expect("Failed to create ConfigWorker in test");
 
         // test add listener1
@@ -656,6 +659,7 @@ mod tests {
             Vec::new(),
             "test_config".to_string(),
         )
+        .await
         .expect("Failed to create ConfigWorker in test");
 
         // test add listener1
