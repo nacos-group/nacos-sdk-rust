@@ -93,7 +93,7 @@ mod config_cache_tests {
         tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
 
         // Check cache directory structure
-        let mut cache_dir = home::home_dir().expect("Failed to get home directory");
+        let mut cache_dir = std::env::temp_dir();
         cache_dir.push("nacos/config/public");
 
         if cache_dir.exists() {
@@ -115,7 +115,7 @@ mod config_cache_tests {
         config_service
             .remove_config(data_id.to_string(), group.to_string())
             .await
-            .unwrap();
+            .expect("remove config failed");
     }
 
     async fn create_config_service(load_cache_at_start: bool) -> ConfigService {
@@ -129,6 +129,9 @@ mod config_cache_tests {
             client_props = client_props.auth_username("nacos").auth_password("nacos");
         }
 
-        ConfigServiceBuilder::new(client_props).build().unwrap()
+        ConfigServiceBuilder::new(client_props)
+            .build()
+            .await
+            .expect("ConfigService builder failed")
     }
 }

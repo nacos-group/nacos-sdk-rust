@@ -30,6 +30,7 @@ impl<T> GrpcMessage<T>
 where
     T: GrpcMessageData,
 {
+    #[allow(dead_code)]
     pub(crate) fn body(&self) -> &T {
         &self.body
     }
@@ -212,6 +213,7 @@ pub(crate) trait GrpcMessageData:
     }
 }
 
+#[allow(dead_code)]
 pub(crate) trait GrpcRequestMessage: GrpcMessageData {
     fn header(&self, key: &str) -> Option<&String>;
 
@@ -228,6 +230,7 @@ pub(crate) trait GrpcRequestMessage: GrpcMessageData {
     fn request_resource(&self) -> Option<RequestResource>;
 }
 
+#[allow(dead_code)]
 pub(crate) trait GrpcResponseMessage: GrpcMessageData {
     fn request_id(&self) -> Option<&String>;
 

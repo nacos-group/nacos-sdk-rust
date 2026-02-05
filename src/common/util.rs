@@ -6,9 +6,8 @@ pub(crate) static LOCAL_IP: std::sync::LazyLock<String> =
 
 #[allow(dead_code)]
 pub(crate) static HOME_DIR: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
-    home::home_dir()
+    std::env::home_dir()
         .unwrap_or(std::env::temp_dir())
-        .as_path()
         .to_str()
         .expect("home directory path should be valid UTF-8")
         .to_owned()

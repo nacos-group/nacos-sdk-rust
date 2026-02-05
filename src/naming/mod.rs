@@ -65,7 +65,10 @@ fn generate_client_id(server_addr: &str, namespace: &str) -> String {
 }
 
 impl NacosNamingService {
-    pub(crate) fn new(client_props: ClientProps, auth_plugin: Arc<dyn AuthPlugin>) -> Result<Self> {
+    pub(crate) async fn new(
+        client_props: ClientProps,
+        auth_plugin: Arc<dyn AuthPlugin>,
+    ) -> Result<Self> {
         let server_list = Arc::new(client_props.get_server_list()?);
 
         let mut namespace = client_props.get_namespace();
@@ -85,7 +88,8 @@ impl NacosNamingService {
         let naming_cache: Cache<ServiceInfo> = CacheBuilder::naming(namespace.clone())
             .load_cache_at_start(client_props.get_naming_load_cache_at_start())
             .disk_store()
-            .build(client_id.clone());
+            .build(client_id.clone())
+            .await;
         let naming_cache = Arc::new(naming_cache);
 
         // create naming service info change observable
@@ -135,7 +139,8 @@ impl NacosNamingService {
             .auth_context(client_props.get_auth_context())
             .auth_plugin(auth_plugin)
             .max_retries(client_props.get_max_retries())
-            .build(client_id.clone());
+            .build(client_id.clone())
+            .await;
 
         let nacos_grpc_client = Arc::new(nacos_grpc_client);
 
@@ -824,6 +829,7 @@ pub(crate) mod tests {
         metadata.insert("version".to_string(), "2.0".to_string());
 
         let naming_service = NacosNamingService::new(props, Arc::new(NoopAuthPlugin::default()))
+            .await
             .expect("Failed to create NacosNamingService in test");
         let service_instance = ServiceInstance {
             ip: "127.0.0.1".to_string(),
@@ -860,6 +866,7 @@ pub(crate) mod tests {
         metadata.insert("version".to_string(), "2.0".to_string());
 
         let naming_service = NacosNamingService::new(props, Arc::new(NoopAuthPlugin::default()))
+            .await
             .expect("Failed to create NacosNamingService in test");
         let service_instance = ServiceInstance {
             ip: "127.0.0.1".to_string(),
@@ -901,6 +908,7 @@ pub(crate) mod tests {
         metadata.insert("version".to_string(), "2.0".to_string());
 
         let naming_service = NacosNamingService::new(props, Arc::new(NoopAuthPlugin::default()))
+            .await
             .expect("Failed to create NacosNamingService in test");
         let service_instance = ServiceInstance {
             ip: "127.0.0.1".to_string(),
@@ -954,6 +962,7 @@ pub(crate) mod tests {
         metadata.insert("version".to_string(), "2.0".to_string());
 
         let naming_service = NacosNamingService::new(props, Arc::new(NoopAuthPlugin::default()))
+            .await
             .expect("Failed to create NacosNamingService in test");
         let service_instance = ServiceInstance {
             ip: "127.0.0.1".to_string(),
@@ -1006,6 +1015,7 @@ pub(crate) mod tests {
         metadata.insert("version".to_string(), "2.0".to_string());
 
         let naming_service = NacosNamingService::new(props, Arc::new(NoopAuthPlugin::default()))
+            .await
             .expect("Failed to create NacosNamingService in test");
         let service_instance1 = ServiceInstance {
             ip: "127.0.0.1".to_string(),
@@ -1062,6 +1072,7 @@ pub(crate) mod tests {
         metadata.insert("version".to_string(), "2.0".to_string());
 
         let naming_service = NacosNamingService::new(props, Arc::new(NoopAuthPlugin::default()))
+            .await
             .expect("Failed to create NacosNamingService in test");
         let service_instance1 = ServiceInstance {
             ip: "127.0.0.1".to_string(),
@@ -1129,6 +1140,7 @@ pub(crate) mod tests {
         metadata.insert("version".to_string(), "2.0".to_string());
 
         let naming_service = NacosNamingService::new(props, Arc::new(NoopAuthPlugin::default()))
+            .await
             .expect("Failed to create NacosNamingService in test");
         let service_instance1 = ServiceInstance {
             ip: "127.0.0.1".to_string(),
@@ -1197,6 +1209,7 @@ pub(crate) mod tests {
         metadata.insert("version".to_string(), "2.0".to_string());
 
         let naming_service = NacosNamingService::new(props, Arc::new(NoopAuthPlugin::default()))
+            .await
             .expect("Failed to create NacosNamingService in test");
         let service_instance1 = ServiceInstance {
             ip: "127.0.0.1".to_string(),
@@ -1266,6 +1279,7 @@ pub(crate) mod tests {
         metadata.insert("version".to_string(), "2.0".to_string());
 
         let naming_service = NacosNamingService::new(props, Arc::new(NoopAuthPlugin::default()))
+            .await
             .expect("Failed to create NacosNamingService in test");
         let service_instance1 = ServiceInstance {
             ip: "127.0.0.1".to_string(),
@@ -1335,6 +1349,7 @@ pub(crate) mod tests {
         metadata.insert("version".to_string(), "2.0".to_string());
 
         let naming_service = NacosNamingService::new(props, Arc::new(NoopAuthPlugin::default()))
+            .await
             .expect("Failed to create NacosNamingService in test");
         let service_instance1 = ServiceInstance {
             ip: "127.0.0.1".to_string(),

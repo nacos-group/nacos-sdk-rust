@@ -23,14 +23,14 @@ impl<V> Cache<V>
 where
     V: serde::Serialize + serde::de::DeserializeOwned + Send + Sync + 'static,
 {
-    fn new(id: &str, store: Option<Arc<dyn Store<V>>>, load_cache_at_start: bool) -> Self {
+    async fn new(id: &str, store: Option<Arc<dyn Store<V>>>, load_cache_at_start: bool) -> Self {
         let _span_enter = info_span!("cache", id = id).entered();
 
         let inner = match &store {
             Some(store) => {
                 let map: HashMap<String, V> = if load_cache_at_start {
                     info!("Loading cache by {}", store.name());
-                    store.load()
+                    store.load().await
                 } else {
                     info!("Skip loading cache by {}", store.name());
                     HashMap::new()
@@ -221,16 +221,12 @@ where
     }
 
     pub(crate) fn disk_store(self) -> Self {
-        let user_home =
-            home::home_dir().expect("Failed to get user home directory from system environment");
+        let user_home = std::path::PathBuf::from(crate::common::util::HOME_DIR.to_owned());
 
         let mut disk_path = user_home;
         disk_path.push("nacos");
         disk_path.push(self.module.clone());
         disk_path.push(self.namespace.clone());
-
-        let path_buf = disk_path.clone();
-        executor::spawn(async { tokio::fs::create_dir_all(path_buf).await });
 
         let disk_store = Arc::new(DiskStore::new(disk_path));
 
@@ -240,8 +236,8 @@ where
         }
     }
 
-    pub(crate) fn build(self, id: String) -> Cache<V> {
-        Cache::new(&id, self.store, self.load_cache_at_start)
+    pub(crate) async fn build(self, id: String) -> Cache<V> {
+        Cache::new(&id, self.store, self.load_cache_at_start).await
     }
 }
 
@@ -250,7 +246,7 @@ where
 trait Store<V>: Send + Sync {
     fn name(&self) -> Cow<'_, str>;
 
-    fn load(&self) -> HashMap<String, V>
+    async fn load(&self) -> HashMap<String, V>
     where
         V: serde::de::DeserializeOwned;
 
@@ -261,7 +257,7 @@ trait Store<V>: Send + Sync {
 
 #[cfg(test)]
 pub mod tests {
-    use std::{thread::sleep, time::Duration};
+    use std::time::Duration;
 
     use crate::{common::cache::Cache, test_config};
 
@@ -271,115 +267,107 @@ pub mod tests {
         test_config::setup_log();
     }
 
-    fn teardown() {}
-
-    fn run_test<T, F>(test: F) -> T
-    where
-        F: FnOnce() -> T,
-    {
+    #[tokio::test]
+    pub async fn test_cache() {
         setup();
-        let ret = test();
-        teardown();
-        ret
-    }
 
-    #[test]
-    pub fn test_cache() {
-        run_test(|| {
-            let cache: Cache<String> = CacheBuilder::naming("test-naming".to_string())
-                .load_cache_at_start(true)
-                .disk_store()
-                .build("test-id".to_string());
-            let key = String::from("key");
+        let cache: Cache<String> = CacheBuilder::naming("test-naming".to_string())
+            .load_cache_at_start(true)
+            .disk_store()
+            .build("test-id".to_string())
+            .await;
+        let key = String::from("key");
 
-            {
-                let value = cache.get(&key);
-                assert!(value.is_none());
-            }
+        {
+            let value = cache.get(&key);
+            assert!(value.is_none());
+        }
 
-            {
-                let ret = cache.insert(key.clone(), String::from("value"));
-                assert!(ret.is_none());
-            }
+        {
+            let ret = cache.insert(key.clone(), String::from("value"));
+            assert!(ret.is_none());
+        }
 
-            {
-                let value = cache.get(&key);
-                assert!(value.is_some());
-                let value = value.expect("Value should be present in cache");
-                assert!(value.eq("value"));
-            }
-
-            {
-                let value = cache.get_mut(&key);
-                assert!(value.is_some());
-                let mut value = value.expect("Mutable value should be present in cache");
-                *value = "modify".to_owned();
-            }
-
-            {
-                let value = cache.get(&key);
-                assert!(value.is_some());
-                let value = value.expect("Value should be present in cache after modification");
-                assert!(value.eq("modify"));
-            }
-
-            {
-                sleep(Duration::from_millis(222)); // sleep for cache already write into disk
-                let ret = cache.remove(&key);
-                assert!(ret.is_some());
-                let ret = ret.expect("Removed value should be present");
-                assert!(ret.eq("modify"));
-            }
-
-            {
-                let ret = cache.get(&key);
-                assert!(ret.is_none());
-            }
-
-            {
-                let ret = cache.insert("key1".to_string(), "test".to_owned());
-                assert!(ret.is_none());
-                // sleep 1 second
-                sleep(Duration::from_secs(1));
-            }
-
-            let user_home = home::home_dir();
-
-            let mut disk_path =
-                user_home.expect("Failed to get user home directory from system environment");
-            disk_path.push("nacos");
-            disk_path.push("naming");
-            disk_path.push("test-naming");
-            disk_path.push("key1");
-
-            let read_ret = std::fs::read(&disk_path);
-
-            assert!(read_ret.is_ok());
-
-            let ret = read_ret.expect("Failed to read cache file from disk");
-
-            let str = String::from_utf8(ret);
-            assert!(str.is_ok());
-
-            let str = str.expect("Failed to convert bytes to UTF-8 string");
-
-            assert!(str.eq("\"test\""));
-
-            // drop cache
-            drop(cache);
-
-            let cache: Cache<String> = CacheBuilder::naming("test-naming".to_string())
-                .load_cache_at_start(true)
-                .disk_store()
-                .build("test-id".to_string());
-
-            let key = String::from("key1");
+        {
             let value = cache.get(&key);
             assert!(value.is_some());
-            let value = value.expect("Value should be present in cache after reload");
-            assert!(value.eq("test"));
+            let value = value.expect("Value should be present in cache");
+            assert!(value.eq("value"));
+        }
 
-            let _ = std::fs::remove_file(&disk_path).expect("Failed to remove test cache file");
-        });
+        {
+            let value = cache.get_mut(&key);
+            assert!(value.is_some());
+            let mut value = value.expect("Mutable value should be present in cache");
+            *value = "modify".to_owned();
+        }
+
+        {
+            let value = cache.get(&key);
+            assert!(value.is_some());
+            let value = value.expect("Value should be present in cache after modification");
+            assert!(value.eq("modify"));
+        }
+
+        {
+            tokio::time::sleep(Duration::from_millis(222)).await; // sleep for cache already write into disk
+            let ret = cache.remove(&key);
+            assert!(ret.is_some());
+            let ret = ret.expect("Removed value should be present");
+            assert!(ret.eq("modify"));
+        }
+
+        {
+            let ret = cache.get(&key);
+            assert!(ret.is_none());
+        }
+
+        {
+            let ret = cache.insert("key1".to_string(), "test".to_owned());
+            assert!(ret.is_none());
+            // sleep 1 second
+            tokio::time::sleep(Duration::from_secs(1)).await;
+        }
+
+        let user_home = std::env::home_dir();
+
+        let mut disk_path =
+            user_home.expect("Failed to get user home directory from system environment");
+        disk_path.push("nacos");
+        disk_path.push("naming");
+        disk_path.push("test-naming");
+        disk_path.push("key1");
+
+        let read_ret = tokio::fs::read(&disk_path).await;
+
+        assert!(read_ret.is_ok());
+
+        let ret = read_ret.expect("Failed to read cache file from disk");
+
+        let str = String::from_utf8(ret);
+        assert!(str.is_ok());
+
+        let str = str.expect("Failed to convert bytes to UTF-8 string");
+
+        assert!(str.eq("\"test\""));
+
+        // drop cache
+        drop(cache);
+
+        let cache: Cache<String> = CacheBuilder::naming("test-naming".to_string())
+            .load_cache_at_start(true)
+            .disk_store()
+            .build("test-id".to_string())
+            .await;
+
+        let key = String::from("key1");
+        let value = cache.get(&key);
+        assert!(value.is_some());
+        let value = value.expect("Value should be present in cache after reload");
+        assert!(value.eq("test"));
+
+        let _ = tokio::fs::remove_file(&disk_path)
+            .await
+            .expect("Failed to remove test cache file");
     }
 }

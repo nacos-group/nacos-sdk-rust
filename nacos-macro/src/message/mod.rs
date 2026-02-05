@@ -1,3 +1,5 @@
+#![allow(clippy::manual_unwrap_or_default)] // for #[darling(default)]
+
 use darling::FromMeta;
 use syn::{parse_macro_input, parse_quote, AttributeArgs, ItemStruct, Path};
 

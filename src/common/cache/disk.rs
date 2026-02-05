@@ -1,4 +1,4 @@
-use std::{borrow::Cow, collections::HashMap, io::BufReader, path::PathBuf};
+use std::{borrow::Cow, collections::HashMap, path::PathBuf};
 
 use async_trait::async_trait;
 use serde::de;
@@ -18,6 +18,10 @@ pub(crate) struct DiskStore {
 impl DiskStore {
     pub(crate) fn new(disk_path: PathBuf) -> Self {
         info!(path = %disk_path.display(), "Creating DiskStore");
+
+        let path_buf = disk_path.clone();
+        crate::common::executor::spawn(async { tokio::fs::create_dir_all(path_buf).await });
+
         Self { disk_path }
     }
 
@@ -79,7 +83,7 @@ where
         Cow::from("disk-store")
     }
 
-    fn load(&self) -> HashMap<String, V>
+    async fn load(&self) -> HashMap<String, V>
     where
         V: de::DeserializeOwned,
     {
@@ -90,19 +94,20 @@ where
 
         if !self.disk_path.exists() {
             info!(path = %disk_path_display, "Cache directory does not exist, will create");
-            if let Err(e) = std::fs::create_dir_all(&self.disk_path) {
+            if let Err(e) = tokio::fs::create_dir_all(&self.disk_path).await {
                 warn!(path = %disk_path_display, error = %e, "Failed to create cache directory");
                 return default_map;
             }
             return default_map;
         }
 
+        // Note: is_dir() is sync check, but since we're just checking metadata it's acceptable
         if !self.disk_path.is_dir() {
             error!(path = %disk_path_display, "Cache path is not a directory");
             return default_map;
         }
 
-        let dir_iter = match std::fs::read_dir(&self.disk_path) {
+        let mut dir_iter = match tokio::fs::read_dir(&self.disk_path).await {
             Ok(iter) => iter,
             Err(e) => {
                 error!(path = %disk_path_display, error = %e, "Failed to read cache directory");
@@ -113,16 +118,10 @@ where
         let mut loaded_count = 0u64;
         let mut failed_count = 0u64;
 
-        for entry in dir_iter {
-            let entry = match entry {
-                Ok(e) => e,
-                Err(e) => {
-                    debug!(error = %e, "Skipping invalid directory entry");
-                    continue;
-                }
-            };
-
+        while let Ok(Some(entry)) = dir_iter.next_entry().await {
             let path = entry.path();
+
+            // Skip directories
             if path.is_dir() {
                 continue;
             }
@@ -138,18 +137,18 @@ where
                 continue;
             }
 
-            let file = match std::fs::File::open(&path) {
-                Ok(f) => f,
+            // Read file content async
+            let content = match tokio::fs::read(&path).await {
+                Ok(data) => data,
                 Err(e) => {
-                    warn!(file = %filename, error = %e, "Failed to open cache file");
+                    warn!(file = %filename, error = %e, "Failed to read cache file");
                     failed_count += 1;
                     continue;
                 }
             };
 
-            let reader = std::io::BufReader::new(file);
-
-            match serde_json::from_reader::<BufReader<std::fs::File>, V>(reader) {
+            // Deserialize from bytes
+            match serde_json::from_slice::<V>(&content) {
                 Ok(value) => {
                     default_map.insert(filename.clone(), value);
                     loaded_count += 1;

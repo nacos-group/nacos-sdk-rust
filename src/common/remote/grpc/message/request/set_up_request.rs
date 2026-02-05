@@ -27,6 +27,7 @@ pub(crate) struct NacosClientAbilities {
 }
 
 impl NacosClientAbilities {
+    #[allow(dead_code)]
     pub(crate) fn new() -> Self {
         NacosClientAbilities {
             remote_ability: NacosClientRemoteAbility::new(),

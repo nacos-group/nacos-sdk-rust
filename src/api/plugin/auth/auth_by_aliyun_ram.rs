@@ -622,6 +622,7 @@ mod test {
         let props = init_ram_client_prop_from_env();
         let naming_client =
             NacosNamingService::new(props, Arc::new(AliyunRamAuthPlugin::default()))
+                .await
                 .expect("Failed to create NacosNamingService with RAM auth plugin");
         naming_client
             .register_instance(
@@ -735,6 +736,7 @@ mod test {
         let props = init_ram_client_prop_from_env();
         let config_client =
             NacosConfigService::new(props, Arc::new(AliyunRamAuthPlugin::default()), Vec::new())
+                .await
                 .expect("System time should be after UNIX_EPOCH");
         config_client
             .publish_config(
