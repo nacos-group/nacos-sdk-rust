@@ -4,7 +4,7 @@ mod message;
 mod util;
 mod worker;
 
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::AtomicU64;
 
 use tracing::instrument;
 
@@ -33,24 +33,17 @@ impl std::fmt::Debug for NacosConfigService {
 const MODULE_NAME: &str = "config";
 static SEQ: AtomicU64 = AtomicU64::new(1);
 
-fn generate_client_id(server_addr: &str, namespace: &str) -> String {
-    // module_name + server_addr + namespace + [seq]
-    let client_id = format!(
-        "{MODULE_NAME}:{server_addr}:{namespace}:{}",
-        SEQ.fetch_add(1, Ordering::SeqCst)
-    );
-    client_id
-}
-
 impl NacosConfigService {
     pub async fn new(
         client_props: ClientProps,
         auth_plugin: std::sync::Arc<dyn AuthPlugin>,
         config_filters: Vec<Box<dyn ConfigFilter>>,
     ) -> crate::api::error::Result<Self> {
-        let client_id = generate_client_id(
+        let client_id = crate::common::util::generate_client_id(
+            MODULE_NAME,
             &client_props.get_server_addr(),
             &client_props.get_namespace(),
+            &SEQ,
         );
         let client_worker =
             ConfigWorker::new(client_props, auth_plugin, config_filters, client_id.clone()).await?;

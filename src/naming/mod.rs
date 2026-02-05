@@ -1,6 +1,5 @@
 use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
-use std::sync::atomic::Ordering;
 
 use tracing::{debug, info, instrument};
 
@@ -56,14 +55,6 @@ impl std::fmt::Debug for NacosNamingService {
 const MODULE_NAME: &str = "naming";
 static SEQ: AtomicU64 = AtomicU64::new(1);
 
-fn generate_client_id(server_addr: &str, namespace: &str) -> String {
-    let client_id = format!(
-        "{MODULE_NAME}:{server_addr}:{namespace}:{}",
-        SEQ.fetch_add(1, Ordering::SeqCst)
-    );
-    client_id
-}
-
 impl NacosNamingService {
     pub(crate) async fn new(
         client_props: ClientProps,
@@ -77,7 +68,12 @@ impl NacosNamingService {
         }
 
         // create client id
-        let client_id = generate_client_id(&client_props.get_server_addr(), &namespace);
+        let client_id = crate::common::util::generate_client_id(
+            MODULE_NAME,
+            &client_props.get_server_addr(),
+            &namespace,
+            &SEQ,
+        );
 
         // create redo task executor
         let redo_task_executor = Arc::new(RedoTaskExecutor::new(client_id.clone()));
@@ -167,23 +163,6 @@ impl NacosNamingService {
         self.nacos_grpc_client.send_request::<R, P>(request).await
     }
 
-    fn handle_naming_response<T: GrpcResponseMessage>(
-        &self,
-        response: &T,
-        operation: &str,
-    ) -> Result<()> {
-        if !response.is_success() {
-            return Err(ErrResult(format!(
-                "naming service {} failed: resultCode: {}, errorCode:{}, message:{}",
-                operation,
-                response.result_code(),
-                response.error_code(),
-                response.message().map(|s| s.as_str()).unwrap_or("")
-            )));
-        }
-        Ok(())
-    }
-
     /// Execute by register request with redo task (active → execute → frozen lifecycle)
     async fn execute_by_register_with_redo<R, P>(&self, request: R, operation: &str) -> Result<()>
     where
@@ -201,7 +180,7 @@ impl NacosNamingService {
         self.redo_task_executor.add_task(redo_task.clone()).await;
 
         let response = self.request_to_server::<R, P>(request).await?;
-        self.handle_naming_response(&response, operation)?;
+        crate::common::error::handle_response(&response, operation)?;
 
         redo_task.frozen();
         Ok(())
@@ -217,7 +196,7 @@ impl NacosNamingService {
         let redo_task = NamingRedoTask::new(self.nacos_grpc_client.clone(), auto_request);
 
         let response = self.request_to_server::<R, P>(request).await?;
-        self.handle_naming_response(&response, operation)?;
+        crate::common::error::handle_response(&response, operation)?;
 
         // remove redo task from executor
         self.redo_task_executor
@@ -238,9 +217,7 @@ impl NacosNamingService {
             "register ephemeral instance: service_name: {service_name}, group_name: {group_name:?}"
         );
         let namespace = Some(self.namespace.clone());
-        let group_name = group_name
-            .filter(|data| !data.is_empty())
-            .unwrap_or_else(|| crate::api::constants::DEFAULT_GROUP.to_owned());
+        let group_name = crate::common::util::normalize_group_name(group_name);
         let request = InstanceRequest::register(
             service_instance,
             Some(service_name),
@@ -265,9 +242,7 @@ impl NacosNamingService {
             "register persistent instance: service_name: {service_name}, group_name: {group_name:?}"
         );
         let namespace = Some(self.namespace.clone());
-        let group_name = group_name
-            .filter(|data| !data.is_empty())
-            .unwrap_or_else(|| crate::api::constants::DEFAULT_GROUP.to_owned());
+        let group_name = crate::common::util::normalize_group_name(group_name);
         let request = PersistentInstanceRequest::register(
             service_instance,
             Some(service_name),
@@ -293,9 +268,7 @@ impl NacosNamingService {
         );
 
         let namespace = Some(self.namespace.clone());
-        let group_name = group_name
-            .filter(|data| !data.is_empty())
-            .unwrap_or_else(|| crate::api::constants::DEFAULT_GROUP.to_owned());
+        let group_name = crate::common::util::normalize_group_name(group_name);
         let request = InstanceRequest::deregister(
             service_instance,
             Some(service_name),
@@ -320,9 +293,7 @@ impl NacosNamingService {
             "deregister persistent instance: service_name: {service_name}, group_name: {group_name:?}"
         );
         let namespace = Some(self.namespace.clone());
-        let group_name = group_name
-            .filter(|data| !data.is_empty())
-            .unwrap_or_else(|| crate::api::constants::DEFAULT_GROUP.to_owned());
+        let group_name = crate::common::util::normalize_group_name(group_name);
         let request = PersistentInstanceRequest::deregister(
             service_instance,
             Some(service_name),
@@ -344,9 +315,7 @@ impl NacosNamingService {
         service_instances: Vec<ServiceInstance>,
     ) -> Result<()> {
         let namespace = Some(self.namespace.clone());
-        let group_name = group_name
-            .filter(|data| !data.is_empty())
-            .unwrap_or_else(|| crate::api::constants::DEFAULT_GROUP.to_owned());
+        let group_name = crate::common::util::normalize_group_name(group_name);
         let request = BatchInstanceRequest::new(
             service_instances,
             namespace,
@@ -369,9 +338,7 @@ impl NacosNamingService {
         subscribe: bool,
     ) -> Result<Vec<ServiceInstance>> {
         let cluster_str = clusters.join(",");
-        let group_name = group_name
-            .filter(|data| !data.is_empty())
-            .unwrap_or_else(|| crate::api::constants::DEFAULT_GROUP.to_owned());
+        let group_name = crate::common::util::normalize_group_name(group_name);
 
         let service_info;
         if subscribe {
@@ -412,7 +379,7 @@ impl NacosNamingService {
             let response = self
                 .request_to_server::<ServiceQueryRequest, QueryServiceResponse>(request)
                 .await?;
-            self.handle_naming_response(&response, "get_all_instances")?;
+            crate::common::error::handle_response(&response, "get_all_instances")?;
             service_info = Some(response.service_info);
         }
         if service_info.is_none() {
@@ -434,9 +401,7 @@ impl NacosNamingService {
         subscribe: bool,
         healthy: bool,
     ) -> Result<Vec<ServiceInstance>> {
-        let group_name = group_name
-            .filter(|data| !data.is_empty())
-            .unwrap_or_else(|| crate::api::constants::DEFAULT_GROUP.to_owned());
+        let group_name = crate::common::util::normalize_group_name(group_name);
 
         let all_instance = self
             .get_all_instances_async(service_name, Some(group_name), clusters, subscribe)
@@ -457,9 +422,7 @@ impl NacosNamingService {
         clusters: Vec<String>,
         subscribe: bool,
     ) -> Result<ServiceInstance> {
-        let group_name = group_name
-            .filter(|data| !data.is_empty())
-            .unwrap_or_else(|| crate::api::constants::DEFAULT_GROUP.to_owned());
+        let group_name = crate::common::util::normalize_group_name(group_name);
         let service_name_for_tip = service_name.clone();
 
         let ret = self
@@ -488,9 +451,7 @@ impl NacosNamingService {
         page_size: i32,
         group_name: Option<String>,
     ) -> Result<(Vec<String>, i32)> {
-        let group_name = group_name
-            .filter(|data| !data.is_empty())
-            .unwrap_or_else(|| crate::api::constants::DEFAULT_GROUP.to_owned());
+        let group_name = crate::common::util::normalize_group_name(group_name);
         let namespace = Some(self.namespace.clone());
 
         let request = ServiceListRequest {
@@ -504,7 +465,7 @@ impl NacosNamingService {
         let response = self
             .request_to_server::<ServiceListRequest, ServiceListResponse>(request)
             .await?;
-        self.handle_naming_response(&response, "get_service_list")?;
+        crate::common::error::handle_response(&response, "get_service_list")?;
 
         Ok((response.service_names, response.count))
     }
@@ -517,9 +478,7 @@ impl NacosNamingService {
         event_listener: Option<Arc<dyn NamingEventListener>>,
     ) -> Result<ServiceInfo> {
         let clusters = clusters.join(",");
-        let group_name = group_name
-            .filter(|data| !data.is_empty())
-            .unwrap_or_else(|| crate::api::constants::DEFAULT_GROUP.to_owned());
+        let group_name = crate::common::util::normalize_group_name(group_name);
 
         // add updater task
         self.service_info_updater
@@ -559,7 +518,7 @@ impl NacosNamingService {
         let response = self
             .request_to_server::<SubscribeServiceRequest, SubscribeServiceResponse>(request)
             .await?;
-        self.handle_naming_response(&response, "subscribe")?;
+        crate::common::error::handle_response(&response, "subscribe")?;
 
         debug!("subscribe the {response:?}");
         redo_task.frozen();
@@ -575,9 +534,7 @@ impl NacosNamingService {
         event_listener: Option<Arc<dyn NamingEventListener>>,
     ) -> Result<()> {
         let clusters = clusters.join(",");
-        let group_name = group_name
-            .filter(|data| !data.is_empty())
-            .unwrap_or_else(|| crate::api::constants::DEFAULT_GROUP.to_owned());
+        let group_name = crate::common::util::normalize_group_name(group_name);
 
         // stop updater task
         self.service_info_updater
@@ -607,7 +564,7 @@ impl NacosNamingService {
         let response = self
             .request_to_server::<SubscribeServiceRequest, SubscribeServiceResponse>(request)
             .await?;
-        self.handle_naming_response(&response, "unsubscribe")?;
+        crate::common::error::handle_response(&response, "unsubscribe")?;
         debug!("unsubscribe the {response:?}");
         self.redo_task_executor
             .remove_task(redo_task.task_key().as_str())

@@ -161,26 +161,8 @@ impl ConfigWorker {
         content: String,
         content_type: Option<String>,
     ) -> crate::api::error::Result<bool> {
-        let namespace = self.client_props.get_namespace();
-
-        let mut conf_req = ConfigReq::new(data_id, group, namespace, content, "".to_string());
-        for config_filter in self.config_filters.iter() {
-            config_filter.filter(Some(&mut conf_req), None).await;
-        }
-
-        Self::publish_config_inner_async(
-            self.remote_client.clone(),
-            conf_req.data_id,
-            conf_req.group,
-            conf_req.namespace,
-            conf_req.content,
-            content_type,
-            conf_req.encrypted_data_key,
-            None,
-            None,
-            None,
-        )
-        .await
+        self.publish_config_inner(data_id, group, content, content_type, None, None, None)
+            .await
     }
 
     #[instrument(skip_all)]
@@ -192,21 +174,11 @@ impl ConfigWorker {
         content_type: Option<String>,
         cas_md5: String,
     ) -> crate::api::error::Result<bool> {
-        let namespace = self.client_props.get_namespace();
-
-        let mut conf_req = ConfigReq::new(data_id, group, namespace, content, "".to_string());
-        for config_filter in self.config_filters.iter() {
-            config_filter.filter(Some(&mut conf_req), None).await;
-        }
-
-        Self::publish_config_inner_async(
-            self.remote_client.clone(),
-            conf_req.data_id,
-            conf_req.group,
-            conf_req.namespace,
-            conf_req.content,
+        self.publish_config_inner(
+            data_id,
+            group,
+            content,
             content_type,
-            conf_req.encrypted_data_key,
             Some(cas_md5),
             None,
             None,
@@ -223,21 +195,11 @@ impl ConfigWorker {
         content_type: Option<String>,
         beta_ips: String,
     ) -> crate::api::error::Result<bool> {
-        let namespace = self.client_props.get_namespace();
-
-        let mut conf_req = ConfigReq::new(data_id, group, namespace, content, "".to_string());
-        for config_filter in self.config_filters.iter() {
-            config_filter.filter(Some(&mut conf_req), None).await;
-        }
-
-        Self::publish_config_inner_async(
-            self.remote_client.clone(),
-            conf_req.data_id,
-            conf_req.group,
-            conf_req.namespace,
-            conf_req.content,
+        self.publish_config_inner(
+            data_id,
+            group,
+            content,
             content_type,
-            conf_req.encrypted_data_key,
             None,
             Some(beta_ips),
             None,
@@ -255,6 +217,30 @@ impl ConfigWorker {
         cas_md5: Option<String>,
         params: HashMap<String, String>,
     ) -> crate::api::error::Result<bool> {
+        self.publish_config_inner(
+            data_id,
+            group,
+            content,
+            content_type,
+            cas_md5,
+            None,
+            Some(params),
+        )
+        .await
+    }
+
+    /// Internal implementation for all publish_config variants.
+    #[allow(clippy::too_many_arguments)]
+    async fn publish_config_inner(
+        &self,
+        data_id: String,
+        group: String,
+        content: String,
+        content_type: Option<String>,
+        cas_md5: Option<String>,
+        beta_ips: Option<String>,
+        params: Option<HashMap<String, String>>,
+    ) -> crate::api::error::Result<bool> {
         let namespace = self.client_props.get_namespace();
 
         let mut conf_req = ConfigReq::new(data_id, group, namespace, content, "".to_string());
@@ -271,8 +257,8 @@ impl ConfigWorker {
             content_type,
             conf_req.encrypted_data_key,
             cas_md5,
-            None,
-            Some(params),
+            beta_ips,
+            params,
         )
         .await
     }
@@ -491,32 +477,16 @@ impl ConfigWorker {
             .await?;
 
         if resp.is_success() {
-            Ok(resp)
-        } else if resp.is_not_found() {
-            Err(crate::api::error::Error::ConfigNotFound(format!(
-                "error_code={},message={}",
-                resp.error_code,
-                resp.message
-                    .expect("Error message should exist for error response")
-            )))
+            return Ok(resp);
+        }
+
+        let err_str = crate::common::error::to_err_msg(&resp, "get_config");
+        if resp.is_not_found() {
+            Err(crate::api::error::Error::ConfigNotFound(err_str))
         } else if resp.is_query_conflict() {
-            Err(crate::api::error::Error::ConfigQueryConflict(format!(
-                "error_code={},message={}",
-                resp.error_code,
-                resp.message
-                    .expect("Error message should exist for error response")
-            )))
+            Err(crate::api::error::Error::ConfigQueryConflict(err_str))
         } else {
-            let ConfigQueryResponse {
-                error_code,
-                message,
-                ..
-            } = resp;
-            Err(crate::api::error::Error::ErrResult(format!(
-                "error_code={},message={}",
-                error_code,
-                message.unwrap_or_default(),
-            )))
+            Err(crate::api::error::Error::ErrResult(err_str))
         }
     }
 
@@ -557,20 +527,7 @@ impl ConfigWorker {
             .send_request::<ConfigPublishRequest, ConfigPublishResponse>(req)
             .await?;
 
-        if resp.is_success() {
-            Ok(true)
-        } else {
-            let ConfigPublishResponse {
-                error_code,
-                message,
-                ..
-            } = resp;
-            Err(crate::api::error::Error::ErrResult(format!(
-                "error_code={},message={}",
-                error_code,
-                message.unwrap_or_default(),
-            )))
-        }
+        crate::common::error::handle_response(&resp, "publish_config").map(|_| true)
     }
 
     async fn remove_config_inner_async(
@@ -584,20 +541,7 @@ impl ConfigWorker {
             .send_request::<ConfigRemoveRequest, ConfigRemoveResponse>(req)
             .await?;
 
-        if resp.is_success() {
-            Ok(true)
-        } else {
-            let ConfigRemoveResponse {
-                error_code,
-                message,
-                ..
-            } = resp;
-            Err(crate::api::error::Error::ErrResult(format!(
-                "error_code={},message={}",
-                error_code,
-                message.unwrap_or_default(),
-            )))
-        }
+        crate::common::error::handle_response(&resp, "remove_config").map(|_| true)
     }
 }
 
