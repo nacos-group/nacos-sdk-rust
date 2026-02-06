@@ -6,16 +6,19 @@ use std::sync::Arc;
 ///
 /// # Examples
 ///
-/// ```ignore
-///  let mut config_service = nacos_sdk::api::config::ConfigServiceBuilder::new(
-///        nacos_sdk::api::props::ClientProps::new()
-///           .server_addr("127.0.0.1:8848")
-///           // Attention! "public" is "", it is recommended to customize the namespace with clear meaning.
-///           .namespace("")
-///           .app_name("todo-your-app-name"),
-///   )
-///   .build()
-///   .await?;
+/// ```no_run
+/// # async fn run() -> nacos_sdk::api::error::Result<()> {
+/// let config_service = nacos_sdk::api::config::ConfigServiceBuilder::new(
+///       nacos_sdk::api::props::ClientProps::new()
+///          .server_addr("127.0.0.1:8848")
+///          // Attention! "public" is "", it is recommended to customize the namespace with clear meaning.
+///          .namespace("")
+///          .app_name("todo-your-app-name"),
+///  )
+///  .build()
+///  .await?;
+/// # Ok(())
+/// # }
 /// ```
 #[doc(alias("config", "sdk", "api"))]
 #[derive(Clone, Debug)]
@@ -163,20 +166,24 @@ pub struct ConfigResponse {
 
 impl std::fmt::Display for ConfigResponse {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let mut content = self.content.clone();
-        if content.chars().count() > 30 {
-            content = content.chars().take(30).collect();
-            content.push_str("...");
-        }
         write!(
             f,
-            "ConfigResponse(namespace={n},data_id={d},group={g},md5={m},content={c})",
+            "ConfigResponse(namespace={n},data_id={d},group={g},md5={m},content=",
             n = self.namespace,
             d = self.data_id,
             g = self.group,
             m = self.md5,
-            c = content
-        )
+        )?;
+        // Truncate content for display if it exceeds 30 chars
+        if self.content.chars().count() > 30 {
+            for c in self.content.chars().take(30) {
+                write!(f, "{}", c)?;
+            }
+            write!(f, "...")?;
+        } else {
+            write!(f, "{}", self.content)?;
+        }
+        write!(f, ")")
     }
 }
 
@@ -240,16 +247,19 @@ pub mod constants {
 ///
 /// # Examples
 ///
-/// ```ignore
-///  let mut config_service = nacos_sdk::api::config::ConfigServiceBuilder::new(
-///        nacos_sdk::api::props::ClientProps::new()
-///           .server_addr("127.0.0.1:8848")
-///           // Attention! "public" is "", it is recommended to customize the namespace with clear meaning.
-///           .namespace("")
-///           .app_name("todo-your-app-name"),
-///   )
-///   .build()
-///   .await?;
+/// ```no_run
+/// # async fn run() -> nacos_sdk::api::error::Result<()> {
+/// let config_service = nacos_sdk::api::config::ConfigServiceBuilder::new(
+///       nacos_sdk::api::props::ClientProps::new()
+///          .server_addr("127.0.0.1:8848")
+///          // Attention! "public" is "", it is recommended to customize the namespace with clear meaning.
+///          .namespace("")
+///          .app_name("todo-your-app-name"),
+///  )
+///  .build()
+///  .await?;
+/// # Ok(())
+/// # }
 /// ```
 #[doc(alias("config", "builder"))]
 pub struct ConfigServiceBuilder {
@@ -357,12 +367,16 @@ mod tests {
         }
     }
 
+    fn tracing_log_try_init() {
+        let _ = tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::DEBUG)
+            .try_init();
+    }
+
     #[tokio::test]
     #[ignore]
     async fn test_api_config_service() {
-        tracing_subscriber::fmt()
-            .with_max_level(tracing::Level::DEBUG)
-            .init();
+        tracing_log_try_init();
 
         let (data_id, group) = ("test_api_config_service".to_string(), "TEST".to_string());
 
@@ -444,9 +458,7 @@ mod tests {
     #[tokio::test]
     #[ignore]
     async fn test_api_config_service_remove_config() {
-        tracing_subscriber::fmt()
-            .with_max_level(tracing::Level::DEBUG)
-            .init();
+        tracing_log_try_init();
 
         let config_service = ConfigServiceBuilder::default()
             .build()
@@ -466,9 +478,7 @@ mod tests {
     #[tokio::test]
     #[ignore]
     async fn test_api_config_service_publish_config() {
-        tracing_subscriber::fmt()
-            .with_max_level(tracing::Level::DEBUG)
-            .init();
+        tracing_log_try_init();
 
         let config_service = ConfigServiceBuilder::default()
             .build()
@@ -486,15 +496,13 @@ mod tests {
             .await
             .expect("ConfigServiceBuilder should build successfully in tests");
         tracing::info!("publish a config: {}", publish_resp);
-        assert_eq!(true, publish_resp);
+        assert!(publish_resp);
     }
 
     #[tokio::test]
     #[ignore]
     async fn test_api_config_service_publish_config_param() {
-        tracing_subscriber::fmt()
-            .with_max_level(tracing::Level::DEBUG)
-            .init();
+        tracing_log_try_init();
 
         let config_service = ConfigServiceBuilder::default()
             .build()
@@ -519,15 +527,13 @@ mod tests {
             .await
             .expect("ConfigServiceBuilder should build successfully in tests");
         tracing::info!("publish a config with param: {}", publish_resp);
-        assert_eq!(true, publish_resp);
+        assert!(publish_resp);
     }
 
     #[tokio::test]
     #[ignore]
     async fn test_api_config_service_publish_config_beta() {
-        tracing_subscriber::fmt()
-            .with_max_level(tracing::Level::DEBUG)
-            .init();
+        tracing_log_try_init();
 
         let config_service = ConfigServiceBuilder::default()
             .build()
@@ -546,15 +552,13 @@ mod tests {
             .await
             .expect("ConfigServiceBuilder should build successfully in tests");
         tracing::info!("publish a config with beta: {}", publish_resp);
-        assert_eq!(true, publish_resp);
+        assert!(publish_resp);
     }
 
     #[tokio::test]
     #[ignore]
     async fn test_api_config_service_publish_config_cas() {
-        tracing_subscriber::fmt()
-            .with_max_level(tracing::Level::DEBUG)
-            .init();
+        tracing_log_try_init();
 
         let config_service = ConfigServiceBuilder::default()
             .build()
@@ -573,7 +577,7 @@ mod tests {
             )
             .await
             .expect("ConfigServiceBuilder should build successfully in tests");
-        assert_eq!(true, publish_resp);
+        assert!(publish_resp);
 
         // sleep for config sync in server
         sleep(Duration::from_millis(111)).await;
@@ -598,7 +602,7 @@ mod tests {
             .await
             .expect("ConfigServiceBuilder should build successfully in tests");
         tracing::info!("publish a config with cas: {}", publish_resp);
-        assert_eq!(true, publish_resp);
+        assert!(publish_resp);
 
         // publish a config with cas md5 not right
         let content_cas_md5_not_right = "test_api_config_service_publish_config_cas_md5_not_right";

@@ -292,28 +292,25 @@ where
                     let mut server_stream = Box::pin(server_stream);
                     while let Some(Ok(response)) = server_stream.next().await {
                         debug!("server stream receive message from server");
-                        let handler_key = response
+                        let Some(handler_key) = response
                             .metadata
                             .as_ref()
-                            .map(|meta_data| meta_data.r#type.clone());
-                        if handler_key.is_none() {
+                            .map(|meta_data| meta_data.r#type.clone())
+                        else {
                             debug!("response payload type field is empty, skip.");
                             continue;
-                        }
-                        let handler_key = handler_key
-                            .expect("Handler key should be present in response metadata");
+                        };
                         debug!("server stream handler: {}", handler_key);
                         let handler = server_stream_handlers.get(&handler_key).cloned();
                         let handler = handler.unwrap_or_else(|| Arc::new(DefaultHandler));
-                        let ret = handler.request_reply(response).in_current_span().await;
-                        if ret.is_none() {
+                        let Some(ret) = handler.request_reply(response).in_current_span().await
+                        else {
                             debug!(
                                 "handler no response, don't need to send to server. skip. key:{}",
                                 handler_key
                             );
                             continue;
-                        }
-                        let ret = ret.expect("Handler response should be present");
+                        };
                         let ret = local_sender_clone.send(ret).await;
                         if let Err(e) = ret {
                             error!("send grpc message to server occur an error, {}", e);
@@ -403,10 +400,10 @@ where
 
 pub(crate) enum State<F, S> {
     Idle,
-    Connecting(F),
-    Initializing(Box<dyn Future<Output = Result<(S, String), Error>> + Send>),
+    Connecting(Pin<Box<F>>),
+    Initializing(Pin<Box<dyn Future<Output = Result<(S, String), Error>> + Send>>),
     Connected(S),
-    Retry(Box<dyn Future<Output = ()> + Send>),
+    Retry(Pin<Box<dyn Future<Output = ()> + Send>>),
 }
 
 impl<M> Service<Payload> for NacosGrpcConnection<M>
@@ -451,16 +448,15 @@ where
                         );
                     }
                     let mk_fut = self.mk_service.make_service(());
-                    self.state = State::Connecting(mk_fut);
+                    self.state = State::Connecting(Box::pin(mk_fut));
                     continue;
                 }
                 State::Connecting(ref mut fut) => {
-                    let pin = unsafe { Pin::new_unchecked(fut) };
-                    let ret = pin.poll(cx);
+                    let ret = fut.as_mut().poll(cx);
                     match ret {
                         Poll::Pending => return Poll::Pending,
                         Poll::Ready(Ok(ret)) => {
-                            let init_future = Box::new(NacosGrpcConnection::<M>::init_connection(
+                            let init_future = Box::pin(NacosGrpcConnection::<M>::init_connection(
                                 ret,
                                 self.client_version.clone(),
                                 self.namespace.clone(),
@@ -479,7 +475,7 @@ where
                                 "create connection error, this operate will be retry after {} sec, retry count:{}. {}",
                                 sleep_time, self.retry_count, e
                             );
-                            self.state = State::Retry(Box::new(sleep(Duration::from_secs(
+                            self.state = State::Retry(Box::pin(sleep(Duration::from_secs(
                                 sleep_time as u64,
                             ))));
                             continue;
@@ -488,10 +484,8 @@ where
                 }
                 State::Initializing(ref mut init) => {
                     info!("the new connection is initializing.");
-                    let init = init.as_mut();
 
-                    let init = unsafe { Pin::new_unchecked(init) };
-                    let ret = init.poll(cx);
+                    let ret = init.as_mut().poll(cx);
                     match ret {
                         Poll::Pending => return Poll::Pending,
                         Poll::Ready(Ok((service, connection_id))) => {
@@ -525,7 +519,7 @@ where
                                 "initializing connection error, this operate will be retry after {} sec, retry count:{}. {}",
                                 sleep_time, self.retry_count, e
                             );
-                            self.state = State::Retry(Box::new(sleep(Duration::from_secs(
+                            self.state = State::Retry(Box::pin(sleep(Duration::from_secs(
                                 sleep_time as u64,
                             ))));
                             continue;
@@ -544,7 +538,7 @@ where
                                     "the connection {:?} is not in health, destroy connection and retry, this operate will be retry after {} sec, retry count:{}.",
                                     self.connection_id, sleep_time, self.retry_count
                                 );
-                                self.state = State::Retry(Box::new(sleep(Duration::from_secs(
+                                self.state = State::Retry(Box::pin(sleep(Duration::from_secs(
                                     sleep_time as u64,
                                 ))));
                                 continue;
@@ -559,7 +553,7 @@ where
                                 "connection {:?} not ready, destroy connection and retry, this operate will be retry after {} sec, retry count:{}. {}",
                                 self.connection_id, sleep_time, self.retry_count, e
                             );
-                            self.state = State::Retry(Box::new(sleep(Duration::from_secs(
+                            self.state = State::Retry(Box::pin(sleep(Duration::from_secs(
                                 sleep_time as u64,
                             ))));
                             continue;
@@ -568,10 +562,7 @@ where
                 }
 
                 State::Retry(ref mut sleep) => {
-                    let sleep = sleep.as_mut();
-
-                    let sleep = unsafe { Pin::new_unchecked(sleep) };
-                    let ret = sleep.poll(cx);
+                    let ret = sleep.as_mut().poll(cx);
                     if ret == Poll::Pending {
                         return Poll::Pending;
                     }
@@ -602,23 +593,31 @@ where
                 }
                 .in_current_span();
                 executor::spawn(call_task);
-                ResponseFuture::new(Box::new(response_fut))
+                ResponseFuture::new(response_fut)
             }
-            _ => ResponseFuture::new(Box::new(
-                async move { Err(ErrResult("the connection is not connected".to_string())) }
-                    .in_current_span(),
-            )),
+            _ => {
+                let fut: Pin<Box<dyn Future<Output = Result<Payload, Error>> + Send>> = Box::pin(
+                    async move { Err(ErrResult("the connection is not connected".to_string())) }
+                        .in_current_span(),
+                );
+                ResponseFuture::new(fut)
+            }
         }
     }
 }
 
 pub(crate) struct ResponseFuture {
-    inner: Box<dyn Future<Output = Result<Payload, Error>> + Send>,
+    inner: Pin<Box<dyn Future<Output = Result<Payload, Error>> + Send>>,
 }
 
 impl ResponseFuture {
-    pub(crate) fn new(inner: Box<dyn Future<Output = Result<Payload, Error>> + Send>) -> Self {
-        Self { inner }
+    pub(crate) fn new<F>(inner: F) -> Self
+    where
+        F: Future<Output = Result<Payload, Error>> + Send + 'static,
+    {
+        Self {
+            inner: Box::pin(inner),
+        }
     }
 }
 
@@ -626,11 +625,10 @@ impl Future for ResponseFuture {
     type Output = Result<Payload, Error>;
 
     fn poll(
-        self: Pin<&mut Self>,
+        mut self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Self::Output> {
-        let pin = unsafe { Pin::new_unchecked(self.get_mut().inner.as_mut()) };
-        pin.poll(cx)
+        self.inner.as_mut().poll(cx)
     }
 }
 
@@ -739,6 +737,7 @@ where
     }
 }
 
+#[allow(clippy::disallowed_methods)] // Tests mock! has std::result::Result::unwrap
 #[cfg_attr(test, mockall::automock)]
 #[async_trait]
 pub(crate) trait SendRequest: Send {
@@ -763,6 +762,7 @@ where
 }
 
 #[cfg(test)]
+#[allow(clippy::disallowed_methods)] // Tests mock! has std::result::Result::unwrap
 pub mod nacos_grpc_connection_tests {
 
     use super::*;

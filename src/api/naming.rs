@@ -132,16 +132,19 @@ pub trait NamingEventListener: Send + Sync + 'static {
 ///
 /// # Examples
 ///
-/// ```ignore
-///  let mut naming_service = nacos_sdk::api::naming::NamingServiceBuilder::new(
-///        nacos_sdk::api::props::ClientProps::new()
-///           .server_addr("127.0.0.1:8848")
-///           // Attention! "public" is "", it is recommended to customize the namespace with clear meaning.
-///           .namespace("")
-///           .app_name("todo-your-app-name"),
-///   )
-///   .build()
-///   .await?;
+/// ```no_run
+/// # async fn run() -> nacos_sdk::api::error::Result<()> {
+/// let naming_service = nacos_sdk::api::naming::NamingServiceBuilder::new(
+///       nacos_sdk::api::props::ClientProps::new()
+///          .server_addr("127.0.0.1:8848")
+///          // Attention! "public" is "", it is recommended to customize the namespace with clear meaning.
+///          .namespace("")
+///          .app_name("todo-your-app-name"),
+///  )
+///  .build()
+///  .await?;
+/// # Ok(())
+/// # }
 /// ```
 #[doc(alias("naming", "sdk", "api"))]
 #[derive(Clone, Debug)]
@@ -268,16 +271,19 @@ impl NamingService {
 ///
 /// # Examples
 ///
-/// ```ignore
-///  let mut naming_service = nacos_sdk::api::naming::NamingServiceBuilder::new(
-///        nacos_sdk::api::props::ClientProps::new()
-///           .server_addr("127.0.0.1:8848")
-///           // Attention! "public" is "", it is recommended to customize the namespace with clear meaning.
-///           .namespace("")
-///           .app_name("todo-your-app-name"),
-///   )
-///   .build()
-///   .await?;
+/// ```no_run
+/// # async fn run() -> nacos_sdk::api::error::Result<()> {
+/// let naming_service = nacos_sdk::api::naming::NamingServiceBuilder::new(
+///       nacos_sdk::api::props::ClientProps::new()
+///          .server_addr("127.0.0.1:8848")
+///          // Attention! "public" is "", it is recommended to customize the namespace with clear meaning.
+///          .namespace("")
+///          .app_name("todo-your-app-name"),
+///  )
+///  .build()
+///  .await?;
+/// # Ok(())
+/// # }
 /// ```
 #[doc(alias("naming", "builder"))]
 pub struct NamingServiceBuilder {

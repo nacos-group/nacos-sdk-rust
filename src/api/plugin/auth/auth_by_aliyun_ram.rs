@@ -196,17 +196,12 @@ impl AliyunRamAuthPlugin {
 
     fn get_grouped_service_name(resource: &RequestResource) -> Option<String> {
         resource.resource.as_ref().map(|service_name| {
-            if service_name.contains("@@") || resource.group.is_none() {
+            if service_name.contains("@@") {
                 service_name.clone()
+            } else if let Some(group) = &resource.group {
+                format!("{}@@{}", group, service_name)
             } else {
-                format!(
-                    "{}@@{}",
-                    resource
-                        .group
-                        .as_ref()
-                        .expect("Group should be set when formatting grouped service name"),
-                    service_name
-                )
+                service_name.clone()
             }
         })
     }
@@ -253,12 +248,8 @@ impl AliyunRamAuthPlugin {
             .as_ref()
             .filter(|value| !value.is_empty());
         let group = resource.group.as_ref().filter(|value| !value.is_empty());
-        if namespace.is_some() && group.is_some() {
-            format!(
-                "{}+{}",
-                namespace.expect("Namespace should be set when formatting resource for config"),
-                group.expect("Group should be set when formatting resource for config")
-            )
+        if let (Some(n), Some(g)) = (namespace, group) {
+            format!("{}+{}", n, g)
         } else if let Some(g) = group {
             g.to_string()
         } else if let Some(n) = namespace {
@@ -314,10 +305,8 @@ impl AuthPlugin for AliyunRamAuthPlugin {
 
 #[cfg(test)]
 mod test {
-    use crate::api::config::{ConfigChangeListener, ConfigResponse, ConfigService};
-    use crate::api::naming::{
-        NamingChangeEvent, NamingEventListener, NamingService, ServiceInstance,
-    };
+    use crate::api::config::{ConfigChangeListener, ConfigResponse};
+    use crate::api::naming::{NamingChangeEvent, NamingEventListener, ServiceInstance};
     use crate::api::plugin::auth::auth_by_aliyun_ram::{
         calculate_v4_signing_key_util, sign_utils, spas_adaptor,
     };
@@ -711,6 +700,7 @@ mod test {
         assert_eq!(2, instance.len());
     }
 
+    #[derive(Default)]
     struct TestConfigListener {
         current_content: ArcSwap<String>,
     }
@@ -719,14 +709,6 @@ mod test {
         fn notify(&self, config_resp: ConfigResponse) {
             self.current_content
                 .store(Arc::new(config_resp.content().to_string()))
-        }
-    }
-
-    impl Default for TestConfigListener {
-        fn default() -> Self {
-            Self {
-                current_content: Default::default(),
-            }
         }
     }
 
@@ -769,7 +751,7 @@ mod test {
         assert!(result.is_err());
         assert_eq!(
             "config not found: error_code=300,message=config data not exist",
-            result.err().expect("Error result should exist").to_string()
+            result.expect_err("Error result should exist").to_string()
         );
 
         let listener = Arc::new(TestConfigListener::default());

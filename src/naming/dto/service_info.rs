@@ -34,13 +34,10 @@ pub struct ServiceInfo {
 const SERVICE_INFO_SEPARATOR: &str = "@@";
 impl ServiceInfo {
     pub fn ip_count(&self) -> i32 {
-        if self.hosts.is_none() {
-            return 0;
+        match self.hosts.as_ref() {
+            Some(h) => h.len() as i32,
+            None => 0,
         }
-        self.hosts
-            .as_ref()
-            .expect("Hosts should exist after checking it's not none")
-            .len() as i32
     }
 
     fn is_all_ips(&self) -> bool {
@@ -56,14 +53,10 @@ impl ServiceInfo {
             return true;
         }
 
-        if self.hosts.is_none() {
+        let Some(hosts) = self.hosts.as_ref() else {
             return false;
-        }
+        };
 
-        let hosts = self
-            .hosts
-            .as_ref()
-            .expect("Hosts should exist after checking it's not none");
         for host in hosts {
             if !host.healthy {
                 continue;
@@ -86,19 +79,13 @@ impl ServiceInfo {
     }
 
     pub fn hosts_to_json(&self) -> String {
-        if self.hosts.is_none() {
-            return "".to_string();
-        }
-        let json = serde_json::to_string(
-            self.hosts
-                .as_ref()
-                .expect("Hosts should exist for JSON serialization"),
-        );
-        if let Err(e) = json {
+        let Some(hosts) = self.hosts.as_ref() else {
+            return "".to_owned();
+        };
+        serde_json::to_string(hosts).unwrap_or_else(|e| {
             error!("hosts to json failed. {e:?}");
-            return "".to_string();
-        }
-        json.expect("JSON serialization should succeed after error check")
+            "".to_owned()
+        })
     }
 
     pub fn get_key(name: &str, clusters: &str) -> String {

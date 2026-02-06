@@ -33,14 +33,8 @@ impl PollingServerListService {
                 !vec.is_empty() && vec.get(1).is_some()
             })
             .filter_map(|vec| {
-                let address = vec
-                    .first()
-                    .expect("Address should exist after checking it's some")
-                    .clone();
-                let port = vec
-                    .get(1)
-                    .expect("Port should exist after checking it's some")
-                    .clone();
+                let address = vec.first()?.clone();
+                let port = vec.get(1)?.clone();
 
                 let port = port.parse::<u32>();
 

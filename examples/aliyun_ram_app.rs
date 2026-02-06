@@ -1,3 +1,4 @@
+#![allow(unused_imports)]
 use nacos_sdk::api::config::ConfigServiceBuilder;
 use nacos_sdk::api::naming::{NamingServiceBuilder, ServiceInstance};
 use nacos_sdk::api::props::ClientProps;
@@ -32,7 +33,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 async fn run_naming_demo() {
     let server_addr = "localhost:8848";
 
-    /// NamingService
+    // NamingService
     let naming_client = NamingServiceBuilder::new(ClientProps::new().server_addr(server_addr))
         .enable_auth_plugin_aliyun()
         .build()
@@ -68,17 +69,14 @@ async fn run_naming_demo() {
 async fn run_config_demo() {
     let server_addr = "localhost:8848";
 
-    /// Config service
+    // Config service
     let config_client = ConfigServiceBuilder::new(ClientProps::new().server_addr(server_addr))
         .enable_auth_plugin_aliyun()
         .build()
         .await
         .expect("Failed to build config service with Aliyun RAM auth");
 
-    println!(
-        "Publish config dataId = {}, group = {}, content = {}",
-        "test", "test", "test=test"
-    );
+    println!("Publish config dataId = test, group = test, content = test=test");
     config_client
         .publish_config(
             "test".to_string(),
@@ -97,9 +95,7 @@ async fn run_config_demo() {
         .await
         .expect("Failed to get config");
     println!(
-        "Get config from nacos for dataId = {}, group = {}, content = {}",
-        "test",
-        "test",
+        "Get config from nacos for dataId = test, group = test, content = {}",
         response.content()
     );
     assert_eq!("test=test", response.content());

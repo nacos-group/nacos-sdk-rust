@@ -14,6 +14,7 @@
 // limitations under the License.
 //
 
+#![deny(unsafe_code)]
 #![deny(rust_2018_idioms, clippy::disallowed_methods, clippy::disallowed_types)]
 #![cfg_attr(docsrs, feature(doc_cfg))]
 #![cfg_attr(docsrs, allow(unused_attributes))]
@@ -37,28 +38,36 @@
 //!
 //! ### Example of Config
 //!
-//! ```ignore
-//!  let config_service = nacos_sdk::api::config::ConfigServiceBuilder::new(
-//!        nacos_sdk::api::props::ClientProps::new()
-//!           .server_addr("127.0.0.1:8848")
-//!           // Attention! "public" is "", it is recommended to customize the namespace with clear meaning.
-//!           .namespace("")
-//!           .app_name("todo-your-app-name"),
-//!   )
-//!   .build()?;
+//! ```no_run
+//! # async fn run() -> Result<(), Box<dyn std::error::Error>> {
+//! let config_service = nacos_sdk::api::config::ConfigServiceBuilder::new(
+//!       nacos_sdk::api::props::ClientProps::new()
+//!          .server_addr("127.0.0.1:8848")
+//!          // Attention! "public" is "", it is recommended to customize the namespace with clear meaning.
+//!          .namespace("")
+//!          .app_name("todo-your-app-name"),
+//!  )
+//!  .build()
+//!  .await?;
+//! # Ok(())
+//! # }
 //! ```
 //!
 //! ### Example of Naming
 //!
-//! ```ignore
-//!  let naming_service = nacos_sdk::api::naming::NamingServiceBuilder::new(
-//!        nacos_sdk::api::props::ClientProps::new()
-//!           .server_addr("127.0.0.1:8848")
-//!           // Attention! "public" is "", it is recommended to customize the namespace with clear meaning.
-//!           .namespace("")
-//!           .app_name("todo-your-app-name"),
-//!   )
-//!   .build()?;
+//! ```no_run
+//! # async fn run() -> Result<(), Box<dyn std::error::Error>> {
+//! let naming_service = nacos_sdk::api::naming::NamingServiceBuilder::new(
+//!       nacos_sdk::api::props::ClientProps::new()
+//!          .server_addr("127.0.0.1:8848")
+//!          // Attention! "public" is "", it is recommended to customize the namespace with clear meaning.
+//!          .namespace("")
+//!          .app_name("todo-your-app-name"),
+//!  )
+//!  .build()
+//!  .await?;
+//! # Ok(())
+//! # }
 //! ```
 //!
 
@@ -187,7 +196,7 @@ mod test_props {
     #[test]
     fn test_get_value_bool() {
         let v = get_value_bool(ENV_NACOS_CLIENT_NAMING_PUSH_EMPTY_PROTECTION, true);
-        assert_eq!(v, true);
+        assert!(v);
     }
 
     #[test]

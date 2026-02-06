@@ -1,6 +1,5 @@
 use std::{collections::HashMap, sync::Arc};
 
-use serde::Serialize;
 use tokio::sync::{
     RwLock,
     mpsc::{Receiver, Sender, channel},
@@ -8,13 +7,15 @@ use tokio::sync::{
 use tracing::{Instrument, Span, debug_span, error, info, instrument, warn};
 
 use crate::{
-    api::naming::{NamingChangeEvent, NamingEventListener, ServiceInstance},
+    api::naming::{NamingChangeEvent, NamingEventListener},
     common::{
         cache::{Cache, CacheRef},
         executor,
     },
     naming::dto::ServiceInfo,
 };
+
+use super::service_info_diff::{ServiceInfoDiff, is_outdated_data};
 
 pub(crate) fn create(
     id: String,
@@ -48,20 +49,8 @@ impl ServiceInfoObserver {
         vec: &[Arc<dyn NamingEventListener>],
         target: &Arc<dyn NamingEventListener>,
     ) -> Option<usize> {
-        for (index, subscriber) in vec.iter().enumerate() {
-            let subscriber_trait_ptr = subscriber.as_ref() as *const dyn NamingEventListener;
-            let (subscriber_data_ptr, _): (*const u8, *const u8) =
-                unsafe { std::mem::transmute(subscriber_trait_ptr) };
-
-            let target_trait_ptr = target.as_ref() as *const dyn NamingEventListener;
-            let (target_data_ptr, _): (*const u8, *const u8) =
-                unsafe { std::mem::transmute(target_trait_ptr) };
-
-            if subscriber_data_ptr == target_data_ptr {
-                return Some(index);
-            }
-        }
-        None
+        vec.iter()
+            .position(|subscriber| Arc::ptr_eq(subscriber, target))
     }
 }
 
@@ -74,12 +63,10 @@ impl ServiceInfoObserver {
             let key = ServiceInfo::get_key(&grouped_name, &service_info.clusters);
 
             let map = registry.read().await;
-            let listeners = map.get(&key);
-            if listeners.is_none() {
+            let Some(listeners) = map.get(&key) else {
                 warn!("the key {key:?} is not subscribed.");
                 continue;
-            }
-            let listeners = listeners.expect("Listeners should exist after checking it's not none");
+            };
             if listeners.is_empty() {
                 warn!("the subscriber listener set of key {key:?} is empty.");
                 continue;
@@ -129,20 +116,14 @@ impl ServiceInfoObserver {
         info!("unsubscribe {key:?}");
 
         let mut map = self.registry.write().await;
-        let listeners = map.get_mut(&key);
-        if listeners.is_none() {
+        let Some(listeners) = map.get_mut(&key) else {
             return;
-        }
+        };
 
-        let listeners = listeners.expect("Listeners should exist after checking it's not none");
-
-        let index = Self::index_of_listener(listeners, &listener);
-        if index.is_none() {
+        let Some(index) = Self::index_of_listener(listeners, &listener) else {
             warn!("listener {key:?} doesn't exist");
             return;
-        }
-
-        let index = index.expect("Listener index should exist after checking it's not none");
+        };
         listeners.remove(index);
     }
 }
@@ -182,16 +163,6 @@ impl ServiceInfoEmitter {
         }
     }
 
-    fn vec_2_string<T: Serialize>(vec: &Vec<T>) -> String {
-        match serde_json::to_string::<Vec<T>>(vec) {
-            Ok(json) => json,
-            Err(e) => {
-                warn!("vec to json string error, it will return default value '[]', {e:?}");
-                "[]".to_string()
-            }
-        }
-    }
-
     fn is_empty_or_error_push(&self, service_info: &ServiceInfo) -> bool {
         service_info.hosts.is_none() || (self.push_empty_protection && !service_info.validate())
     }
@@ -227,21 +198,26 @@ impl ServiceInfoEmitter {
         old_service: Option<CacheRef<'_, ServiceInfo>>,
         new_service: &ServiceInfo,
     ) -> bool {
-        let name =
-            ServiceInfo::get_grouped_service_name(&new_service.name, &new_service.group_name);
-        let key = ServiceInfo::get_key(&name, &new_service.clusters);
-        let hosts_json = new_service.hosts_to_json();
+        let key = ServiceInfo::get_key(
+            &ServiceInfo::get_grouped_service_name(&new_service.name, &new_service.group_name),
+            &new_service.clusters,
+        );
 
-        if old_service.is_none() {
-            let ip_count = new_service.ip_count();
-            info!("init new ips({ip_count}) service: {key} -> {hosts_json}");
-            return true;
-        }
+        // Handle initial service registration
+        let old_service = match old_service {
+            None => {
+                info!(
+                    "init new ips({}) service: {key} -> {}",
+                    new_service.ip_count(),
+                    new_service.hosts_to_json()
+                );
+                return true;
+            }
+            Some(s) => s,
+        };
 
-        let old_service =
-            old_service.expect("Old service should exist after checking it's not none");
-
-        if old_service.last_ref_time > new_service.last_ref_time {
+        // Check for outdated data
+        if is_outdated_data(&old_service, new_service) {
             warn!(
                 "out of date data received, old-t: {}, new-t: {}",
                 old_service.last_ref_time, new_service.last_ref_time
@@ -255,84 +231,17 @@ impl ServiceInfoEmitter {
         if new_hosts.is_none() && old_hosts.is_none() {
             return false;
         }
-
         if new_hosts.is_none() || old_hosts.is_none() {
             return true;
         }
+        // Calculate and log differences
+        let diff = ServiceInfoDiff::calculate(
+            old_service.hosts.as_deref().unwrap_or(&[]),
+            new_service.hosts.as_deref().unwrap_or(&[]),
+        );
 
-        let old_hosts = old_hosts.expect("Old hosts should exist after checking neither is none");
-        let new_hosts = new_hosts.expect("New hosts should exist after checking neither is none");
+        diff.log_changes(&key);
 
-        let new_hosts_map: HashMap<String, &ServiceInstance> = new_hosts
-            .iter()
-            .map(|hosts| (hosts.ip_and_port(), hosts))
-            .collect();
-        let old_hosts_map: HashMap<String, &ServiceInstance> = old_hosts
-            .iter()
-            .map(|hosts| (hosts.ip_and_port(), hosts))
-            .collect();
-
-        let mut changed = false;
-
-        let mut modified_hosts = Vec::<&ServiceInstance>::new();
-        let mut new_add_hosts = Vec::<&ServiceInstance>::new();
-        let mut removed_hosts = Vec::<&ServiceInstance>::new();
-
-        for (key, new_host) in new_hosts_map.iter() {
-            let old_host = old_hosts_map.get(key);
-            if old_host.is_none() {
-                new_add_hosts.push(*new_host);
-                continue;
-            }
-
-            let old_host = old_host.expect("Old host should exist after checking it's not none");
-            if !old_host.is_same_instance(new_host) {
-                modified_hosts.push(*new_host);
-            }
-        }
-
-        for (key, old_host) in old_hosts_map.iter() {
-            let new_host = new_hosts_map.get(key);
-            if new_host.is_none() {
-                removed_hosts.push(*old_host);
-            }
-        }
-
-        if !new_add_hosts.is_empty() {
-            let new_add_hosts_json = Self::vec_2_string::<&ServiceInstance>(new_add_hosts.as_ref());
-
-            info!(
-                "new ips({}) service: {} -> {}",
-                new_add_hosts.len(),
-                key,
-                new_add_hosts_json
-            );
-            changed = true;
-        }
-
-        if !removed_hosts.is_empty() {
-            let removed_hosts_json = Self::vec_2_string::<&ServiceInstance>(removed_hosts.as_ref());
-            info!(
-                "removed ips({}) service: {} -> {}",
-                removed_hosts.len(),
-                key,
-                removed_hosts_json
-            );
-            changed = true;
-        }
-
-        if !modified_hosts.is_empty() {
-            let modified_hosts_json =
-                Self::vec_2_string::<&ServiceInstance>(modified_hosts.as_ref());
-            info!(
-                "modified ips({}) service: {} -> {}",
-                modified_hosts.len(),
-                key,
-                modified_hosts_json
-            );
-            changed = true;
-        }
-
-        changed
+        diff.changed
     }
 }

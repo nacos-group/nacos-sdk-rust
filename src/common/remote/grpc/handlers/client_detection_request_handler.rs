@@ -17,13 +17,11 @@ pub(crate) struct ClientDetectionRequestHandler;
 impl ServerRequestHandler for ClientDetectionRequestHandler {
     async fn request_reply(&self, request: Payload) -> Option<Payload> {
         let request_message = GrpcMessage::<ClientDetectionRequest>::from_payload(request);
-        if let Err(e) = request_message {
-            error!("convert payload to ClientDetectionRequest error. {e:?}");
+        let Ok(request_message) = request_message else {
+            error!("convert payload to ClientDetectionRequest error. {request_message:?}");
             return None;
-        }
+        };
 
-        let request_message =
-            request_message.expect("ClientDetectionRequest should be convertible from payload");
         let request_message = request_message.into_body();
         debug!("ClientDetectionRequestHandler receive a request: {request_message:?}");
         let request_id = request_message.request_id;
@@ -33,11 +31,10 @@ impl ServerRequestHandler for ClientDetectionRequestHandler {
 
         let grpc_message = GrpcMessageBuilder::new(response_message).build();
         let payload = grpc_message.into_payload();
-        if let Err(e) = payload {
-            error!("occur an error when handing ClientDetectionRequest. {e:?}");
+        let Ok(payload) = payload else {
+            error!("occur an error when handing ClientDetectionRequest. {payload:?}");
             return None;
-        }
-        let payload = payload.expect("Failed to convert ClientDetectionResponse to payload");
+        };
         Some(payload)
     }
 }

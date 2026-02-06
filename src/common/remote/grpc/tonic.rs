@@ -179,7 +179,7 @@ fn unary_request(
     }
     .in_current_span();
 
-    GrpcCallTask::new(Box::new(task))
+    GrpcCallTask::new(task)
 }
 
 fn bi_request(
@@ -222,7 +222,7 @@ fn bi_request(
     }
     .in_current_span();
 
-    GrpcCallTask::new(Box::new(task))
+    GrpcCallTask::new(task)
 }
 
 pub(crate) struct TonicBuilder<S> {
@@ -356,7 +356,7 @@ impl Service<NacosGrpcCall> for Tonic {
     }
 }
 
-type InnerTask = Box<dyn Future<Output = Result<(), Error>> + Send + 'static>;
+type InnerTask = Pin<Box<dyn Future<Output = Result<(), Error>> + Send + 'static>>;
 
 pub(crate) struct GrpcCallTask {
     inner: InnerTask,
@@ -364,9 +364,12 @@ pub(crate) struct GrpcCallTask {
 }
 
 impl GrpcCallTask {
-    pub(crate) fn new(inner: InnerTask) -> Self {
+    pub(crate) fn new<F>(inner: F) -> Self
+    where
+        F: Future<Output = Result<(), Error>> + Send + 'static,
+    {
         Self {
-            inner,
+            inner: Box::pin(inner),
             span: Span::current(),
         }
     }
@@ -382,8 +385,7 @@ impl Future for GrpcCallTask {
         let this = self.get_mut();
         let _enter = this.span.enter();
 
-        let pin = unsafe { Pin::new_unchecked(this.inner.as_mut()) };
-        let poll = pin.poll(cx);
+        let poll = this.inner.as_mut().poll(cx);
 
         match poll {
             Poll::Pending => Poll::Pending,
@@ -490,6 +492,7 @@ fn assert_err_result(error: Error, expected_msg: &str) {
 }
 
 #[cfg(test)]
+#[allow(clippy::disallowed_methods)] // Tests mock! has std::result::Result::unwrap
 pub mod tonic_unary_call_tests {
 
     use crate::{nacos_proto::v2::Metadata, test_config};
@@ -682,6 +685,7 @@ pub mod tonic_unary_call_tests {
 }
 
 #[cfg(test)]
+#[allow(clippy::disallowed_methods)] // Tests allow std::result::Result::unwrap
 pub mod tonic_bi_call_tests {
 
     use crate::{nacos_proto::v2::Metadata, test_config};

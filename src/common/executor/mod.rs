@@ -85,6 +85,7 @@ pub(crate) fn schedule_at_fixed_delay(
 }
 
 #[cfg(test)]
+#[allow(clippy::disallowed_methods)] // Tests need std::thread::sleep and std::env::set_var
 mod tests {
 
     use super::*;
@@ -102,6 +103,11 @@ mod tests {
             );
         assert!(num_cpus > 0);
 
+        // SAFETY: This is safe in test context where we're the only thread
+        // and setting an env var that only affects this test.
+        // Rust 1.77+ marks set_var as unsafe due to thread-safety concerns
+        // in multi-threaded contexts.
+        #[allow(unsafe_code)]
         unsafe {
             std::env::set_var(ENV_NACOS_CLIENT_COMMON_THREAD_CORES, "4");
         }
@@ -177,12 +183,12 @@ mod tests {
     #[test]
     fn test_spawn_hundred_task() {
         for i in 1..100 {
-            let _ = spawn(async move {
+            spawn(async move {
                 println!("test_spawn_thousand_task spawn {i}");
             });
         }
         for j in 1..100 {
-            let _ = schedule(
+            schedule(
                 async move {
                     println!("test_spawn_thousand_task schedule {j}");
                 },

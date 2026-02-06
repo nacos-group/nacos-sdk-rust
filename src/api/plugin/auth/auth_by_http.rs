@@ -131,9 +131,9 @@ mod tests {
     #[tokio::test]
     #[ignore]
     async fn test_http_login_auth_plugin() {
-        tracing_subscriber::fmt()
+        let _ = tracing_subscriber::fmt()
             .with_max_level(tracing::Level::DEBUG)
-            .init();
+            .try_init();
 
         let http_auth_plugin = HttpLoginAuthPlugin::default();
         let server_list = vec!["127.0.0.1:8848".to_string()];
