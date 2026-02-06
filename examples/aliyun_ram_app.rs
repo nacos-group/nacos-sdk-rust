@@ -33,7 +33,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 async fn run_naming_demo() {
     let server_addr = "localhost:8848";
 
-    /// NamingService
+    // NamingService
     let naming_client = NamingServiceBuilder::new(ClientProps::new().server_addr(server_addr))
         .enable_auth_plugin_aliyun()
         .build()
@@ -69,7 +69,7 @@ async fn run_naming_demo() {
 async fn run_config_demo() {
     let server_addr = "localhost:8848";
 
-    /// Config service
+    // Config service
     let config_client = ConfigServiceBuilder::new(ClientProps::new().server_addr(server_addr))
         .enable_auth_plugin_aliyun()
         .build()

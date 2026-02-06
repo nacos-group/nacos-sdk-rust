@@ -1,3 +1,18 @@
+//! Service discovery (naming) implementation for the Nacos SDK.
+//!
+//! This module provides the internal implementation for service naming/discovery
+//! functionality, including:
+//!
+//! - `chooser`: Load balancing algorithms (random weighted selection)
+//! - `dto`: Data transfer objects for service information
+//! - `handler`: Server push request handlers for service changes
+//! - `message`: gRPC message definitions for naming-related requests/responses
+//! - `observable`: Service instance change observation and event notification
+//! - `redo`: Automatic retry mechanism for failed operations
+//! - `updater`: Background service info updater for subscribed services
+//!
+//! The public API for service naming is exposed through [`crate::api::naming::NamingService`].
+
 use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
 

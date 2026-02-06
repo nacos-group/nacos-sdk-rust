@@ -20,7 +20,7 @@ use super::server_list_service::PollingServerListService;
 use super::tonic::TonicBuilder;
 use super::{config::GrpcConfiguration, nacos_grpc_service::ServerRequestHandler};
 
-const APP_FILED: &str = "app";
+const APP_FIELD: &str = "app";
 
 pub(crate) struct NacosGrpcClient {
     app_name: String,
@@ -45,7 +45,7 @@ impl NacosGrpcClient {
         }
 
         let grpc_request = GrpcMessageBuilder::new(request)
-            .header(APP_FILED.to_owned(), self.app_name.clone())
+            .header(APP_FIELD.to_owned(), self.app_name.clone())
             .headers(request_headers)
             .build();
         let grpc_request = grpc_request.into_payload()?;
@@ -391,7 +391,7 @@ pub mod tests {
                     .as_ref()
                     .map(|data| {
                         data.headers
-                            .get(APP_FILED)
+                            .get(APP_FIELD)
                             .expect("APP field should exist in headers")
                             .clone()
                     })

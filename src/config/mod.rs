@@ -1,3 +1,16 @@
+//! Configuration management (config) implementation for the Nacos SDK.
+//!
+//! This module provides the internal implementation for configuration service
+//! functionality, including:
+//!
+//! - `cache`: Local caching of configuration data with change notifications
+//! - `handler`: Server push request handlers for configuration changes
+//! - `message`: gRPC message definitions for config-related requests/responses
+//! - `util`: Configuration-specific utilities (group key generation, parsing)
+//! - `worker`: Background worker for config polling and change detection
+//!
+//! The public API for configuration management is exposed through [`crate::api::config::ConfigService`].
+
 mod cache;
 mod handler;
 mod message;

@@ -196,17 +196,12 @@ impl AliyunRamAuthPlugin {
 
     fn get_grouped_service_name(resource: &RequestResource) -> Option<String> {
         resource.resource.as_ref().map(|service_name| {
-            if service_name.contains("@@") || resource.group.is_none() {
+            if service_name.contains("@@") {
                 service_name.clone()
+            } else if let Some(group) = &resource.group {
+                format!("{}@@{}", group, service_name)
             } else {
-                format!(
-                    "{}@@{}",
-                    resource
-                        .group
-                        .as_ref()
-                        .expect("Group should be set when formatting grouped service name"),
-                    service_name
-                )
+                service_name.clone()
             }
         })
     }
@@ -253,12 +248,8 @@ impl AliyunRamAuthPlugin {
             .as_ref()
             .filter(|value| !value.is_empty());
         let group = resource.group.as_ref().filter(|value| !value.is_empty());
-        if namespace.is_some() && group.is_some() {
-            format!(
-                "{}+{}",
-                namespace.expect("Namespace should be set when formatting resource for config"),
-                group.expect("Group should be set when formatting resource for config")
-            )
+        if let (Some(n), Some(g)) = (namespace, group) {
+            format!("{}+{}", n, g)
         } else if let Some(g) = group {
             g.to_string()
         } else if let Some(n) = namespace {

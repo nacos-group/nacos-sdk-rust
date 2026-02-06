@@ -132,22 +132,26 @@ impl CacheData {
 
 impl std::fmt::Display for CacheData {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let mut content = self.content.clone();
-        if content.chars().count() > 30 {
-            content = content.chars().take(30).collect();
-            content.push_str("...");
-        }
         write!(
             f,
-            "CacheData(namespace={n},data_id={d},group={g},md5={m},encrypted_data_key={k},content_type={t},content={c})",
+            "CacheData(namespace={n},data_id={d},group={g},md5={m},encrypted_data_key={k},content_type={t},content=",
             n = self.namespace,
             d = self.data_id,
             g = self.group,
             m = self.md5,
             k = self.encrypted_data_key,
             t = self.content_type,
-            c = content
-        )
+        )?;
+        // Truncate content for display if it exceeds 30 chars
+        if self.content.chars().count() > 30 {
+            for c in self.content.chars().take(30) {
+                write!(f, "{}", c)?;
+            }
+            write!(f, "...")?;
+        } else {
+            write!(f, "{}", self.content)?;
+        }
+        write!(f, ")")
     }
 }
 
