@@ -63,12 +63,10 @@ impl ServiceInfoObserver {
             let key = ServiceInfo::get_key(&grouped_name, &service_info.clusters);
 
             let map = registry.read().await;
-            let listeners = map.get(&key);
-            if listeners.is_none() {
+            let Some(listeners) = map.get(&key) else {
                 warn!("the key {key:?} is not subscribed.");
                 continue;
-            }
-            let listeners = listeners.expect("Listeners should exist after checking it's not none");
+            };
             if listeners.is_empty() {
                 warn!("the subscriber listener set of key {key:?} is empty.");
                 continue;
@@ -118,20 +116,14 @@ impl ServiceInfoObserver {
         info!("unsubscribe {key:?}");
 
         let mut map = self.registry.write().await;
-        let listeners = map.get_mut(&key);
-        if listeners.is_none() {
+        let Some(listeners) = map.get_mut(&key) else {
             return;
-        }
+        };
 
-        let listeners = listeners.expect("Listeners should exist after checking it's not none");
-
-        let index = Self::index_of_listener(listeners, &listener);
-        if index.is_none() {
+        let Some(index) = Self::index_of_listener(listeners, &listener) else {
             warn!("listener {key:?} doesn't exist");
             return;
-        }
-
-        let index = index.expect("Listener index should exist after checking it's not none");
+        };
         listeners.remove(index);
     }
 }

@@ -86,7 +86,7 @@ impl InstanceChooser for RandomWeightChooser {
         let random_number = rng.gen_range(0.0..1.0);
         let index = self.weights.binary_search_by(|d| {
             d.partial_cmp(&random_number)
-                .expect("Weight comparison should not fail")
+                .unwrap_or(std::cmp::Ordering::Less)
         });
         if let Ok(index) = index {
             let instance = self.items.get(index);
@@ -98,20 +98,13 @@ impl InstanceChooser for RandomWeightChooser {
         } else {
             let index = index.unwrap_err();
             if index < self.weights.len() {
-                let weight = self.weights.get(index);
-                if weight.is_none() {
+                let Some(weight) = self.weights.get(index) else {
                     return self.items.pop();
-                }
-                let weight = weight
-                    .expect("Weight should exist after checking it's not none")
-                    .to_owned();
-                if random_number < weight {
-                    let instance = self.items.get(index);
-                    if instance.is_none() {
+                };
+                if random_number < *weight {
+                    let Some(instance) = self.items.get(index) else {
                         return self.items.pop();
-                    }
-                    let instance =
-                        instance.expect("Instance should exist after checking it's not none");
+                    };
                     return Some(instance.to_owned());
                 }
             }

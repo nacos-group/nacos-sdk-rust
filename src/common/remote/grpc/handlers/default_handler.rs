@@ -17,13 +17,10 @@ impl ServerRequestHandler for DefaultHandler {
 
         if let Some(body) = request.body {
             p_type = body.type_url;
-            let body_str = String::from_utf8(body.value);
-            if let Err(e) = body_str {
+            r_body = String::from_utf8(body.value).unwrap_or_else(|e| {
                 error!("unknown payload convert to string failed. {}", e);
-                r_body = Default::default();
-            } else {
-                r_body = body_str.expect("body_str should be valid UTF-8");
-            }
+                Default::default()
+            })
         } else {
             r_body = Default::default();
             p_type = Default::default();

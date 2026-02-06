@@ -18,16 +18,18 @@ impl ServerRequestHandler for ConfigChangeNotifyHandler {
         tracing::debug!("[ConfigChangeNotifyHandler] receive config-change, handle start.");
 
         let request = GrpcMessage::<ConfigChangeNotifyRequest>::from_payload(request);
-        if let Err(e) = request {
-            tracing::error!("convert payload to ConfigChangeNotifyRequest error. {e:?}");
+        let Ok(request) = request else {
+            tracing::error!("convert payload to ConfigChangeNotifyRequest error. {request:?}");
             return None;
-        }
-        let server_req = request.expect("request should be valid").into_body();
+        };
+        let server_req = request.into_body();
 
         let server_req_id = server_req.request_id.unwrap_or_default();
         let req_namespace = server_req.namespace.unwrap_or_default();
-        let req_data_id = server_req.data_id.expect("data_id should exist");
-        let req_group = server_req.group.expect("group should exist");
+        let (Some(req_data_id), Some(req_group)) = (server_req.data_id, server_req.group) else {
+            tracing::error!("data_id or group is missing in ConfigChangeNotifyRequest");
+            return None;
+        };
         tracing::info!(
             "receive config-change, dataId={req_data_id},group={req_group},namespace={req_namespace}"
         );
@@ -38,9 +40,11 @@ impl ServerRequestHandler for ConfigChangeNotifyHandler {
         // bi send resp
         let response = ConfigChangeNotifyResponse::ok().request_id(server_req_id);
         let grpc_message = GrpcMessageBuilder::new(response).build();
-        let resp_payload = grpc_message
-            .into_payload()
-            .expect("payload conversion should succeed");
+        let resp_payload = grpc_message.into_payload();
+        let Ok(resp_payload) = resp_payload else {
+            tracing::error!("payload conversion failed. {resp_payload:?}");
+            return None;
+        };
 
         Some(resp_payload)
     }

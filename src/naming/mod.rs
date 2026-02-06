@@ -382,15 +382,14 @@ impl NacosNamingService {
             crate::common::error::handle_response(&response, "get_all_instances")?;
             service_info = Some(response.service_info);
         }
-        if service_info.is_none() {
+        let Some(service_info) = service_info else {
             return Ok(Vec::default());
-        }
-        let service_info = service_info.expect("Service info should exist at this point");
+        };
         let instances = service_info.hosts;
-        if instances.is_none() {
+        let Some(instances) = instances else {
             return Ok(Vec::default());
-        }
-        Ok(instances.expect("Service instance hosts should exist"))
+        };
+        Ok(instances)
     }
 
     async fn select_instances_async(
@@ -435,13 +434,11 @@ impl NacosNamingService {
             )
             .await?;
         let chooser = RandomWeightChooser::new(service_name, ret)?;
-        let instance = chooser.choose();
-        if instance.is_none() {
+        let Some(instance) = chooser.choose() else {
             return Err(ErrResult(format!(
                 "no available {service_name_for_tip} service instance can be selected"
             )));
-        }
-        let instance = instance.expect("Instance should exist after checking it is not none");
+        };
         Ok(instance)
     }
 

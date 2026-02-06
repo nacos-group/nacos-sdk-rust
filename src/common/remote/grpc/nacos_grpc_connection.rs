@@ -292,28 +292,25 @@ where
                     let mut server_stream = Box::pin(server_stream);
                     while let Some(Ok(response)) = server_stream.next().await {
                         debug!("server stream receive message from server");
-                        let handler_key = response
+                        let Some(handler_key) = response
                             .metadata
                             .as_ref()
-                            .map(|meta_data| meta_data.r#type.clone());
-                        if handler_key.is_none() {
+                            .map(|meta_data| meta_data.r#type.clone())
+                        else {
                             debug!("response payload type field is empty, skip.");
                             continue;
-                        }
-                        let handler_key = handler_key
-                            .expect("Handler key should be present in response metadata");
+                        };
                         debug!("server stream handler: {}", handler_key);
                         let handler = server_stream_handlers.get(&handler_key).cloned();
                         let handler = handler.unwrap_or_else(|| Arc::new(DefaultHandler));
-                        let ret = handler.request_reply(response).in_current_span().await;
-                        if ret.is_none() {
+                        let Some(ret) = handler.request_reply(response).in_current_span().await
+                        else {
                             debug!(
                                 "handler no response, don't need to send to server. skip. key:{}",
                                 handler_key
                             );
                             continue;
-                        }
-                        let ret = ret.expect("Handler response should be present");
+                        };
                         let ret = local_sender_clone.send(ret).await;
                         if let Err(e) = ret {
                             error!("send grpc message to server occur an error, {}", e);

@@ -224,15 +224,13 @@ impl ServiceInfoUpdateTask {
                     .send_request::<ServiceQueryRequest, QueryServiceResponse>(request)
                     .in_current_span()
                     .await;
-                if let Err(e) = ret {
-                    error!("{log_tag}:ServiceInfoUpdateTask occur an error: {e:?}");
+                let Ok(response) = ret else {
+                    error!("{log_tag}:ServiceInfoUpdateTask occur an error: {ret:?}");
                     if failed_count < ServiceInfoUpdateTask::MAX_FAILED {
                         failed_count += 1;
                     }
                     continue;
-                }
-                let response = ret
-                    .expect("Response should exist after checking it's not an error");
+                };
                 debug!("{log_tag}:ServiceInfoUpdateTask query service info response: {response:?}");
                 if !response.is_success() {
                     let result_code = response.result_code;

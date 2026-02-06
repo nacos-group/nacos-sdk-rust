@@ -10,8 +10,8 @@ pub(crate) static HOME_DIR: std::sync::LazyLock<String> = std::sync::LazyLock::n
     std::env::home_dir()
         .unwrap_or(std::env::temp_dir())
         .to_str()
-        .expect("home directory path should be valid UTF-8")
-        .to_owned()
+        .map(|s| s.to_owned())
+        .unwrap_or_else(|| "/tmp".to_owned())
 });
 
 /// Generates unique client ID for the given module.
