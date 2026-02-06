@@ -185,13 +185,13 @@ mod tests {
 
         // test add listener1
         let lis1_arc = Arc::new(TestConfigChangeListener1 {});
-        let _listen = cache_data.add_listener(lis1_arc);
+        cache_data.add_listener(lis1_arc);
 
         // test add listener2
         let lis2_arc = Arc::new(TestConfigChangeListener2 {});
-        let _listen = cache_data.add_listener(lis2_arc.clone());
+        cache_data.add_listener(lis2_arc.clone());
         // test add a listener2 again
-        let _listen = cache_data.add_listener(lis2_arc);
+        cache_data.add_listener(lis2_arc);
 
         let listen_mutex = cache_data
             .listeners
@@ -209,12 +209,12 @@ mod tests {
         // test add listener1
         let lis1_arc = Arc::new(TestConfigChangeListener1 {});
         let lis1_arc2 = Arc::clone(&lis1_arc);
-        let _listen = cache_data.add_listener(lis1_arc);
+        cache_data.add_listener(lis1_arc);
 
         // test add listener2
         let lis2_arc = Arc::new(TestConfigChangeListener2 {});
         let lis2_arc2 = Arc::clone(&lis2_arc);
-        let _listen = cache_data.add_listener(lis2_arc);
+        cache_data.add_listener(lis2_arc);
         {
             let listen_mutex = cache_data
                 .listeners

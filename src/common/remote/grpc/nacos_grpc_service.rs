@@ -87,40 +87,8 @@ pub(crate) type DynamicUnaryCallService = Box<
         + Send,
 >;
 
-#[cfg(test)]
-mockall::mock! {
-    pub(crate) DynamicUnaryCallService {}
-
-    impl Service<Payload> for DynamicUnaryCallService {
-        type Response = Payload;
-
-        type Error = Error;
-
-        type Future =
-            Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send + 'static>>;
-
-        fn poll_ready<'a>(&mut self, cx: &mut Context<'a>) -> Poll<Result<(), <Self as Service<Payload>>::Error>>;
-
-        fn call(&mut self, req: Payload) -> <Self as Service<Payload>>::Future;
-    }
-}
-
 pub(crate) type DynamicUnaryCallLayer =
     Arc<dyn Layer<DynamicUnaryCallService, Service = DynamicUnaryCallService> + Sync + Send>;
-
-#[cfg(test)]
-mockall::mock! {
-
-    pub(crate) DynamicUnaryCallLayer{}
-
-    impl Layer<MockDynamicUnaryCallService> for DynamicUnaryCallLayer {
-        type Service = MockDynamicUnaryCallService;
-
-        fn layer(&self, inner: MockDynamicUnaryCallService) -> <Self as Layer<MockDynamicUnaryCallService>>::Service;
-    }
-
-
-}
 
 pub(crate) struct DynamicUnaryCallLayerWrapper(pub(crate) DynamicUnaryCallLayer);
 
@@ -158,41 +126,68 @@ pub(crate) type DynamicBiStreamingCallService = Box<
         + 'static,
 >;
 
-#[cfg(test)]
-mockall::mock! {
-    pub(crate) DynamicBiStreamingCallService {}
-
-    impl Service<GrpcStream<Payload>> for DynamicBiStreamingCallService {
-        type Response = GrpcStream<Result<Payload, Error>>;
-
-        type Error = Error;
-
-        type Future =
-            Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send + 'static>>;
-
-        fn poll_ready<'a>(&mut self, cx: &mut Context<'a>) -> Poll<Result<(), <Self as Service<GrpcStream<Payload>>>::Error>>;
-
-        fn call(&mut self, req: GrpcStream<Payload>) -> <Self as Service<GrpcStream<Payload>>>::Future;
-
-    }
-
-}
-
 pub(crate) type DynamicBiStreamingCallLayer = Arc<
     dyn Layer<DynamicBiStreamingCallService, Service = DynamicBiStreamingCallService> + Sync + Send,
 >;
 
 #[cfg(test)]
-mockall::mock! {
+#[allow(clippy::disallowed_methods)] // Tests mock! has std::result::Result::unwrap
+mod nacos_grpc_mock_tests {
+    use super::*;
 
-    pub(crate) DynamicBiStreamingCallLayer {}
+    mockall::mock! {
+        pub(crate) DynamicUnaryCallService {}
 
-    impl Layer<MockDynamicBiStreamingCallService> for DynamicBiStreamingCallLayer {
-        type Service = MockDynamicBiStreamingCallService;
+        impl Service<Payload> for DynamicUnaryCallService {
+            type Response = Payload;
 
-        fn layer(&self, inner: MockDynamicBiStreamingCallService) -> <Self as Layer<MockDynamicBiStreamingCallService>>::Service;
+            type Error = Error;
+
+            type Future =
+                Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send + 'static>>;
+
+            fn poll_ready<'a>(&mut self, cx: &mut Context<'a>) -> Poll<Result<(), <Self as Service<Payload>>::Error>>;
+
+            fn call(&mut self, req: Payload) -> <Self as Service<Payload>>::Future;
+        }
     }
 
+    mockall::mock! {
+        pub(crate) DynamicUnaryCallLayer{}
+
+        impl Layer<MockDynamicUnaryCallService> for DynamicUnaryCallLayer {
+            type Service = MockDynamicUnaryCallService;
+
+            fn layer(&self, inner: MockDynamicUnaryCallService) -> <Self as Layer<MockDynamicUnaryCallService>>::Service;
+        }
+    }
+
+    mockall::mock! {
+        pub(crate) DynamicBiStreamingCallService {}
+
+        impl Service<GrpcStream<Payload>> for DynamicBiStreamingCallService {
+            type Response = GrpcStream<Result<Payload, Error>>;
+
+            type Error = Error;
+
+            type Future =
+                Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send + 'static>>;
+
+            fn poll_ready<'a>(&mut self, cx: &mut Context<'a>) -> Poll<Result<(), <Self as Service<GrpcStream<Payload>>>::Error>>;
+
+            fn call(&mut self, req: GrpcStream<Payload>) -> <Self as Service<GrpcStream<Payload>>>::Future;
+        }
+    }
+
+    mockall::mock! {
+        pub(crate) DynamicBiStreamingCallLayer {}
+
+        impl Layer<MockDynamicBiStreamingCallService> for DynamicBiStreamingCallLayer {
+            type Service = MockDynamicBiStreamingCallService;
+
+            fn layer(&self, inner: MockDynamicBiStreamingCallService) -> <Self as Layer<MockDynamicBiStreamingCallService>>::Service;
+        }
+    }
 }
 
 pub(crate) struct DynamicBiStreamingCallLayerWrapper(pub(crate) DynamicBiStreamingCallLayer);
@@ -408,10 +403,7 @@ pub mod unary_call_layer_test {
                 DynamicUnaryCallLayerWrapper(layer),
                 DynamicUnaryCallLayerWrapper(self.layer),
             ));
-            Self {
-                layer: stack,
-                ..self
-            }
+            Self { layer: stack }
         }
 
         fn build(self) -> DynamicUnaryCallLayer {

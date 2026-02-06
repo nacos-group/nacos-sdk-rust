@@ -366,7 +366,7 @@ pub mod tests {
         let value = value.expect("Value should be present in cache after reload");
         assert!(value.eq("test"));
 
-        let _ = tokio::fs::remove_file(&disk_path)
+        tokio::fs::remove_file(&disk_path)
             .await
             .expect("Failed to remove test cache file");
     }

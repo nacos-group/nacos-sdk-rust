@@ -49,7 +49,7 @@ mod config_cache_tests {
         let cached_config = safe_config_service
             .get_config(data_id.to_string(), group.to_string())
             .await
-            .unwrap();
+            .expect("get config failed");
 
         assert_eq!(cached_config.content(), content);
 
@@ -57,7 +57,7 @@ mod config_cache_tests {
         safe_config_service
             .remove_config(data_id.to_string(), group.to_string())
             .await
-            .unwrap();
+            .expect("remove config failed");
     }
 
     #[tokio::test]

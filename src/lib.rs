@@ -14,6 +14,7 @@
 // limitations under the License.
 //
 
+#![deny(unsafe_code)]
 #![deny(rust_2018_idioms, clippy::disallowed_methods, clippy::disallowed_types)]
 #![cfg_attr(docsrs, feature(doc_cfg))]
 #![cfg_attr(docsrs, allow(unused_attributes))]
@@ -195,7 +196,7 @@ mod test_props {
     #[test]
     fn test_get_value_bool() {
         let v = get_value_bool(ENV_NACOS_CLIENT_NAMING_PUSH_EMPTY_PROTECTION, true);
-        assert_eq!(v, true);
+        assert!(v);
     }
 
     #[test]

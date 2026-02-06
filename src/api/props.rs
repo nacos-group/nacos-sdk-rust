@@ -337,18 +337,15 @@ mod tests {
 
         let result = client_props.get_server_list();
         assert!(result.is_ok());
-        match result {
-            Ok(ref vec) => {
-                assert!(vec.contains(&"127.0.0.1:8848".to_string()));
-                assert!(vec.contains(&"192.168.0.1:8848".to_string()));
-            }
-            Err(_) => {}
+        if let Ok(ref vec) = result {
+            assert!(vec.contains(&"127.0.0.1:8848".to_string()));
+            assert!(vec.contains(&"192.168.0.1:8848".to_string()));
         }
         let client_props = client_props.server_addr(String::from("     "));
         let result1 = client_props.get_server_list();
         assert!(result1.is_err());
         assert_eq!(
-            format!("{}", result1.err().expect("expected error result")),
+            format!("{}", result1.expect_err("expected error result")),
             format!(
                 "{}",
                 Error::WrongServerAddress("Server address is empty".to_string())

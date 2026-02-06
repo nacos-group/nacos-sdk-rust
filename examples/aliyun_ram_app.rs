@@ -76,10 +76,7 @@ async fn run_config_demo() {
         .await
         .expect("Failed to build config service with Aliyun RAM auth");
 
-    println!(
-        "Publish config dataId = {}, group = {}, content = {}",
-        "test", "test", "test=test"
-    );
+    println!("Publish config dataId = test, group = test, content = test=test");
     config_client
         .publish_config(
             "test".to_string(),
@@ -98,9 +95,7 @@ async fn run_config_demo() {
         .await
         .expect("Failed to get config");
     println!(
-        "Get config from nacos for dataId = {}, group = {}, content = {}",
-        "test",
-        "test",
+        "Get config from nacos for dataId = test, group = test, content = {}",
         response.content()
     );
     assert_eq!("test=test", response.content());

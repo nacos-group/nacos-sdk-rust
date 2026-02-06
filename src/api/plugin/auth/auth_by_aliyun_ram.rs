@@ -700,6 +700,7 @@ mod test {
         assert_eq!(2, instance.len());
     }
 
+    #[derive(Default)]
     struct TestConfigListener {
         current_content: ArcSwap<String>,
     }
@@ -708,14 +709,6 @@ mod test {
         fn notify(&self, config_resp: ConfigResponse) {
             self.current_content
                 .store(Arc::new(config_resp.content().to_string()))
-        }
-    }
-
-    impl Default for TestConfigListener {
-        fn default() -> Self {
-            Self {
-                current_content: Default::default(),
-            }
         }
     }
 
@@ -758,7 +751,7 @@ mod test {
         assert!(result.is_err());
         assert_eq!(
             "config not found: error_code=300,message=config data not exist",
-            result.err().expect("Error result should exist").to_string()
+            result.expect_err("Error result should exist").to_string()
         );
 
         let listener = Arc::new(TestConfigListener::default());

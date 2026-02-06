@@ -84,11 +84,11 @@ mod tests {
     struct TestConfigEncryptionFilter;
 
     impl TestConfigEncryptionFilter {
-        fn encrypt(&self, secret_key: &String, content: &String) -> String {
+        fn encrypt(&self, secret_key: &String, content: &str) -> String {
             secret_key.to_owned() + content
         }
 
-        fn decrypt(&self, secret_key: &String, content: &String) -> String {
+        fn decrypt(&self, secret_key: &String, content: &str) -> String {
             content.replace(secret_key, "")
         }
     }
@@ -100,18 +100,18 @@ mod tests {
             config_req: Option<&mut ConfigReq>,
             config_resp: Option<&mut ConfigResp>,
         ) {
-            if let Some(config_req) = config_req {
-                if !config_req.encrypted_data_key.is_empty() {
-                    config_req.content =
-                        self.encrypt(&config_req.encrypted_data_key, &config_req.content);
-                }
+            if let Some(config_req) = config_req
+                && !config_req.encrypted_data_key.is_empty()
+            {
+                config_req.content =
+                    self.encrypt(&config_req.encrypted_data_key, &config_req.content);
             }
 
-            if let Some(config_resp) = config_resp {
-                if !config_resp.encrypted_data_key.is_empty() {
-                    config_resp.content =
-                        self.decrypt(&config_resp.encrypted_data_key, &config_resp.content);
-                }
+            if let Some(config_resp) = config_resp
+                && !config_resp.encrypted_data_key.is_empty()
+            {
+                config_resp.content =
+                    self.decrypt(&config_resp.encrypted_data_key, &config_resp.content);
             }
         }
     }

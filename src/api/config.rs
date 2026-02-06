@@ -496,7 +496,7 @@ mod tests {
             .await
             .expect("ConfigServiceBuilder should build successfully in tests");
         tracing::info!("publish a config: {}", publish_resp);
-        assert_eq!(true, publish_resp);
+        assert!(publish_resp);
     }
 
     #[tokio::test]
@@ -527,7 +527,7 @@ mod tests {
             .await
             .expect("ConfigServiceBuilder should build successfully in tests");
         tracing::info!("publish a config with param: {}", publish_resp);
-        assert_eq!(true, publish_resp);
+        assert!(publish_resp);
     }
 
     #[tokio::test]
@@ -552,7 +552,7 @@ mod tests {
             .await
             .expect("ConfigServiceBuilder should build successfully in tests");
         tracing::info!("publish a config with beta: {}", publish_resp);
-        assert_eq!(true, publish_resp);
+        assert!(publish_resp);
     }
 
     #[tokio::test]
@@ -577,7 +577,7 @@ mod tests {
             )
             .await
             .expect("ConfigServiceBuilder should build successfully in tests");
-        assert_eq!(true, publish_resp);
+        assert!(publish_resp);
 
         // sleep for config sync in server
         sleep(Duration::from_millis(111)).await;
@@ -602,7 +602,7 @@ mod tests {
             .await
             .expect("ConfigServiceBuilder should build successfully in tests");
         tracing::info!("publish a config with cas: {}", publish_resp);
-        assert_eq!(true, publish_resp);
+        assert!(publish_resp);
 
         // publish a config with cas md5 not right
         let content_cas_md5_not_right = "test_api_config_service_publish_config_cas_md5_not_right";
