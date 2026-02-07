@@ -245,7 +245,7 @@ gRPC 交互的 Payload 和 Metadata 由 `Protocol Buffers` 序列化，具体的
 - [x] Auth 鉴权；账密登陆 username/password，阿里云RAM鉴权 accessKey/secretKey
 - [x] 通用日志，`tracing::info!()`
 - [ ] Monitor，`opentelemetry`
-- [x] 数据落盘与加载（用于服务端宕机弱依赖）
+- [x] 数据落盘与加载（用于服务端宕机弱依赖）；请设置 `load_cache_at_start(true)`，形如 `register_instance` 在服务端宕机时还会阻塞请严肃测试及正确使用
 
 # License
 [Apache License Version 2.0](LICENSE)

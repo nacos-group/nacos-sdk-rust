@@ -357,19 +357,12 @@ impl NacosNamingService {
 
         let service_info;
         if subscribe {
-            let cache_service_info = {
-                let grouped_name =
-                    ServiceInfo::get_grouped_service_name(&service_name, &group_name);
-                let key = ServiceInfo::get_key(&grouped_name, &cluster_str);
-                info!(
-                    "get_all_instances_async from cache, grouped_name={}",
-                    grouped_name
-                );
-                self.naming_cache.get(&key).map(|data| data.clone())
-            };
+            let grouped_name = ServiceInfo::get_grouped_service_name(&service_name, &group_name);
+            let key = ServiceInfo::get_key(&grouped_name, &cluster_str);
 
-            if let Some(item) = cache_service_info {
-                service_info = Some(item);
+            if let Some(cached_info) = self.naming_cache.get(&key) {
+                info!("get_all_instances returned cached service_info, group_key={key}");
+                service_info = Some(cached_info.clone());
             } else {
                 let subscribe_service_info = self
                     .subscribe_async(service_name, Some(group_name), clusters, None)
@@ -491,8 +484,10 @@ impl NacosNamingService {
     ) -> Result<ServiceInfo> {
         let clusters = clusters.join(",");
         let group_name = crate::common::util::normalize_group_name(group_name);
+        let grouped_name = ServiceInfo::get_grouped_service_name(&service_name, &group_name);
+        let key = ServiceInfo::get_key(&grouped_name, &clusters);
 
-        // add updater task
+        // add updater task (for polling refresh when gRPC push is not available)
         self.service_info_updater
             .schedule_update(
                 self.namespace.clone(),
@@ -504,11 +499,10 @@ impl NacosNamingService {
 
         // add event listener
         if let Some(event_listener) = event_listener {
-            let grouped_name = ServiceInfo::get_grouped_service_name(&service_name, &group_name);
-            let key = ServiceInfo::get_key(&grouped_name, &clusters);
-            self.observer.subscribe(key, event_listener).await;
+            self.observer.subscribe(key.clone(), event_listener).await;
         }
 
+        // Create subscribe request for background execution
         let request = SubscribeServiceRequest::new(
             true,
             clusters,
@@ -526,6 +520,29 @@ impl NacosNamingService {
         redo_task.active();
         // add redo task to executor
         self.redo_task_executor.add_task(redo_task.clone()).await;
+
+        // Try to get service info from cache first (if load_cache_at_start is enabled)
+        if let Some(cached_info) = self.naming_cache.get(&key) {
+            info!("subscribe returned cached service_info, group_key={key}");
+
+            // Spawn the actual server request in the background to avoid blocking.
+            // The redo task will automatically retry if the server is unavailable.
+            // The initial response data will come from cache (if available) or be empty.
+            let remote_client = self.nacos_grpc_client.clone();
+            executor::spawn(async move {
+                let response = remote_client
+                    .send_request::<SubscribeServiceRequest, SubscribeServiceResponse>(request)
+                    .await;
+                if let Ok(resp) = response
+                    && crate::common::error::handle_response(&resp, "subscribe").is_ok()
+                {
+                    debug!("subscribe the {resp:?}");
+                    redo_task.frozen();
+                }
+            });
+
+            return Ok(cached_info.clone());
+        }
 
         let response = self
             .request_to_server::<SubscribeServiceRequest, SubscribeServiceResponse>(request)
