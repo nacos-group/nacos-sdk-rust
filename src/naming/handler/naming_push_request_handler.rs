@@ -28,11 +28,10 @@ impl NamingPushRequestHandler {
 impl ServerRequestHandler for NamingPushRequestHandler {
     async fn request_reply(&self, request: Payload) -> Option<Payload> {
         let request = GrpcMessage::<NotifySubscriberRequest>::from_payload(request);
-        if let Err(e) = request {
-            error!("convert payload to NotifySubscriberRequest error. {e:?}");
+        let Ok(request) = request else {
+            error!("convert payload to NotifySubscriberRequest error. {request:?}");
             return None;
-        }
-        let request = request.unwrap();
+        };
 
         let body = request.into_body();
         info!("receive NotifySubscriberRequest from nacos server: {body:?}");
@@ -48,12 +47,11 @@ impl ServerRequestHandler for NamingPushRequestHandler {
 
         let grpc_message = GrpcMessageBuilder::new(response).build();
         let payload = grpc_message.into_payload();
-        if let Err(e) = payload {
-            error!("occur an error when handing NotifySubscriberRequest. {e:?}");
+        let Ok(payload) = payload else {
+            error!("occur an error when handing NotifySubscriberRequest. {payload:?}");
             return None;
-        }
-        let payload = payload.unwrap();
+        };
 
-        return Some(payload);
+        Some(payload)
     }
 }

@@ -23,9 +23,8 @@ use crate::common::remote::grpc::message::request::{
 use crate::common::remote::grpc::message::response::{HealthCheckResponse, ServerCheckResponse};
 use crate::common::remote::grpc::message::{GrpcMessage, GrpcMessageBuilder};
 use crate::common::remote::grpc::nacos_grpc_service::GrpcStream;
-use crate::{
-    api::error::Error, common::remote::grpc::nacos_grpc_service::Callback, nacos_proto::v2::Payload,
-};
+use crate::common::remote::grpc::utils;
+use crate::{api::error::Error, nacos_proto::v2::Payload};
 
 use super::nacos_grpc_service::NacosGrpcCall;
 use super::nacos_grpc_service::ServerRequestHandler;
@@ -113,9 +112,10 @@ where
                 let current_id = { rx.borrow().clone() };
 
                 // if previous id is none and the current id is some then the state is connected
-                if previous_id.is_none() && current_id.is_some() {
-                    let current_id = current_id.as_ref().unwrap().clone();
-                    listener(current_id);
+                if previous_id.is_none()
+                    && let Some(ref id) = current_id
+                {
+                    listener(id.clone());
                 }
                 previous_id = current_id;
             }
@@ -133,9 +133,10 @@ where
                 let current_id = { rx.borrow().clone() };
 
                 // if previous id is some and the current id is none then the state is disconnected
-                if previous_id.is_some() && current_id.is_none() {
-                    let previous_id = previous_id.as_ref().unwrap().clone();
-                    listener(previous_id);
+                if current_id.is_none()
+                    && let Some(ref id) = previous_id
+                {
+                    listener(id.clone());
                 }
                 previous_id = current_id;
             }
@@ -228,21 +229,12 @@ where
         let local_sender = Arc::new(local_sender);
         let local_sender_clone = local_sender.clone();
 
-        let payload = GrpcMessageBuilder::new(setup_request)
-            .build()
-            .into_payload();
-
-        if let Err(e) = payload {
-            // grpc message convert failed, should panic.
-            error!(
-                "setup message convert to grpc message occur an error. {}",
-                e
-            );
-            return Err(ErrResult(
-                "setup message convert to grpc message occur an error".to_string(),
-            ));
-        }
-        let payload = payload.unwrap();
+        let payload = utils::convert(
+            GrpcMessageBuilder::new(setup_request)
+                .build()
+                .into_payload(),
+            "setup message convert to grpc message occur an error",
+        )?;
 
         let send_ret = local_sender.send(payload).await;
         if let Err(e) = send_ret {
@@ -262,79 +254,78 @@ where
             warn!("local stream closed!");
         }));
 
-        let (gv, mut tk) = want::new();
-
-        let (tx, rx) = oneshot::channel::<Result<GrpcStream<Result<Payload, Error>>, Error>>();
-
-        let call_back = Callback::new(gv, tx);
-        let call = NacosGrpcCall::BIRequestService((local_stream, call_back));
+        let (cb, rx, mut tk) =
+            utils::create_grpc_callback::<Result<GrpcStream<Result<Payload, Error>>, Error>>();
+        let call = NacosGrpcCall::BIRequestService((local_stream, cb));
         executor::spawn(service.call(call).in_current_span());
 
         let (conn_id_sender, conn_id_receiver) = oneshot::channel::<String>();
-        executor::spawn(async move {
-            tk.want();
-            let server_stream = rx.await;
-            if let Err(e) = server_stream {
-                error!("server stream callback failed. {}", e);
-                warn!("server stream closed!");
-                return;
-            }
+        executor::spawn(
+            async move {
+                tk.want();
+                let server_stream =
+                    match utils::recv_response(rx.await, "server stream callback failed") {
+                        Ok(Ok(stream)) => stream,
+                        Ok(Err(e)) => {
+                            error!("can't open server stream. {}", e);
+                            warn!("server stream closed!");
+                            return;
+                        }
+                        Err(_) => {
+                            warn!("server stream closed!");
+                            return;
+                        }
+                    };
 
-            let server_stream = server_stream.unwrap();
-            if let Err(e) = server_stream {
-                error!("can't open server stream. {}", e);
-                warn!("server stream closed!");
-                return;
-            }
+                // receive conn_id
+                let conn_id = match utils::recv_response(
+                    conn_id_receiver.await,
+                    "server stream has already opened, but cannot get connection id",
+                ) {
+                    Ok(id) => id,
+                    Err(_) => return,
+                };
 
-            let server_stream = server_stream.unwrap();
-
-            // receive conn_id
-            let conn_id = conn_id_receiver.await;
-            if let Err(e) = conn_id {
-                // receive conn_id error? impossible unless the sender has already dropped.
-                error!("the server stream has already opened, but cannot get connection id! quit server stream task. {e}");
-                return;
-            }
-            let conn_id = conn_id.unwrap();
-
-            // create span
-            let span = debug_span!("bi_stream", conn_id = conn_id);
-            async  {
-                let mut server_stream = Box::pin(server_stream);
-                while let Some(Ok(response)) = server_stream.next().await {
-                    debug!("server stream receive message from server");
-                    let handler_key = response
-                        .metadata
-                        .as_ref()
-                        .map(|meta_data| meta_data.r#type.clone());
-                    if handler_key.is_none() {
-                        debug!("response payload type field is empty, skip.");
-                        continue;
+                // create span
+                let span = debug_span!("bi_stream", conn_id = conn_id);
+                async {
+                    let mut server_stream = Box::pin(server_stream);
+                    while let Some(Ok(response)) = server_stream.next().await {
+                        debug!("server stream receive message from server");
+                        let Some(handler_key) = response
+                            .metadata
+                            .as_ref()
+                            .map(|meta_data| meta_data.r#type.clone())
+                        else {
+                            debug!("response payload type field is empty, skip.");
+                            continue;
+                        };
+                        debug!("server stream handler: {}", handler_key);
+                        let handler = server_stream_handlers.get(&handler_key).cloned();
+                        let handler = handler.unwrap_or_else(|| Arc::new(DefaultHandler));
+                        let Some(ret) = handler.request_reply(response).in_current_span().await
+                        else {
+                            debug!(
+                                "handler no response, don't need to send to server. skip. key:{}",
+                                handler_key
+                            );
+                            continue;
+                        };
+                        let ret = local_sender_clone.send(ret).await;
+                        if let Err(e) = ret {
+                            error!("send grpc message to server occur an error, {}", e);
+                            break;
+                        }
                     }
-                    let handler_key = handler_key.unwrap();
-                    debug!("server stream handler: {}", handler_key);
-                    let handler = server_stream_handlers.get(&handler_key).cloned();
-                    let handler = handler.unwrap_or_else(|| Arc::new(DefaultHandler));
-                    let ret = handler.request_reply(response).in_current_span().await;
-                    if ret.is_none() {
-                        debug!(
-                            "handler no response, don't need to send to server. skip. key:{}",
-                            handler_key
-                        );
-                        continue;
-                    }
-                    let ret = ret.unwrap();
-                    let ret = local_sender_clone.send(ret).await;
-                    if let Err(e) = ret {
-                        error!("send grpc message to server occur an error, {}", e);
-                        break;
-                    }
+                    warn!("server stream closed!");
+                    let _ =
+                        health.compare_exchange(true, false, Ordering::SeqCst, Ordering::Acquire);
                 }
-                warn!("server stream closed!");
-                let _ = health.compare_exchange(true, false, Ordering::SeqCst, Ordering::Acquire);
-            }.instrument(span).await;
-        }.in_current_span());
+                .instrument(span)
+                .await;
+            }
+            .in_current_span(),
+        );
 
         let _ = waiter.await;
         Ok(conn_id_sender)
@@ -343,113 +334,65 @@ where
     async fn connection_health_check(service: &mut M::Service) -> Result<(), Error> {
         info!("connection health check");
 
-        let request = HealthCheckRequest::default();
-        let request = GrpcMessageBuilder::new(request).build().into_payload();
-        if let Err(e) = request {
-            error!(
-                "health check request message convert to grpc message occur an error. {}",
-                e
-            );
-            return Err(ErrResult(
-                "health check request message convert to grpc message occur an error".to_string(),
-            ));
-        }
-        let request = request.unwrap();
+        let request = utils::convert(
+            GrpcMessageBuilder::new(HealthCheckRequest::default())
+                .build()
+                .into_payload(),
+            "health check request message convert to grpc message occur an error",
+        )?;
 
-        let (gv, mut tk) = want::new();
-
-        let (tx, rx) = oneshot::channel::<Result<Payload, Error>>();
-
-        let call_back = Callback::new(gv, tx);
-        let grpc_call = NacosGrpcCall::RequestService((request, call_back));
-
+        let (cb, rx, mut tk) = utils::create_grpc_callback::<Result<Payload, Error>>();
+        let grpc_call = NacosGrpcCall::RequestService((request, cb));
         executor::spawn(service.call(grpc_call));
 
         tk.want();
-        let response = rx.await;
-        if let Err(e) = response {
-            error!("grpc request callback failed. {}", e);
-            return Err(ErrResult("grpc request callback failed".to_string()));
-        }
-        let response = response.unwrap();
-        if let Err(e) = response {
-            error!("connection health check failed: {}", e);
-            return Err(ErrResult("connection health check failed".to_string()));
-        }
-        let response = response.unwrap();
+        let response = utils::convert(
+            utils::recv_response(rx.await, "grpc request callback failed")?,
+            "connection health check failed",
+        )?;
 
         let response = GrpcMessage::<HealthCheckResponse>::from_payload(response);
         if let Err(e) = response {
+            let err_msg = "connection health check failed, convert to grpc message failed";
             warn!(
-                "connection health check failed convert to grpc message failed. If the retry is successful, please ignore it. {}",
-                e
+                "{}. If the retry is successful, please ignore it: {}",
+                err_msg, e
             );
-            return Err(ErrResult(
-                "connection health check failed convert to grpc message failed".to_string(),
-            ));
+            return Err(ErrResult(err_msg.to_string()));
         }
+
         Ok(())
     }
 
     async fn check_server(service: &mut M::Service) -> Result<String, Error> {
         info!("check server");
 
-        let request = ServerCheckRequest::new();
-        let request = GrpcMessageBuilder::new(request).build().into_payload();
-        if let Err(e) = request {
-            error!(
-                "server check request message convert to grpc message occur an error. {}",
-                e
-            );
-            return Err(ErrResult(
-                "server check request message convert to grpc message occur an error".to_string(),
-            ));
-        }
-        let request = request.unwrap();
+        let request = utils::convert(
+            GrpcMessageBuilder::new(ServerCheckRequest::new())
+                .build()
+                .into_payload(),
+            "server check request message convert to grpc message occur an error",
+        )?;
 
-        let (gv, mut tk) = want::new();
-
-        let (tx, rx) = oneshot::channel::<Result<Payload, Error>>();
-
-        let call_back = Callback::new(gv, tx);
-        let grpc_call = NacosGrpcCall::RequestService((request, call_back));
-
+        let (cb, rx, mut tk) = utils::create_grpc_callback::<Result<Payload, Error>>();
+        let grpc_call = NacosGrpcCall::RequestService((request, cb));
         executor::spawn(service.call(grpc_call));
 
         tk.want();
-        let response = rx.await;
-        if let Err(e) = response {
-            error!("grpc request callback failed. {}", e);
-            return Err(ErrResult("grpc request callback failed".to_string()));
-        }
-        let response = response.unwrap();
-        if let Err(e) = response {
-            error!("check server failed: {}", e);
-            return Err(ErrResult("check server failed".to_string()));
-        }
-        let response = response.unwrap();
+        let response = utils::convert(
+            utils::recv_response(rx.await, "grpc request callback failed")?,
+            "check server failed",
+        )?;
 
-        let response = GrpcMessage::<ServerCheckResponse>::from_payload(response);
-        if let Err(e) = response {
-            error!("check server failed convert to grpc message failed. {}", e);
-            return Err(ErrResult(
-                "check server failed convert to grpc message failed".to_string(),
-            ));
-        }
+        let response = utils::convert(
+            GrpcMessage::<ServerCheckResponse>::from_payload(response),
+            "check server failed convert to grpc message failed",
+        )?;
 
-        let response = response.unwrap();
-
-        let response = response.into_body();
-        let connection_id = response.connection_id;
-
-        if connection_id.is_none() {
-            error!("check server failed connection id is empty");
-            return Err(ErrResult(
-                "check server failed connection id is empty".to_string(),
-            ));
-        }
-
-        let connection_id = connection_id.unwrap();
+        let connection_id = utils::unwrap_option(
+            response.into_body().connection_id,
+            "check server failed connection id is empty",
+        )?;
 
         Ok(connection_id)
     }
@@ -457,10 +400,10 @@ where
 
 pub(crate) enum State<F, S> {
     Idle,
-    Connecting(F),
-    Initializing(Box<dyn Future<Output = Result<(S, String), Error>> + Send>),
+    Connecting(Pin<Box<F>>),
+    Initializing(Pin<Box<dyn Future<Output = Result<(S, String), Error>> + Send>>),
     Connected(S),
-    Retry(Box<dyn Future<Output = ()> + Send>),
+    Retry(Pin<Box<dyn Future<Output = ()> + Send>>),
 }
 
 impl<M> Service<Payload> for NacosGrpcConnection<M>
@@ -486,11 +429,11 @@ where
             debug_span!(parent: None, "grpc_connection", id = self.id.clone()).entered();
 
         loop {
-            if let Some(max_retries) = self.max_retries {
-                if self.retry_count > max_retries {
-                    error!("Exceeded maximum retry attempts: {}", max_retries);
-                    return Poll::Ready(Err(Self::Error::MaxRetriesExceeded(max_retries)));
-                }
+            if let Some(max_retries) = self.max_retries
+                && self.retry_count > max_retries
+            {
+                error!("Exceeded maximum retry attempts: {}", max_retries);
+                return Poll::Ready(Err(Self::Error::MaxRetriesExceeded(max_retries)));
             }
 
             match self.state {
@@ -505,16 +448,15 @@ where
                         );
                     }
                     let mk_fut = self.mk_service.make_service(());
-                    self.state = State::Connecting(mk_fut);
+                    self.state = State::Connecting(Box::pin(mk_fut));
                     continue;
                 }
                 State::Connecting(ref mut fut) => {
-                    let pin = unsafe { Pin::new_unchecked(fut) };
-                    let ret = pin.poll(cx);
+                    let ret = fut.as_mut().poll(cx);
                     match ret {
                         Poll::Pending => return Poll::Pending,
                         Poll::Ready(Ok(ret)) => {
-                            let init_future = Box::new(NacosGrpcConnection::<M>::init_connection(
+                            let init_future = Box::pin(NacosGrpcConnection::<M>::init_connection(
                                 ret,
                                 self.client_version.clone(),
                                 self.namespace.clone(),
@@ -533,7 +475,7 @@ where
                                 "create connection error, this operate will be retry after {} sec, retry count:{}. {}",
                                 sleep_time, self.retry_count, e
                             );
-                            self.state = State::Retry(Box::new(sleep(Duration::from_secs(
+                            self.state = State::Retry(Box::pin(sleep(Duration::from_secs(
                                 sleep_time as u64,
                             ))));
                             continue;
@@ -542,10 +484,8 @@ where
                 }
                 State::Initializing(ref mut init) => {
                     info!("the new connection is initializing.");
-                    let init = init.as_mut();
 
-                    let init = unsafe { Pin::new_unchecked(init) };
-                    let ret = init.poll(cx);
+                    let ret = init.as_mut().poll(cx);
                     match ret {
                         Poll::Pending => return Poll::Pending,
                         Poll::Ready(Ok((service, connection_id))) => {
@@ -579,7 +519,7 @@ where
                                 "initializing connection error, this operate will be retry after {} sec, retry count:{}. {}",
                                 sleep_time, self.retry_count, e
                             );
-                            self.state = State::Retry(Box::new(sleep(Duration::from_secs(
+                            self.state = State::Retry(Box::pin(sleep(Duration::from_secs(
                                 sleep_time as u64,
                             ))));
                             continue;
@@ -598,7 +538,7 @@ where
                                     "the connection {:?} is not in health, destroy connection and retry, this operate will be retry after {} sec, retry count:{}.",
                                     self.connection_id, sleep_time, self.retry_count
                                 );
-                                self.state = State::Retry(Box::new(sleep(Duration::from_secs(
+                                self.state = State::Retry(Box::pin(sleep(Duration::from_secs(
                                     sleep_time as u64,
                                 ))));
                                 continue;
@@ -613,7 +553,7 @@ where
                                 "connection {:?} not ready, destroy connection and retry, this operate will be retry after {} sec, retry count:{}. {}",
                                 self.connection_id, sleep_time, self.retry_count, e
                             );
-                            self.state = State::Retry(Box::new(sleep(Duration::from_secs(
+                            self.state = State::Retry(Box::pin(sleep(Duration::from_secs(
                                 sleep_time as u64,
                             ))));
                             continue;
@@ -622,10 +562,7 @@ where
                 }
 
                 State::Retry(ref mut sleep) => {
-                    let sleep = sleep.as_mut();
-
-                    let sleep = unsafe { Pin::new_unchecked(sleep) };
-                    let ret = sleep.poll(cx);
+                    let ret = sleep.as_mut().poll(cx);
                     if ret == Poll::Pending {
                         return Poll::Pending;
                     }
@@ -647,38 +584,40 @@ where
 
         match self.state {
             State::Connected(ref mut service) => {
-                let (gv, mut tk) = want::new();
-                let (tx, rx) = oneshot::channel::<Result<Payload, Error>>();
-                let call_back = Callback::new(gv, tx);
-                let grpc_call = NacosGrpcCall::RequestService((req, call_back));
+                let (cb, rx, mut tk) = utils::create_grpc_callback::<Result<Payload, Error>>();
+                let grpc_call = NacosGrpcCall::RequestService((req, cb));
                 let call_task = service.call(grpc_call).in_current_span();
                 let response_fut = async move {
                     tk.want();
-                    let response = rx.await;
-                    if response.is_err() {
-                        return Err(ErrResult("sender has been drop".to_string()));
-                    }
-                    response.unwrap()
+                    utils::recv_response(rx.await, "sender has been drop")?
                 }
                 .in_current_span();
                 executor::spawn(call_task);
-                ResponseFuture::new(Box::new(response_fut))
+                ResponseFuture::new(response_fut)
             }
-            _ => ResponseFuture::new(Box::new(
-                async move { Err(ErrResult("the connection is not connected".to_string())) }
-                    .in_current_span(),
-            )),
+            _ => {
+                let fut: Pin<Box<dyn Future<Output = Result<Payload, Error>> + Send>> = Box::pin(
+                    async move { Err(ErrResult("the connection is not connected".to_string())) }
+                        .in_current_span(),
+                );
+                ResponseFuture::new(fut)
+            }
         }
     }
 }
 
 pub(crate) struct ResponseFuture {
-    inner: Box<dyn Future<Output = Result<Payload, Error>> + Send>,
+    inner: Pin<Box<dyn Future<Output = Result<Payload, Error>> + Send>>,
 }
 
 impl ResponseFuture {
-    pub(crate) fn new(inner: Box<dyn Future<Output = Result<Payload, Error>> + Send>) -> Self {
-        Self { inner }
+    pub(crate) fn new<F>(inner: F) -> Self
+    where
+        F: Future<Output = Result<Payload, Error>> + Send + 'static,
+    {
+        Self {
+            inner: Box::pin(inner),
+        }
     }
 }
 
@@ -686,11 +625,10 @@ impl Future for ResponseFuture {
     type Output = Result<Payload, Error>;
 
     fn poll(
-        self: Pin<&mut Self>,
+        mut self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Self::Output> {
-        let pin = unsafe { Pin::new_unchecked(self.get_mut().inner.as_mut()) };
-        pin.poll(cx)
+        self.inner.as_mut().poll(cx)
     }
 }
 
@@ -734,6 +672,7 @@ where
         }
     }
 
+    #[allow(dead_code)]
     #[instrument(fields(id = self.id), skip_all)]
     pub(crate) fn failover(&self) {
         let _ = self
@@ -748,20 +687,14 @@ where
     ) {
         while active_health_check.load(Ordering::Acquire) {
             debug!("health check.");
-            let health_check_request = HealthCheckRequest::default();
-            let health_check_request = GrpcMessageBuilder::new(health_check_request)
+            let Ok(health_check_request) = GrpcMessageBuilder::new(HealthCheckRequest::default())
                 .build()
-                .into_payload();
-            if let Err(e) = health_check_request {
-                // should panic
-                error!(
-                    "health check failed, grpc message can not convert to payload. retry. {}",
-                    e
-                );
+                .into_payload()
+            else {
+                error!("health check failed, grpc message can not convert to payload. retry.");
                 sleep(Duration::from_secs(5)).await;
                 continue;
-            }
-            let health_check_request = health_check_request.unwrap();
+            };
             let ready = futures_util::future::poll_fn(|cx| svc.poll_ready(cx))
                 .in_current_span()
                 .await;
@@ -771,27 +704,21 @@ where
                 continue;
             }
 
-            let response = svc.call(health_check_request).in_current_span().await;
-            if let Err(e) = response {
+            let Ok(response) = svc.call(health_check_request).in_current_span().await else {
                 let _ =
                     svc_health.compare_exchange(true, false, Ordering::SeqCst, Ordering::Acquire);
-                error!(
-                    "health check failed, send health check request failed, retry. {}",
-                    e
-                );
+                error!("health check failed, send health check request failed, retry.");
                 sleep(Duration::from_secs(5)).await;
                 continue;
-            }
+            };
 
-            let response = response.unwrap();
-            let response = GrpcMessage::<HealthCheckResponse>::from_payload(response);
-            if let Err(e) = response {
+            let Ok(_) = GrpcMessage::<HealthCheckResponse>::from_payload(response) else {
                 let _ =
                     svc_health.compare_exchange(true, false, Ordering::SeqCst, Ordering::Acquire);
-                error!("health check failed, error response, retry. {}", e);
+                error!("health check failed, error response, retry.");
                 sleep(Duration::from_secs(5)).await;
                 continue;
-            }
+            };
 
             sleep(Duration::from_secs(5)).await;
         }
@@ -810,6 +737,7 @@ where
     }
 }
 
+#[allow(clippy::disallowed_methods)] // Tests mock! has std::result::Result::unwrap
 #[cfg_attr(test, mockall::automock)]
 #[async_trait]
 pub(crate) trait SendRequest: Send {
@@ -834,6 +762,7 @@ where
 }
 
 #[cfg(test)]
+#[allow(clippy::disallowed_methods)] // Tests mock! has std::result::Result::unwrap
 pub mod nacos_grpc_connection_tests {
 
     use super::*;

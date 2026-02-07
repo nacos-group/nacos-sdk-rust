@@ -83,22 +83,22 @@ pub(crate) fn grpc_response(
             .parse2(quote! {
                 pub result_code: i32
             })
-            .unwrap();
+            .expect("Failed to parse response field");
         let error_code_field = syn::Field::parse_named
             .parse2(quote! {
                 pub error_code: i32
             })
-            .unwrap();
+            .expect("Failed to parse response field");
         let message_field = syn::Field::parse_named
             .parse2(quote! {
                 pub message: Option<String>
             })
-            .unwrap();
+            .expect("Failed to parse response field");
         let request_id_field = syn::Field::parse_named
             .parse2(quote! {
                 pub request_id: Option<String>
             })
-            .unwrap();
+            .expect("Failed to parse response field");
 
         fields.named.push(result_code_field);
         fields.named.push(error_code_field);

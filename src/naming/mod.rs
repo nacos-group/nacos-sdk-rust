@@ -1,6 +1,20 @@
+//! Service discovery (naming) implementation for the Nacos SDK.
+//!
+//! This module provides the internal implementation for service naming/discovery
+//! functionality, including:
+//!
+//! - `chooser`: Load balancing algorithms (random weighted selection)
+//! - `dto`: Data transfer objects for service information
+//! - `handler`: Server push request handlers for service changes
+//! - `message`: gRPC message definitions for naming-related requests/responses
+//! - `observable`: Service instance change observation and event notification
+//! - `redo`: Automatic retry mechanism for failed operations
+//! - `updater`: Background service info updater for subscribed services
+//!
+//! The public API for service naming is exposed through [`crate::api::naming::NamingService`].
+
 use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
-use std::sync::atomic::Ordering;
 
 use tracing::{debug, info, instrument};
 
@@ -56,16 +70,11 @@ impl std::fmt::Debug for NacosNamingService {
 const MODULE_NAME: &str = "naming";
 static SEQ: AtomicU64 = AtomicU64::new(1);
 
-fn generate_client_id(server_addr: &str, namespace: &str) -> String {
-    let client_id = format!(
-        "{MODULE_NAME}:{server_addr}:{namespace}:{}",
-        SEQ.fetch_add(1, Ordering::SeqCst)
-    );
-    client_id
-}
-
 impl NacosNamingService {
-    pub(crate) fn new(client_props: ClientProps, auth_plugin: Arc<dyn AuthPlugin>) -> Result<Self> {
+    pub(crate) async fn new(
+        client_props: ClientProps,
+        auth_plugin: Arc<dyn AuthPlugin>,
+    ) -> Result<Self> {
         let server_list = Arc::new(client_props.get_server_list()?);
 
         let mut namespace = client_props.get_namespace();
@@ -74,7 +83,12 @@ impl NacosNamingService {
         }
 
         // create client id
-        let client_id = generate_client_id(&client_props.get_server_addr(), &namespace);
+        let client_id = crate::common::util::generate_client_id(
+            MODULE_NAME,
+            &client_props.get_server_addr(),
+            &namespace,
+            &SEQ,
+        );
 
         // create redo task executor
         let redo_task_executor = Arc::new(RedoTaskExecutor::new(client_id.clone()));
@@ -85,7 +99,8 @@ impl NacosNamingService {
         let naming_cache: Cache<ServiceInfo> = CacheBuilder::naming(namespace.clone())
             .load_cache_at_start(client_props.get_naming_load_cache_at_start())
             .disk_store()
-            .build(client_id.clone());
+            .build(client_id.clone())
+            .await;
         let naming_cache = Arc::new(naming_cache);
 
         // create naming service info change observable
@@ -135,7 +150,8 @@ impl NacosNamingService {
             .auth_context(client_props.get_auth_context())
             .auth_plugin(auth_plugin)
             .max_retries(client_props.get_max_retries())
-            .build(client_id.clone());
+            .build(client_id.clone())
+            .await;
 
         let nacos_grpc_client = Arc::new(nacos_grpc_client);
 
@@ -161,6 +177,48 @@ impl NacosNamingService {
     {
         self.nacos_grpc_client.send_request::<R, P>(request).await
     }
+
+    /// Execute by register request with redo task (active → execute → frozen lifecycle)
+    async fn execute_by_register_with_redo<R, P>(&self, request: R, operation: &str) -> Result<()>
+    where
+        R: GrpcRequestMessage + AutomaticRequest + Clone + 'static,
+        P: GrpcResponseMessage + 'static,
+    {
+        // automatic request
+        let auto_request: Arc<dyn AutomaticRequest> = Arc::new(request.clone());
+        let redo_task = NamingRedoTask::new(self.nacos_grpc_client.clone(), auto_request);
+        let redo_task = Arc::new(redo_task);
+
+        // active redo task
+        redo_task.active();
+        // add redo task to executor
+        self.redo_task_executor.add_task(redo_task.clone()).await;
+
+        let response = self.request_to_server::<R, P>(request).await?;
+        crate::common::error::handle_response(&response, operation)?;
+
+        redo_task.frozen();
+        Ok(())
+    }
+
+    /// Execute by deregister request with immediate redo task cleanup
+    async fn execute_by_deregister_with_redo<R, P>(&self, request: R, operation: &str) -> Result<()>
+    where
+        R: GrpcRequestMessage + AutomaticRequest + Clone + 'static,
+        P: GrpcResponseMessage + 'static,
+    {
+        let auto_request: Arc<dyn AutomaticRequest> = Arc::new(request.clone());
+        let redo_task = NamingRedoTask::new(self.nacos_grpc_client.clone(), auto_request);
+
+        let response = self.request_to_server::<R, P>(request).await?;
+        crate::common::error::handle_response(&response, operation)?;
+
+        // remove redo task from executor
+        self.redo_task_executor
+            .remove_task(redo_task.task_key().as_str())
+            .await;
+        Ok(())
+    }
 }
 
 impl NacosNamingService {
@@ -174,9 +232,7 @@ impl NacosNamingService {
             "register ephemeral instance: service_name: {service_name}, group_name: {group_name:?}"
         );
         let namespace = Some(self.namespace.clone());
-        let group_name = group_name
-            .filter(|data| !data.is_empty())
-            .unwrap_or_else(|| crate::api::constants::DEFAULT_GROUP.to_owned());
+        let group_name = crate::common::util::normalize_group_name(group_name);
         let request = InstanceRequest::register(
             service_instance,
             Some(service_name),
@@ -184,32 +240,11 @@ impl NacosNamingService {
             Some(group_name),
         );
 
-        // automatic request
-        let auto_request: Arc<dyn AutomaticRequest> = Arc::new(request.clone());
-        let redo_task = Arc::new(NamingRedoTask::new(
-            self.nacos_grpc_client.clone(),
-            auto_request,
-        ));
-
-        // active redo task
-        redo_task.active();
-        // add redo task to executor
-        self.redo_task_executor.add_task(redo_task.clone()).await;
-
-        let body = self
-            .request_to_server::<InstanceRequest, InstanceResponse>(request)
-            .await?;
-        if !body.is_success() {
-            return Err(ErrResult(format!(
-                "naming service register ephemeral service failed: resultCode: {}, errorCode:{}, message:{}",
-                body.result_code,
-                body.error_code,
-                body.message.unwrap_or_default()
-            )));
-        }
-
-        redo_task.frozen();
-        Ok(())
+        self.execute_by_register_with_redo::<InstanceRequest, InstanceResponse>(
+            request,
+            "register_ephemeral_instance",
+        )
+        .await
     }
 
     async fn register_persistent_instance_async(
@@ -222,9 +257,7 @@ impl NacosNamingService {
             "register persistent instance: service_name: {service_name}, group_name: {group_name:?}"
         );
         let namespace = Some(self.namespace.clone());
-        let group_name = group_name
-            .filter(|data| !data.is_empty())
-            .unwrap_or_else(|| crate::api::constants::DEFAULT_GROUP.to_owned());
+        let group_name = crate::common::util::normalize_group_name(group_name);
         let request = PersistentInstanceRequest::register(
             service_instance,
             Some(service_name),
@@ -232,32 +265,11 @@ impl NacosNamingService {
             Some(group_name),
         );
 
-        // automatic request
-        let auto_request: Arc<dyn AutomaticRequest> = Arc::new(request.clone());
-        let redo_task = Arc::new(NamingRedoTask::new(
-            self.nacos_grpc_client.clone(),
-            auto_request,
-        ));
-
-        // active redo task
-        redo_task.active();
-        // add redo task to executor
-        self.redo_task_executor.add_task(redo_task.clone()).await;
-
-        let body = self
-            .request_to_server::<PersistentInstanceRequest, InstanceResponse>(request)
-            .await?;
-        if !body.is_success() {
-            return Err(ErrResult(format!(
-                "naming service register persistent service failed: resultCode: {}, errorCode:{}, message:{}",
-                body.result_code,
-                body.error_code,
-                body.message.unwrap_or_default()
-            )));
-        }
-
-        redo_task.frozen();
-        Ok(())
+        self.execute_by_register_with_redo::<PersistentInstanceRequest, InstanceResponse>(
+            request,
+            "register_persistent_instance",
+        )
+        .await
     }
 
     async fn deregister_ephemeral_instance_async(
@@ -271,9 +283,7 @@ impl NacosNamingService {
         );
 
         let namespace = Some(self.namespace.clone());
-        let group_name = group_name
-            .filter(|data| !data.is_empty())
-            .unwrap_or_else(|| crate::api::constants::DEFAULT_GROUP.to_owned());
+        let group_name = crate::common::util::normalize_group_name(group_name);
         let request = InstanceRequest::deregister(
             service_instance,
             Some(service_name),
@@ -281,28 +291,11 @@ impl NacosNamingService {
             Some(group_name),
         );
 
-        // automatic request
-        let auto_request: Arc<dyn AutomaticRequest> = Arc::new(request.clone());
-        let redo_task = NamingRedoTask::new(self.nacos_grpc_client.clone(), auto_request);
-
-        let body = self
-            .request_to_server::<InstanceRequest, InstanceResponse>(request)
-            .await?;
-
-        if !body.is_success() {
-            return Err(ErrResult(format!(
-                "naming service deregister ephemeral service failed: resultCode: {}, errorCode:{}, message:{}",
-                body.result_code,
-                body.error_code,
-                body.message.unwrap_or_default()
-            )));
-        }
-
-        // remove redo task from executor
-        self.redo_task_executor
-            .remove_task(redo_task.task_key().as_str())
-            .await;
-        Ok(())
+        self.execute_by_deregister_with_redo::<InstanceRequest, InstanceResponse>(
+            request,
+            "deregister_ephemeral_instance",
+        )
+        .await
     }
 
     async fn deregister_persistent_instance_async(
@@ -315,9 +308,7 @@ impl NacosNamingService {
             "deregister persistent instance: service_name: {service_name}, group_name: {group_name:?}"
         );
         let namespace = Some(self.namespace.clone());
-        let group_name = group_name
-            .filter(|data| !data.is_empty())
-            .unwrap_or_else(|| crate::api::constants::DEFAULT_GROUP.to_owned());
+        let group_name = crate::common::util::normalize_group_name(group_name);
         let request = PersistentInstanceRequest::deregister(
             service_instance,
             Some(service_name),
@@ -325,28 +316,11 @@ impl NacosNamingService {
             Some(group_name),
         );
 
-        // automatic request
-        let auto_request: Arc<dyn AutomaticRequest> = Arc::new(request.clone());
-        let redo_task = NamingRedoTask::new(self.nacos_grpc_client.clone(), auto_request);
-
-        let body = self
-            .request_to_server::<PersistentInstanceRequest, InstanceResponse>(request)
-            .await?;
-
-        if !body.is_success() {
-            return Err(ErrResult(format!(
-                "naming service deregister persistent service failed: resultCode: {}, errorCode:{}, message:{}",
-                body.result_code,
-                body.error_code,
-                body.message.unwrap_or_default()
-            )));
-        }
-
-        // remove redo task from executor
-        self.redo_task_executor
-            .remove_task(redo_task.task_key().as_str())
-            .await;
-        Ok(())
+        self.execute_by_deregister_with_redo::<PersistentInstanceRequest, InstanceResponse>(
+            request,
+            "deregister_persistent_instance",
+        )
+        .await
     }
 
     async fn batch_register_instance_async(
@@ -356,9 +330,7 @@ impl NacosNamingService {
         service_instances: Vec<ServiceInstance>,
     ) -> Result<()> {
         let namespace = Some(self.namespace.clone());
-        let group_name = group_name
-            .filter(|data| !data.is_empty())
-            .unwrap_or_else(|| crate::api::constants::DEFAULT_GROUP.to_owned());
+        let group_name = crate::common::util::normalize_group_name(group_name);
         let request = BatchInstanceRequest::new(
             service_instances,
             namespace,
@@ -366,29 +338,11 @@ impl NacosNamingService {
             Some(group_name),
         );
 
-        // automatic request
-        let auto_request: Arc<dyn AutomaticRequest> = Arc::new(request.clone());
-        let redo_task = NamingRedoTask::new(self.nacos_grpc_client.clone(), auto_request);
-        let redo_task = Arc::new(redo_task);
-
-        // active redo task
-        redo_task.active();
-        // add redo task to executor
-        self.redo_task_executor.add_task(redo_task.clone()).await;
-
-        let body = self
-            .request_to_server::<BatchInstanceRequest, BatchInstanceResponse>(request)
-            .await?;
-        if !body.is_success() {
-            return Err(ErrResult(format!(
-                "naming service batch register services failed: resultCode: {}, errorCode:{}, message:{}",
-                body.result_code,
-                body.error_code,
-                body.message.unwrap_or_default()
-            )));
-        }
-        redo_task.frozen();
-        Ok(())
+        self.execute_by_register_with_redo::<BatchInstanceRequest, BatchInstanceResponse>(
+            request,
+            "batch_register_instance",
+        )
+        .await
     }
 
     async fn get_all_instances_async(
@@ -399,21 +353,17 @@ impl NacosNamingService {
         subscribe: bool,
     ) -> Result<Vec<ServiceInstance>> {
         let cluster_str = clusters.join(",");
-        let group_name = group_name
-            .filter(|data| !data.is_empty())
-            .unwrap_or_else(|| crate::api::constants::DEFAULT_GROUP.to_owned());
+        let group_name = crate::common::util::normalize_group_name(group_name);
 
         let service_info;
         if subscribe {
-            let cache_service_info = {
-                let grouped_name =
-                    ServiceInfo::get_grouped_service_name(&service_name, &group_name);
-                let key = ServiceInfo::get_key(&grouped_name, &cluster_str);
-                let ret = self.naming_cache.get(&key).map(|data| data.clone());
-                ret
-            };
+            let grouped_name = ServiceInfo::get_grouped_service_name(&service_name, &group_name);
+            let key = ServiceInfo::get_key(&grouped_name, &cluster_str);
 
-            if cache_service_info.is_none() {
+            if let Some(cached_info) = self.naming_cache.get(&key) {
+                info!("get_all_instances returned cached service_info, group_key={key}");
+                service_info = Some(cached_info.clone());
+            } else {
                 let subscribe_service_info = self
                     .subscribe_async(service_name, Some(group_name), clusters, None)
                     .await;
@@ -422,8 +372,6 @@ impl NacosNamingService {
                 } else {
                     service_info = None;
                 }
-            } else {
-                service_info = Some(cache_service_info.unwrap());
             }
         } else {
             let request = ServiceQueryRequest {
@@ -439,25 +387,17 @@ impl NacosNamingService {
             let response = self
                 .request_to_server::<ServiceQueryRequest, QueryServiceResponse>(request)
                 .await?;
-            if !response.is_success() {
-                return Err(ErrResult(format!(
-                    "naming service query services failed: resultCode: {}, errorCode:{}, message:{}",
-                    response.result_code,
-                    response.error_code,
-                    response.message.unwrap_or_default()
-                )));
-            }
+            crate::common::error::handle_response(&response, "get_all_instances")?;
             service_info = Some(response.service_info);
         }
-        if service_info.is_none() {
+        let Some(service_info) = service_info else {
             return Ok(Vec::default());
-        }
-        let service_info = service_info.unwrap();
+        };
         let instances = service_info.hosts;
-        if instances.is_none() {
+        let Some(instances) = instances else {
             return Ok(Vec::default());
-        }
-        Ok(instances.unwrap())
+        };
+        Ok(instances)
     }
 
     async fn select_instances_async(
@@ -468,9 +408,7 @@ impl NacosNamingService {
         subscribe: bool,
         healthy: bool,
     ) -> Result<Vec<ServiceInstance>> {
-        let group_name = group_name
-            .filter(|data| !data.is_empty())
-            .unwrap_or_else(|| crate::api::constants::DEFAULT_GROUP.to_owned());
+        let group_name = crate::common::util::normalize_group_name(group_name);
 
         let all_instance = self
             .get_all_instances_async(service_name, Some(group_name), clusters, subscribe)
@@ -491,9 +429,7 @@ impl NacosNamingService {
         clusters: Vec<String>,
         subscribe: bool,
     ) -> Result<ServiceInstance> {
-        let group_name = group_name
-            .filter(|data| !data.is_empty())
-            .unwrap_or_else(|| crate::api::constants::DEFAULT_GROUP.to_owned());
+        let group_name = crate::common::util::normalize_group_name(group_name);
         let service_name_for_tip = service_name.clone();
 
         let ret = self
@@ -506,13 +442,11 @@ impl NacosNamingService {
             )
             .await?;
         let chooser = RandomWeightChooser::new(service_name, ret)?;
-        let instance = chooser.choose();
-        if instance.is_none() {
+        let Some(instance) = chooser.choose() else {
             return Err(ErrResult(format!(
                 "no available {service_name_for_tip} service instance can be selected"
             )));
-        }
-        let instance = instance.unwrap();
+        };
         Ok(instance)
     }
 
@@ -522,9 +456,7 @@ impl NacosNamingService {
         page_size: i32,
         group_name: Option<String>,
     ) -> Result<(Vec<String>, i32)> {
-        let group_name = group_name
-            .filter(|data| !data.is_empty())
-            .unwrap_or_else(|| crate::api::constants::DEFAULT_GROUP.to_owned());
+        let group_name = crate::common::util::normalize_group_name(group_name);
         let namespace = Some(self.namespace.clone());
 
         let request = ServiceListRequest {
@@ -538,14 +470,7 @@ impl NacosNamingService {
         let response = self
             .request_to_server::<ServiceListRequest, ServiceListResponse>(request)
             .await?;
-        if !response.is_success() {
-            return Err(ErrResult(format!(
-                "naming service list services failed: resultCode: {}, errorCode:{}, message:{}",
-                response.result_code,
-                response.error_code,
-                response.message.unwrap_or_default()
-            )));
-        }
+        crate::common::error::handle_response(&response, "get_service_list")?;
 
         Ok((response.service_names, response.count))
     }
@@ -558,11 +483,11 @@ impl NacosNamingService {
         event_listener: Option<Arc<dyn NamingEventListener>>,
     ) -> Result<ServiceInfo> {
         let clusters = clusters.join(",");
-        let group_name = group_name
-            .filter(|data| !data.is_empty())
-            .unwrap_or_else(|| crate::api::constants::DEFAULT_GROUP.to_owned());
+        let group_name = crate::common::util::normalize_group_name(group_name);
+        let grouped_name = ServiceInfo::get_grouped_service_name(&service_name, &group_name);
+        let key = ServiceInfo::get_key(&grouped_name, &clusters);
 
-        // add updater task
+        // add updater task (for polling refresh when gRPC push is not available)
         self.service_info_updater
             .schedule_update(
                 self.namespace.clone(),
@@ -574,11 +499,10 @@ impl NacosNamingService {
 
         // add event listener
         if let Some(event_listener) = event_listener {
-            let grouped_name = ServiceInfo::get_grouped_service_name(&service_name, &group_name);
-            let key = ServiceInfo::get_key(&grouped_name, &clusters);
-            self.observer.subscribe(key, event_listener).await;
+            self.observer.subscribe(key.clone(), event_listener).await;
         }
 
+        // Create subscribe request for background execution
         let request = SubscribeServiceRequest::new(
             true,
             clusters,
@@ -597,17 +521,33 @@ impl NacosNamingService {
         // add redo task to executor
         self.redo_task_executor.add_task(redo_task.clone()).await;
 
+        // Try to get service info from cache first (if load_cache_at_start is enabled)
+        if let Some(cached_info) = self.naming_cache.get(&key) {
+            info!("subscribe returned cached service_info, group_key={key}");
+
+            // Spawn the actual server request in the background to avoid blocking.
+            // The redo task will automatically retry if the server is unavailable.
+            // The initial response data will come from cache (if available) or be empty.
+            let remote_client = self.nacos_grpc_client.clone();
+            executor::spawn(async move {
+                let response = remote_client
+                    .send_request::<SubscribeServiceRequest, SubscribeServiceResponse>(request)
+                    .await;
+                if let Ok(resp) = response
+                    && crate::common::error::handle_response(&resp, "subscribe").is_ok()
+                {
+                    debug!("subscribe the {resp:?}");
+                    redo_task.frozen();
+                }
+            });
+
+            return Ok(cached_info.clone());
+        }
+
         let response = self
             .request_to_server::<SubscribeServiceRequest, SubscribeServiceResponse>(request)
             .await?;
-        if !response.is_success() {
-            return Err(ErrResult(format!(
-                "naming subscribe services failed: resultCode: {}, errorCode:{}, message:{}",
-                response.result_code,
-                response.error_code,
-                response.message.unwrap_or_default()
-            )));
-        }
+        crate::common::error::handle_response(&response, "subscribe")?;
 
         debug!("subscribe the {response:?}");
         redo_task.frozen();
@@ -623,9 +563,7 @@ impl NacosNamingService {
         event_listener: Option<Arc<dyn NamingEventListener>>,
     ) -> Result<()> {
         let clusters = clusters.join(",");
-        let group_name = group_name
-            .filter(|data| !data.is_empty())
-            .unwrap_or_else(|| crate::api::constants::DEFAULT_GROUP.to_owned());
+        let group_name = crate::common::util::normalize_group_name(group_name);
 
         // stop updater task
         self.service_info_updater
@@ -655,14 +593,7 @@ impl NacosNamingService {
         let response = self
             .request_to_server::<SubscribeServiceRequest, SubscribeServiceResponse>(request)
             .await?;
-        if !response.is_success() {
-            return Err(ErrResult(format!(
-                "naming subscribe services failed: resultCode: {}, errorCode:{}, message:{}",
-                response.result_code,
-                response.error_code,
-                response.message.unwrap_or_default()
-            )));
-        }
+        crate::common::error::handle_response(&response, "unsubscribe")?;
         debug!("unsubscribe the {response:?}");
         self.redo_task_executor
             .remove_task(redo_task.task_key().as_str())
@@ -802,17 +733,21 @@ pub(crate) mod tests {
 
     use super::*;
 
-    #[tokio::test]
-    #[ignore]
-    async fn test_ephemeral_register_service() {
-        tracing_subscriber::fmt()
+    fn tracing_log_try_init() {
+        let _ = tracing_subscriber::fmt()
             .with_thread_names(true)
             .with_file(true)
             .with_level(true)
             .with_line_number(true)
             .with_thread_ids(true)
             .with_max_level(LevelFilter::DEBUG)
-            .init();
+            .try_init();
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn test_ephemeral_register_service() {
+        tracing_log_try_init();
 
         let props = ClientProps::new().server_addr("127.0.0.1:8848");
 
@@ -820,8 +755,9 @@ pub(crate) mod tests {
         metadata.insert("netType".to_string(), "external".to_string());
         metadata.insert("version".to_string(), "2.0".to_string());
 
-        let naming_service =
-            NacosNamingService::new(props, Arc::new(NoopAuthPlugin::default())).unwrap();
+        let naming_service = NacosNamingService::new(props, Arc::new(NoopAuthPlugin::default()))
+            .await
+            .expect("Failed to create NacosNamingService in test");
         let service_instance = ServiceInstance {
             ip: "127.0.0.1".to_string(),
             port: 9090,
@@ -841,14 +777,7 @@ pub(crate) mod tests {
     #[tokio::test]
     #[ignore]
     async fn test_persistent_register_service() {
-        tracing_subscriber::fmt()
-            .with_thread_names(true)
-            .with_file(true)
-            .with_level(true)
-            .with_line_number(true)
-            .with_thread_ids(true)
-            .with_max_level(LevelFilter::DEBUG)
-            .init();
+        tracing_log_try_init();
 
         let props = ClientProps::new().server_addr("127.0.0.1:8848");
 
@@ -856,8 +785,9 @@ pub(crate) mod tests {
         metadata.insert("netType".to_string(), "external".to_string());
         metadata.insert("version".to_string(), "2.0".to_string());
 
-        let naming_service =
-            NacosNamingService::new(props, Arc::new(NoopAuthPlugin::default())).unwrap();
+        let naming_service = NacosNamingService::new(props, Arc::new(NoopAuthPlugin::default()))
+            .await
+            .expect("Failed to create NacosNamingService in test");
         let service_instance = ServiceInstance {
             ip: "127.0.0.1".to_string(),
             port: 8848,
@@ -882,14 +812,7 @@ pub(crate) mod tests {
     #[tokio::test]
     #[ignore]
     async fn test_register_and_deregister_persistent_service() {
-        tracing_subscriber::fmt()
-            .with_thread_names(true)
-            .with_file(true)
-            .with_level(true)
-            .with_line_number(true)
-            .with_thread_ids(true)
-            .with_max_level(LevelFilter::DEBUG)
-            .init();
+        tracing_log_try_init();
 
         let props = ClientProps::new().server_addr("127.0.0.1:8848");
 
@@ -897,8 +820,9 @@ pub(crate) mod tests {
         metadata.insert("netType".to_string(), "external".to_string());
         metadata.insert("version".to_string(), "2.0".to_string());
 
-        let naming_service =
-            NacosNamingService::new(props, Arc::new(NoopAuthPlugin::default())).unwrap();
+        let naming_service = NacosNamingService::new(props, Arc::new(NoopAuthPlugin::default()))
+            .await
+            .expect("Failed to create NacosNamingService in test");
         let service_instance = ServiceInstance {
             ip: "127.0.0.1".to_string(),
             port: 8848,
@@ -935,14 +859,7 @@ pub(crate) mod tests {
     #[tokio::test]
     #[ignore]
     async fn test_register_and_deregister_ephemeral_service() {
-        tracing_subscriber::fmt()
-            .with_thread_names(true)
-            .with_file(true)
-            .with_level(true)
-            .with_line_number(true)
-            .with_thread_ids(true)
-            .with_max_level(LevelFilter::DEBUG)
-            .init();
+        tracing_log_try_init();
 
         let props = ClientProps::new().server_addr("127.0.0.1:8848");
 
@@ -950,8 +867,9 @@ pub(crate) mod tests {
         metadata.insert("netType".to_string(), "external".to_string());
         metadata.insert("version".to_string(), "2.0".to_string());
 
-        let naming_service =
-            NacosNamingService::new(props, Arc::new(NoopAuthPlugin::default())).unwrap();
+        let naming_service = NacosNamingService::new(props, Arc::new(NoopAuthPlugin::default()))
+            .await
+            .expect("Failed to create NacosNamingService in test");
         let service_instance = ServiceInstance {
             ip: "127.0.0.1".to_string(),
             port: 9090,
@@ -987,14 +905,7 @@ pub(crate) mod tests {
     #[tokio::test]
     #[ignore]
     async fn test_batch_register_service() {
-        tracing_subscriber::fmt()
-            .with_thread_names(true)
-            .with_file(true)
-            .with_level(true)
-            .with_line_number(true)
-            .with_thread_ids(true)
-            .with_max_level(LevelFilter::DEBUG)
-            .init();
+        tracing_log_try_init();
 
         let props = ClientProps::new().server_addr("127.0.0.1:8848");
 
@@ -1002,8 +913,9 @@ pub(crate) mod tests {
         metadata.insert("netType".to_string(), "external".to_string());
         metadata.insert("version".to_string(), "2.0".to_string());
 
-        let naming_service =
-            NacosNamingService::new(props, Arc::new(NoopAuthPlugin::default())).unwrap();
+        let naming_service = NacosNamingService::new(props, Arc::new(NoopAuthPlugin::default()))
+            .await
+            .expect("Failed to create NacosNamingService in test");
         let service_instance1 = ServiceInstance {
             ip: "127.0.0.1".to_string(),
             port: 9090,
@@ -1043,14 +955,7 @@ pub(crate) mod tests {
     #[tokio::test]
     #[ignore]
     async fn test_batch_register_service_and_query_all_instances() {
-        tracing_subscriber::fmt()
-            .with_thread_names(true)
-            .with_file(true)
-            .with_level(true)
-            .with_line_number(true)
-            .with_thread_ids(true)
-            .with_max_level(LevelFilter::DEBUG)
-            .init();
+        tracing_log_try_init();
 
         let props = ClientProps::new().server_addr("127.0.0.1:8848");
 
@@ -1058,8 +963,9 @@ pub(crate) mod tests {
         metadata.insert("netType".to_string(), "external".to_string());
         metadata.insert("version".to_string(), "2.0".to_string());
 
-        let naming_service =
-            NacosNamingService::new(props, Arc::new(NoopAuthPlugin::default())).unwrap();
+        let naming_service = NacosNamingService::new(props, Arc::new(NoopAuthPlugin::default()))
+            .await
+            .expect("Failed to create NacosNamingService in test");
         let service_instance1 = ServiceInstance {
             ip: "127.0.0.1".to_string(),
             port: 9090,
@@ -1110,14 +1016,7 @@ pub(crate) mod tests {
     #[tokio::test]
     #[ignore]
     async fn test_select_instance() {
-        tracing_subscriber::fmt()
-            .with_thread_names(true)
-            .with_file(true)
-            .with_level(true)
-            .with_line_number(true)
-            .with_thread_ids(true)
-            .with_max_level(LevelFilter::DEBUG)
-            .init();
+        tracing_log_try_init();
 
         let props = ClientProps::new().server_addr("127.0.0.1:8848");
 
@@ -1125,8 +1024,9 @@ pub(crate) mod tests {
         metadata.insert("netType".to_string(), "external".to_string());
         metadata.insert("version".to_string(), "2.0".to_string());
 
-        let naming_service =
-            NacosNamingService::new(props, Arc::new(NoopAuthPlugin::default())).unwrap();
+        let naming_service = NacosNamingService::new(props, Arc::new(NoopAuthPlugin::default()))
+            .await
+            .expect("Failed to create NacosNamingService in test");
         let service_instance1 = ServiceInstance {
             ip: "127.0.0.1".to_string(),
             port: 9090,
@@ -1178,14 +1078,7 @@ pub(crate) mod tests {
     #[tokio::test]
     #[ignore]
     async fn test_select_one_healthy_instance() {
-        tracing_subscriber::fmt()
-            .with_thread_names(true)
-            .with_file(true)
-            .with_level(true)
-            .with_line_number(true)
-            .with_thread_ids(true)
-            .with_max_level(LevelFilter::DEBUG)
-            .init();
+        tracing_log_try_init();
 
         let props = ClientProps::new().server_addr("127.0.0.1:8848");
 
@@ -1193,8 +1086,9 @@ pub(crate) mod tests {
         metadata.insert("netType".to_string(), "external".to_string());
         metadata.insert("version".to_string(), "2.0".to_string());
 
-        let naming_service =
-            NacosNamingService::new(props, Arc::new(NoopAuthPlugin::default())).unwrap();
+        let naming_service = NacosNamingService::new(props, Arc::new(NoopAuthPlugin::default()))
+            .await
+            .expect("Failed to create NacosNamingService in test");
         let service_instance1 = ServiceInstance {
             ip: "127.0.0.1".to_string(),
             port: 9090,
@@ -1247,14 +1141,7 @@ pub(crate) mod tests {
     #[tokio::test]
     #[ignore]
     async fn test_get_service_list() {
-        tracing_subscriber::fmt()
-            .with_thread_names(true)
-            .with_file(true)
-            .with_level(true)
-            .with_line_number(true)
-            .with_thread_ids(true)
-            .with_max_level(LevelFilter::DEBUG)
-            .init();
+        tracing_log_try_init();
 
         let props = ClientProps::new().server_addr("127.0.0.1:8848");
 
@@ -1262,8 +1149,9 @@ pub(crate) mod tests {
         metadata.insert("netType".to_string(), "external".to_string());
         metadata.insert("version".to_string(), "2.0".to_string());
 
-        let naming_service =
-            NacosNamingService::new(props, Arc::new(NoopAuthPlugin::default())).unwrap();
+        let naming_service = NacosNamingService::new(props, Arc::new(NoopAuthPlugin::default()))
+            .await
+            .expect("Failed to create NacosNamingService in test");
         let service_instance1 = ServiceInstance {
             ip: "127.0.0.1".to_string(),
             port: 9090,
@@ -1316,14 +1204,7 @@ pub(crate) mod tests {
     #[tokio::test]
     #[ignore]
     async fn test_service_push() {
-        tracing_subscriber::fmt()
-            .with_thread_names(true)
-            .with_file(true)
-            .with_level(true)
-            .with_line_number(true)
-            .with_thread_ids(true)
-            .with_max_level(LevelFilter::DEBUG)
-            .init();
+        tracing_log_try_init();
 
         let props = ClientProps::new().server_addr("127.0.0.1:8848");
 
@@ -1331,8 +1212,9 @@ pub(crate) mod tests {
         metadata.insert("netType".to_string(), "external".to_string());
         metadata.insert("version".to_string(), "2.0".to_string());
 
-        let naming_service =
-            NacosNamingService::new(props, Arc::new(NoopAuthPlugin::default())).unwrap();
+        let naming_service = NacosNamingService::new(props, Arc::new(NoopAuthPlugin::default()))
+            .await
+            .expect("Failed to create NacosNamingService in test");
         let service_instance1 = ServiceInstance {
             ip: "127.0.0.1".to_string(),
             port: 9090,
@@ -1376,7 +1258,7 @@ pub(crate) mod tests {
 
         info!("response. {ret:?}");
 
-        let ten_millis = time::Duration::from_secs(3000);
+        let ten_millis = time::Duration::from_secs(30);
         tokio::time::sleep(ten_millis).await;
     }
 }

@@ -20,7 +20,7 @@ use super::server_list_service::PollingServerListService;
 use super::tonic::TonicBuilder;
 use super::{config::GrpcConfiguration, nacos_grpc_service::ServerRequestHandler};
 
-const APP_FILED: &str = "app";
+const APP_FIELD: &str = "app";
 
 pub(crate) struct NacosGrpcClient {
     app_name: String,
@@ -45,7 +45,7 @@ impl NacosGrpcClient {
         }
 
         let grpc_request = GrpcMessageBuilder::new(request)
-            .header(APP_FILED.to_owned(), self.app_name.clone())
+            .header(APP_FIELD.to_owned(), self.app_name.clone())
             .headers(request_headers)
             .build();
         let grpc_request = grpc_request.into_payload()?;
@@ -83,6 +83,7 @@ pub(crate) struct NacosGrpcClientBuilder {
     max_retries: Option<u32>,
 }
 
+#[allow(dead_code)]
 impl NacosGrpcClientBuilder {
     pub(crate) fn new(server_list: Vec<String>) -> Self {
         Self {
@@ -154,144 +155,84 @@ impl NacosGrpcClientBuilder {
         Self { ..self }
     }
 
-    pub(crate) fn host(self, host: String) -> Self {
-        let grpc_config = self.grpc_config.with_host(host);
-        Self {
-            grpc_config,
-            ..self
-        }
+    pub(crate) fn host(mut self, host: String) -> Self {
+        self.grpc_config.host = host;
+        self
     }
 
-    pub(crate) fn port(self, port: Option<u32>) -> Self {
-        let grpc_config = self.grpc_config.with_port(port);
-        Self {
-            grpc_config,
-            ..self
-        }
+    pub(crate) fn port(mut self, port: Option<u32>) -> Self {
+        self.grpc_config.port = port;
+        self
     }
 
-    pub(crate) fn origin(self, uri: &str) -> Self {
-        let grpc_config = self.grpc_config.with_origin(uri);
-        Self {
-            grpc_config,
-            ..self
-        }
+    pub(crate) fn origin(mut self, uri: &str) -> Self {
+        self.grpc_config = self.grpc_config.with_origin(uri);
+        self
     }
 
-    pub(crate) fn user_agent(self, ua: String) -> Self {
-        let grpc_config = self.grpc_config.with_user_agent(ua);
-        Self {
-            grpc_config,
-            ..self
-        }
+    pub(crate) fn user_agent(mut self, ua: String) -> Self {
+        self.grpc_config = self.grpc_config.with_user_agent(ua);
+        self
     }
 
-    pub(crate) fn timeout(self, timeout: Duration) -> Self {
-        let grpc_config = self.grpc_config.with_timeout(timeout);
-        Self {
-            grpc_config,
-            ..self
-        }
+    pub(crate) fn timeout(mut self, timeout: Duration) -> Self {
+        self.grpc_config.timeout = Some(timeout);
+        self
     }
 
-    pub(crate) fn concurrency_limit(self, concurrency_limit: usize) -> Self {
-        let grpc_config = self.grpc_config.with_concurrency_limit(concurrency_limit);
-        Self {
-            grpc_config,
-            ..self
-        }
+    pub(crate) fn concurrency_limit(mut self, concurrency_limit: usize) -> Self {
+        self.grpc_config.concurrency_limit = Some(concurrency_limit);
+        self
     }
 
-    pub(crate) fn rate_limit(self, rate_limit: (u64, Duration)) -> Self {
-        let grpc_config = self.grpc_config.with_rate_limit(rate_limit);
-        Self {
-            grpc_config,
-            ..self
-        }
+    pub(crate) fn rate_limit(mut self, rate_limit: (u64, Duration)) -> Self {
+        self.grpc_config.rate_limit = Some(rate_limit);
+        self
     }
 
-    pub(crate) fn init_stream_window_size(self, init_stream_window_size: u32) -> Self {
-        let grpc_config = self
-            .grpc_config
-            .with_init_stream_window_size(init_stream_window_size);
-        Self {
-            grpc_config,
-            ..self
-        }
+    pub(crate) fn init_stream_window_size(mut self, init_stream_window_size: u32) -> Self {
+        self.grpc_config.init_stream_window_size = Some(init_stream_window_size);
+        self
     }
 
-    pub(crate) fn init_connection_window_size(self, init_connection_window_size: u32) -> Self {
-        let grpc_config = self
-            .grpc_config
-            .with_init_connection_window_size(init_connection_window_size);
-        Self {
-            grpc_config,
-            ..self
-        }
+    pub(crate) fn init_connection_window_size(mut self, init_connection_window_size: u32) -> Self {
+        self.grpc_config.init_connection_window_size = Some(init_connection_window_size);
+        self
     }
 
-    pub(crate) fn tcp_keepalive(self, tcp_keepalive: Duration) -> Self {
-        let grpc_config = self.grpc_config.with_tcp_keepalive(tcp_keepalive);
-        Self {
-            grpc_config,
-            ..self
-        }
+    pub(crate) fn tcp_keepalive(mut self, tcp_keepalive: Duration) -> Self {
+        self.grpc_config.tcp_keepalive = Some(tcp_keepalive);
+        self
     }
 
-    pub(crate) fn tcp_nodelay(self, tcp_nodelay: bool) -> Self {
-        let grpc_config = self.grpc_config.with_tcp_nodelay(tcp_nodelay);
-        Self {
-            grpc_config,
-            ..self
-        }
+    pub(crate) fn tcp_nodelay(mut self, tcp_nodelay: bool) -> Self {
+        self.grpc_config.tcp_nodelay = tcp_nodelay;
+        self
     }
 
-    pub(crate) fn http2_keep_alive_interval(self, http2_keep_alive_interval: Duration) -> Self {
-        let grpc_config = self
-            .grpc_config
-            .with_http2_keep_alive_interval(http2_keep_alive_interval);
-        Self {
-            grpc_config,
-            ..self
-        }
+    pub(crate) fn http2_keep_alive_interval(mut self, http2_keep_alive_interval: Duration) -> Self {
+        self.grpc_config.http2_keep_alive_interval = Some(http2_keep_alive_interval);
+        self
     }
 
-    pub(crate) fn http2_keep_alive_timeout(self, http2_keep_alive_timeout: Duration) -> Self {
-        let grpc_config = self
-            .grpc_config
-            .with_http2_keep_alive_timeout(http2_keep_alive_timeout);
-        Self {
-            grpc_config,
-            ..self
-        }
+    pub(crate) fn http2_keep_alive_timeout(mut self, http2_keep_alive_timeout: Duration) -> Self {
+        self.grpc_config.http2_keep_alive_timeout = Some(http2_keep_alive_timeout);
+        self
     }
 
-    pub(crate) fn http2_keep_alive_while_idle(self, http2_keep_alive_while_idle: bool) -> Self {
-        let grpc_config = self
-            .grpc_config
-            .with_http2_keep_alive_while_idle(http2_keep_alive_while_idle);
-        Self {
-            grpc_config,
-            ..self
-        }
+    pub(crate) fn http2_keep_alive_while_idle(mut self, http2_keep_alive_while_idle: bool) -> Self {
+        self.grpc_config.http2_keep_alive_while_idle = Some(http2_keep_alive_while_idle);
+        self
     }
 
-    pub(crate) fn connect_timeout(self, connect_timeout: Duration) -> Self {
-        let grpc_config = self.grpc_config.with_connect_timeout(connect_timeout);
-        Self {
-            grpc_config,
-            ..self
-        }
+    pub(crate) fn connect_timeout(mut self, connect_timeout: Duration) -> Self {
+        self.grpc_config.connect_timeout = Some(connect_timeout);
+        self
     }
 
-    pub(crate) fn http2_adaptive_window(self, http2_adaptive_window: bool) -> Self {
-        let grpc_config = self
-            .grpc_config
-            .with_http2_adaptive_window(http2_adaptive_window);
-        Self {
-            grpc_config,
-            ..self
-        }
+    pub(crate) fn http2_adaptive_window(mut self, http2_adaptive_window: bool) -> Self {
+        self.grpc_config.http2_adaptive_window = Some(http2_adaptive_window);
+        self
     }
 
     pub(crate) fn auth_plugin(self, auth_plugin: Arc<dyn AuthPlugin>) -> Self {
@@ -365,7 +306,7 @@ impl NacosGrpcClientBuilder {
         }
     }
 
-    pub(crate) fn build(mut self, id: String) -> NacosGrpcClient {
+    pub(crate) async fn build(mut self, id: String) -> NacosGrpcClient {
         self.server_request_handler_map.insert(
             ClientDetectionRequest::identity().to_string(),
             Arc::new(ClientDetectionRequestHandler),
@@ -410,7 +351,8 @@ impl NacosGrpcClientBuilder {
             self.server_list.clone(),
             self.auth_context.clone(),
             id,
-        );
+        )
+        .await;
 
         let app_name = self.app_name;
         let auth_plugin = self.auth_plugin;
@@ -447,15 +389,23 @@ pub mod tests {
                 let app_name = &req
                     .metadata
                     .as_ref()
-                    .map(|data| data.headers.get(APP_FILED).unwrap().clone())
-                    .unwrap();
+                    .map(|data| {
+                        data.headers
+                            .get(APP_FIELD)
+                            .expect("APP field should exist in headers")
+                            .clone()
+                    })
+                    .expect("APP field extraction should not fail");
 
                 app_name.eq("test_app")
             }))
             .returning(|req| {
-                let request = GrpcMessage::<HealthCheckRequest>::from_payload(req).unwrap();
+                let request = GrpcMessage::<HealthCheckRequest>::from_payload(req)
+                    .expect("Payload should deserialize to HealthCheckRequest");
                 let request = request.into_body();
-                let req_id = request.request_id.unwrap();
+                let req_id = request
+                    .request_id
+                    .expect("Request ID should exist in the deserialized request");
 
                 let mut response = HealthCheckResponse::default();
                 response.request_id = Some(req_id);
@@ -463,7 +413,7 @@ pub mod tests {
                 let payload = GrpcMessageBuilder::new(response)
                     .build()
                     .into_payload()
-                    .unwrap();
+                    .expect("GRPC message should build into payload");
                 Ok(payload)
             });
 
@@ -476,11 +426,13 @@ pub mod tests {
         let response = nacos_grpc_client
             .send_request::<HealthCheckRequest, HealthCheckResponse>(health_check_request)
             .await;
-        let response = response.unwrap();
+        let response = response.expect("Health check response should succeed");
 
         assert_eq!(
             "test_health_check_id".to_string(),
-            response.request_id.unwrap()
+            response
+                .request_id
+                .expect("Response request ID should exist")
         );
     }
 }

@@ -33,7 +33,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 因为它内部会初始化与服务端的长链接，后续的数据交互及变更订阅，都是实时地通过长链接告知客户端的。
     let config_service = ConfigServiceBuilder::new(client_props.clone())
         .enable_auth_plugin_http() // TODO You can choose not to enable auth
-        .build()?;
+        .build()
+        .await?;
     let config_resp = config_service
         .get_config("todo-data-id".to_string(), "LOVE".to_string())
         .await;
@@ -59,7 +60,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 因为它内部会初始化与服务端的长链接，后续的数据交互及变更订阅，都是实时地通过长链接告知客户端的。
     let naming_service = NamingServiceBuilder::new(client_props)
         .enable_auth_plugin_http() // TODO You can choose not to enable auth
-        .build()?;
+        .build()
+        .await?;
 
     let listener = std::sync::Arc::new(SimpleInstanceChangeListener);
     let _subscribe_ret = naming_service

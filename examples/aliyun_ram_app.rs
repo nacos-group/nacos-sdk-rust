@@ -1,3 +1,4 @@
+#![allow(unused_imports)]
 use nacos_sdk::api::config::ConfigServiceBuilder;
 use nacos_sdk::api::naming::{NamingServiceBuilder, ServiceInstance};
 use nacos_sdk::api::props::ClientProps;
@@ -32,11 +33,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 async fn run_naming_demo() {
     let server_addr = "localhost:8848";
 
-    /// NamingService
+    // NamingService
     let naming_client = NamingServiceBuilder::new(ClientProps::new().server_addr(server_addr))
         .enable_auth_plugin_aliyun()
         .build()
-        .unwrap();
+        .await
+        .expect("Failed to build naming service with Aliyun RAM auth");
 
     let mut instance = ServiceInstance::default();
     instance.ip = "localhost".to_string();
@@ -46,7 +48,7 @@ async fn run_naming_demo() {
     naming_client
         .register_instance("test".to_owned(), Some("test".to_owned()), instance)
         .await
-        .unwrap();
+        .expect("Failed to register instance");
 
     println!("Get All instance from service(name:test, group: test)");
     let instances = naming_client
@@ -57,7 +59,7 @@ async fn run_naming_demo() {
             false,
         )
         .await
-        .unwrap();
+        .expect("Failed to get all instances from naming service");
     assert_eq!(1, instances.len());
     assert_eq!("localhost", instances[0].ip);
     assert_eq!(8080, instances[0].port);
@@ -67,16 +69,14 @@ async fn run_naming_demo() {
 async fn run_config_demo() {
     let server_addr = "localhost:8848";
 
-    /// Config service
+    // Config service
     let config_client = ConfigServiceBuilder::new(ClientProps::new().server_addr(server_addr))
         .enable_auth_plugin_aliyun()
         .build()
-        .unwrap();
+        .await
+        .expect("Failed to build config service with Aliyun RAM auth");
 
-    println!(
-        "Publish config dataId = {}, group = {}, content = {}",
-        "test", "test", "test=test"
-    );
+    println!("Publish config dataId = test, group = test, content = test=test");
     config_client
         .publish_config(
             "test".to_string(),
@@ -85,7 +85,7 @@ async fn run_config_demo() {
             Some("properties".to_string()),
         )
         .await
-        .unwrap();
+        .expect("Failed to publish config");
 
     println!("Waiting...");
     sleep(Duration::from_secs(5)).await;
@@ -93,11 +93,9 @@ async fn run_config_demo() {
     let response = config_client
         .get_config("test".to_string(), "test".to_string())
         .await
-        .unwrap();
+        .expect("Failed to get config");
     println!(
-        "Get config from nacos for dataId = {}, group = {}, content = {}",
-        "test",
-        "test",
+        "Get config from nacos for dataId = test, group = test, content = {}",
         response.content()
     );
     assert_eq!("test=test", response.content());

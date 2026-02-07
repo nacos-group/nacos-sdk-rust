@@ -14,6 +14,7 @@
 // limitations under the License.
 //
 
+#![deny(unsafe_code)]
 #![deny(rust_2018_idioms, clippy::disallowed_methods, clippy::disallowed_types)]
 #![cfg_attr(docsrs, feature(doc_cfg))]
 #![cfg_attr(docsrs, allow(unused_attributes))]
@@ -28,7 +29,7 @@
 //! - If you need sync API, maybe `futures::executor::block_on(future_fn)`
 //! ```toml
 //! [dependencies]
-//! nacos-sdk = { version = "0.5", features = ["default"] }
+//! nacos-sdk = { version = "0.6", features = ["default"] }
 //! ```
 //!
 //! ## General Configurations and Initialization
@@ -37,28 +38,36 @@
 //!
 //! ### Example of Config
 //!
-//! ```ignore
-//!  let config_service = nacos_sdk::api::config::ConfigServiceBuilder::new(
-//!        nacos_sdk::api::props::ClientProps::new()
-//!           .server_addr("127.0.0.1:8848")
-//!           // Attention! "public" is "", it is recommended to customize the namespace with clear meaning.
-//!           .namespace("")
-//!           .app_name("todo-your-app-name"),
-//!   )
-//!   .build()?;
+//! ```no_run
+//! # async fn run() -> Result<(), Box<dyn std::error::Error>> {
+//! let config_service = nacos_sdk::api::config::ConfigServiceBuilder::new(
+//!       nacos_sdk::api::props::ClientProps::new()
+//!          .server_addr("127.0.0.1:8848")
+//!          // Attention! "public" is "", it is recommended to customize the namespace with clear meaning.
+//!          .namespace("")
+//!          .app_name("todo-your-app-name"),
+//!  )
+//!  .build()
+//!  .await?;
+//! # Ok(())
+//! # }
 //! ```
 //!
 //! ### Example of Naming
 //!
-//! ```ignore
-//!  let naming_service = nacos_sdk::api::naming::NamingServiceBuilder::new(
-//!        nacos_sdk::api::props::ClientProps::new()
-//!           .server_addr("127.0.0.1:8848")
-//!           // Attention! "public" is "", it is recommended to customize the namespace with clear meaning.
-//!           .namespace("")
-//!           .app_name("todo-your-app-name"),
-//!   )
-//!   .build()?;
+//! ```no_run
+//! # async fn run() -> Result<(), Box<dyn std::error::Error>> {
+//! let naming_service = nacos_sdk::api::naming::NamingServiceBuilder::new(
+//!       nacos_sdk::api::props::ClientProps::new()
+//!          .server_addr("127.0.0.1:8848")
+//!          // Attention! "public" is "", it is recommended to customize the namespace with clear meaning.
+//!          .namespace("")
+//!          .app_name("todo-your-app-name"),
+//!  )
+//!  .build()
+//!  .await?;
+//! # Ok(())
+//! # }
 //! ```
 //!
 
@@ -157,11 +166,17 @@ mod tests {
         };
         // println!("{:?}", payload);
         assert_eq!(
-            payload.metadata.unwrap().r#type,
+            payload
+                .metadata
+                .expect("Metadata should exist after checking it's some")
+                .r#type,
             "com.alibaba.nacos.api.naming.remote.request.ServiceQueryRequest"
         );
         assert_eq!(
-            payload.body.unwrap().value,
+            payload
+                .body
+                .expect("Body should exist after checking it's some")
+                .value,
             Vec::from("{\"cluster\":\"DEFAULT\",\"healthyOnly\":true}")
         );
     }
@@ -181,7 +196,7 @@ mod test_props {
     #[test]
     fn test_get_value_bool() {
         let v = get_value_bool(ENV_NACOS_CLIENT_NAMING_PUSH_EMPTY_PROTECTION, true);
-        assert_eq!(v, true);
+        assert!(v);
     }
 
     #[test]

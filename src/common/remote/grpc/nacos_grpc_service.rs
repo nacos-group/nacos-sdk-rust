@@ -61,12 +61,12 @@ impl<T> Callback<T> {
 
     pub(crate) async fn send(&mut self, data: T) -> Result<(), Error> {
         let sender = self.tx.take();
-        if let Some(sender) = sender {
-            if sender.send(data).is_err() {
-                return Err(ErrResult(
-                    "callback send failed. the receiver has been dropped".to_string(),
-                ));
-            }
+        if let Some(sender) = sender
+            && sender.send(data).is_err()
+        {
+            return Err(ErrResult(
+                "callback send failed. the receiver has been dropped".to_string(),
+            ));
         }
         Ok(())
     }
@@ -87,40 +87,8 @@ pub(crate) type DynamicUnaryCallService = Box<
         + Send,
 >;
 
-#[cfg(test)]
-mockall::mock! {
-    pub(crate) DynamicUnaryCallService {}
-
-    impl Service<Payload> for DynamicUnaryCallService {
-        type Response = Payload;
-
-        type Error = Error;
-
-        type Future =
-            Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send + 'static>>;
-
-        fn poll_ready<'a>(&mut self, cx: &mut Context<'a>) -> Poll<Result<(), <Self as Service<Payload>>::Error>>;
-
-        fn call(&mut self, req: Payload) -> <Self as Service<Payload>>::Future;
-    }
-}
-
 pub(crate) type DynamicUnaryCallLayer =
     Arc<dyn Layer<DynamicUnaryCallService, Service = DynamicUnaryCallService> + Sync + Send>;
-
-#[cfg(test)]
-mockall::mock! {
-
-    pub(crate) DynamicUnaryCallLayer{}
-
-    impl Layer<MockDynamicUnaryCallService> for DynamicUnaryCallLayer {
-        type Service = MockDynamicUnaryCallService;
-
-        fn layer(&self, inner: MockDynamicUnaryCallService) -> <Self as Layer<MockDynamicUnaryCallService>>::Service;
-    }
-
-
-}
 
 pub(crate) struct DynamicUnaryCallLayerWrapper(pub(crate) DynamicUnaryCallLayer);
 
@@ -158,41 +126,68 @@ pub(crate) type DynamicBiStreamingCallService = Box<
         + 'static,
 >;
 
-#[cfg(test)]
-mockall::mock! {
-    pub(crate) DynamicBiStreamingCallService {}
-
-    impl Service<GrpcStream<Payload>> for DynamicBiStreamingCallService {
-        type Response = GrpcStream<Result<Payload, Error>>;
-
-        type Error = Error;
-
-        type Future =
-            Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send + 'static>>;
-
-        fn poll_ready<'a>(&mut self, cx: &mut Context<'a>) -> Poll<Result<(), <Self as Service<GrpcStream<Payload>>>::Error>>;
-
-        fn call(&mut self, req: GrpcStream<Payload>) -> <Self as Service<GrpcStream<Payload>>>::Future;
-
-    }
-
-}
-
 pub(crate) type DynamicBiStreamingCallLayer = Arc<
     dyn Layer<DynamicBiStreamingCallService, Service = DynamicBiStreamingCallService> + Sync + Send,
 >;
 
 #[cfg(test)]
-mockall::mock! {
+#[allow(clippy::disallowed_methods)] // Tests mock! has std::result::Result::unwrap
+mod nacos_grpc_mock_tests {
+    use super::*;
 
-    pub(crate) DynamicBiStreamingCallLayer {}
+    mockall::mock! {
+        pub(crate) DynamicUnaryCallService {}
 
-    impl Layer<MockDynamicBiStreamingCallService> for DynamicBiStreamingCallLayer {
-        type Service = MockDynamicBiStreamingCallService;
+        impl Service<Payload> for DynamicUnaryCallService {
+            type Response = Payload;
 
-        fn layer(&self, inner: MockDynamicBiStreamingCallService) -> <Self as Layer<MockDynamicBiStreamingCallService>>::Service;
+            type Error = Error;
+
+            type Future =
+                Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send + 'static>>;
+
+            fn poll_ready<'a>(&mut self, cx: &mut Context<'a>) -> Poll<Result<(), <Self as Service<Payload>>::Error>>;
+
+            fn call(&mut self, req: Payload) -> <Self as Service<Payload>>::Future;
+        }
     }
 
+    mockall::mock! {
+        pub(crate) DynamicUnaryCallLayer{}
+
+        impl Layer<MockDynamicUnaryCallService> for DynamicUnaryCallLayer {
+            type Service = MockDynamicUnaryCallService;
+
+            fn layer(&self, inner: MockDynamicUnaryCallService) -> <Self as Layer<MockDynamicUnaryCallService>>::Service;
+        }
+    }
+
+    mockall::mock! {
+        pub(crate) DynamicBiStreamingCallService {}
+
+        impl Service<GrpcStream<Payload>> for DynamicBiStreamingCallService {
+            type Response = GrpcStream<Result<Payload, Error>>;
+
+            type Error = Error;
+
+            type Future =
+                Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send + 'static>>;
+
+            fn poll_ready<'a>(&mut self, cx: &mut Context<'a>) -> Poll<Result<(), <Self as Service<GrpcStream<Payload>>>::Error>>;
+
+            fn call(&mut self, req: GrpcStream<Payload>) -> <Self as Service<GrpcStream<Payload>>>::Future;
+        }
+    }
+
+    mockall::mock! {
+        pub(crate) DynamicBiStreamingCallLayer {}
+
+        impl Layer<MockDynamicBiStreamingCallService> for DynamicBiStreamingCallLayer {
+            type Service = MockDynamicBiStreamingCallService;
+
+            fn layer(&self, inner: MockDynamicBiStreamingCallService) -> <Self as Layer<MockDynamicBiStreamingCallService>>::Service;
+        }
+    }
 }
 
 pub(crate) struct DynamicBiStreamingCallLayerWrapper(pub(crate) DynamicBiStreamingCallLayer);
@@ -251,7 +246,10 @@ pub mod unary_call_layer_test {
         }
 
         fn call(&mut self, mut req: Payload) -> Self::Future {
-            let mut metadata = req.metadata.take().unwrap();
+            let mut metadata = req
+                .metadata
+                .take()
+                .expect("Metadata should be present in request");
             metadata
                 .headers
                 .insert("DynamicUnaryCallServiceA".to_string(), "ok".to_string());
@@ -291,7 +289,10 @@ pub mod unary_call_layer_test {
         }
 
         fn call(&mut self, mut req: Payload) -> Self::Future {
-            let mut metadata = req.metadata.take().unwrap();
+            let mut metadata = req
+                .metadata
+                .take()
+                .expect("Metadata should be present in request");
             metadata
                 .headers
                 .insert("DynamicUnaryCallServiceB".to_string(), "ok".to_string());
@@ -330,7 +331,10 @@ pub mod unary_call_layer_test {
         }
 
         fn call(&mut self, mut req: Payload) -> Self::Future {
-            let mut metadata = req.metadata.take().unwrap();
+            let mut metadata = req
+                .metadata
+                .take()
+                .expect("Metadata should be present in request");
             metadata
                 .headers
                 .insert("DynamicUnaryCallServiceC".to_string(), "ok".to_string());
@@ -368,7 +372,10 @@ pub mod unary_call_layer_test {
         }
 
         fn call(&mut self, mut req: Payload) -> Self::Future {
-            let mut metadata = req.metadata.take().unwrap();
+            let mut metadata = req
+                .metadata
+                .take()
+                .expect("Metadata should be present in request");
             metadata
                 .headers
                 .insert("RealDynamicUnaryCallService".to_string(), "ok".to_string());
@@ -396,10 +403,7 @@ pub mod unary_call_layer_test {
                 DynamicUnaryCallLayerWrapper(layer),
                 DynamicUnaryCallLayerWrapper(self.layer),
             ));
-            Self {
-                layer: stack,
-                ..self
-            }
+            Self { layer: stack }
         }
 
         fn build(self) -> DynamicUnaryCallLayer {
@@ -450,26 +454,41 @@ pub mod unary_call_layer_test {
 
             assert!(ret.is_ok());
 
-            let mut ret = ret.unwrap();
+            let mut ret = ret.expect("Service call should have succeeded");
             let metadata = ret.metadata.take();
 
             assert!(metadata.is_some());
 
-            let metadata = metadata.unwrap();
+            let metadata = metadata.expect("Metadata should be present in response");
 
-            let init = metadata.headers.get("init").unwrap();
+            let init = metadata
+                .headers
+                .get("init")
+                .expect("init header should be present");
             assert!(init.eq("ok"));
 
-            let a = metadata.headers.get("DynamicUnaryCallServiceA").unwrap();
+            let a = metadata
+                .headers
+                .get("DynamicUnaryCallServiceA")
+                .expect("DynamicUnaryCallServiceA header should be present");
             assert!(a.eq("ok"));
 
-            let b = metadata.headers.get("DynamicUnaryCallServiceB").unwrap();
+            let b = metadata
+                .headers
+                .get("DynamicUnaryCallServiceB")
+                .expect("DynamicUnaryCallServiceB header should be present");
             assert!(b.eq("ok"));
 
-            let c = metadata.headers.get("DynamicUnaryCallServiceC").unwrap();
+            let c = metadata
+                .headers
+                .get("DynamicUnaryCallServiceC")
+                .expect("DynamicUnaryCallServiceC header should be present");
             assert!(c.eq("ok"));
 
-            let d = metadata.headers.get("RealDynamicUnaryCallService").unwrap();
+            let d = metadata
+                .headers
+                .get("RealDynamicUnaryCallService")
+                .expect("RealDynamicUnaryCallService header should be present");
             assert!(d.eq("ok"));
         })
         .await;

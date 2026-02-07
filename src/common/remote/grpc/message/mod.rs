@@ -13,6 +13,33 @@ use crate::nacos_proto::v2::{Metadata, Payload};
 use std::fmt::Debug;
 use tracing::error;
 
+/// Helper macro to convert payload body to target type with consistent error handling.
+/// Logs the payload content if conversion fails for easier debugging.
+macro_rules! try_convert_payload {
+    ($result:expr, $body_any:expr, $target_type:expr) => {
+        match $result {
+            Ok(value) => value,
+            Err(error) => {
+                match std::str::from_utf8(&$body_any.value) {
+                    Ok(payload_str) => {
+                        error!(
+                            "payload {} can not convert to {} occur an error:{:?}",
+                            payload_str, $target_type, error
+                        );
+                    }
+                    Err(_) => {
+                        error!(
+                            "can not convert to target type {}, this payload can not convert to string as well",
+                            $target_type
+                        );
+                    }
+                }
+                return Err(error);
+            }
+        }
+    };
+}
+
 pub(crate) mod request;
 pub(crate) mod response;
 
@@ -30,6 +57,7 @@ impl<T> GrpcMessage<T>
 where
     T: GrpcMessageData,
 {
+    #[allow(dead_code)]
     pub(crate) fn body(&self) -> &T {
         &self.body
     }
@@ -46,13 +74,13 @@ where
             headers: self.headers,
         };
 
-        let body = self.body.to_proto_any();
-
-        if let Err(error) = body {
-            error!("Serialize GrpcMessageBody occur an error: {:?}", error);
-            return Err(error);
-        }
-        let body = body.unwrap();
+        let body = match self.body.to_proto_any() {
+            Ok(proto_any) => proto_any,
+            Err(error) => {
+                error!("Serialize GrpcMessageBody occur an error: {:?}", error);
+                return Err(error);
+            }
+        };
 
         payload.metadata = Some(meta_data);
         payload.body = Some(body);
@@ -60,115 +88,82 @@ where
     }
 
     pub(crate) fn from_payload(payload: Payload) -> Result<Self> {
-        let body = payload.body;
-        if body.is_none() {
-            return Err(ErrResult("grpc payload body is empty".to_string()));
-        }
-
-        let body_any = body.unwrap();
+        let body_any = match payload.body {
+            Some(body) => body,
+            None => return Err(ErrResult("grpc payload body is empty".to_string())),
+        };
 
         let meta_data = payload.metadata.unwrap_or_default();
         let r_type = meta_data.r#type;
         let client_ip = meta_data.client_ip;
         let headers = meta_data.headers;
 
-        let de_body;
-
         // try to serialize target type if r_type is not empty
         if !r_type.is_empty() {
             if T::identity().eq(&r_type) {
                 let ret: Result<T> = T::from_proto_any(&body_any);
-                if let Err(error) = ret {
-                    let payload_str = std::str::from_utf8(&body_any.value);
-                    if payload_str.is_err() {
-                        error!(
-                            "can not convert to target type {}, this payload can not convert to string as well",
-                            T::identity()
-                        );
-                        return Err(error);
-                    }
-                    let payload_str = payload_str.unwrap();
-                    error!(
-                        "payload {} can not convert to {} occur an error:{:?}",
-                        payload_str,
-                        T::identity(),
-                        error
-                    );
-                    return Err(error);
-                }
-                de_body = ret.unwrap();
-            } else {
-                warn!(
-                    "payload type {}, target type {}, trying convert to ErrorResponse",
-                    &r_type,
-                    T::identity()
-                );
-                // try to convert to Error Response
-                let ret: Result<ErrorResponse> = ErrorResponse::from_proto_any(&body_any);
-                if let Err(error) = ret {
-                    let payload_str = std::str::from_utf8(&body_any.value);
-                    if payload_str.is_err() {
-                        error!(
-                            "can not convert to ErrorResponse, this payload can not convert to string as well"
-                        );
-                        return Err(error);
-                    }
-                    let payload_str = payload_str.unwrap();
-                    error!(
-                        "payload {} can not convert to ErrorResponse occur an error:{:?}",
-                        payload_str, error
-                    );
-                    return Err(error);
-                }
+                let de_body = try_convert_payload!(ret, body_any, T::identity());
+                return Ok(GrpcMessage {
+                    headers,
+                    body: de_body,
+                    client_ip,
+                });
+            }
 
-                let error_response = ret.unwrap();
-                return Err(ErrResponse(
-                    error_response.request_id,
-                    error_response.result_code,
-                    error_response.error_code,
-                    error_response.message,
-                ));
-            }
-        } else {
-            warn!("payload type is empty!");
-            let ret: Result<T> = T::from_proto_any(&body_any);
-            if let Err(error) = ret {
-                let payload_str = std::str::from_utf8(&body_any.value);
-                if payload_str.is_err() {
-                    error!(
-                        "can not convert to target type {}, this payload can not convert to string as well",
-                        T::identity()
-                    );
-                    return Err(error);
-                }
-                let payload_str = payload_str.unwrap();
-                warn!(
-                    "payload {} can not convert to {} occur an error:{:?}",
-                    payload_str,
-                    T::identity(),
-                    error
-                );
-                let ret: Result<ErrorResponse> = ErrorResponse::from_proto_any(&body_any);
-                if let Err(e) = ret {
-                    error!("trying convert to ErrorResponse occur an error:{:?}", e);
-                    return Err(error);
-                }
-                let error_response = ret.unwrap();
-                return Err(ErrResponse(
-                    error_response.request_id,
-                    error_response.result_code,
-                    error_response.error_code,
-                    error_response.message,
-                ));
-            }
-            de_body = ret.unwrap();
+            // type mismatch - try to convert to ErrorResponse
+            warn!(
+                "payload type {}, target type {}, trying convert to ErrorResponse",
+                &r_type,
+                T::identity()
+            );
+            let ret: Result<ErrorResponse> = ErrorResponse::from_proto_any(&body_any);
+            let error_response = try_convert_payload!(ret, body_any, "ErrorResponse");
+            return Err(ErrResponse(
+                error_response.request_id,
+                error_response.result_code,
+                error_response.error_code,
+                error_response.message,
+            ));
         }
 
-        Ok(GrpcMessage {
-            headers,
-            body: de_body,
-            client_ip,
-        })
+        // empty r_type - try direct conversion
+        warn!("payload type is empty!");
+        let ret: Result<T> = T::from_proto_any(&body_any);
+        if let Ok(de_body) = ret {
+            return Ok(GrpcMessage {
+                headers,
+                body: de_body,
+                client_ip,
+            });
+        }
+
+        // direct conversion failed - log warning and try ErrorResponse
+        let error = ret.unwrap_err();
+        if let Ok(payload_str) = std::str::from_utf8(&body_any.value) {
+            warn!(
+                "payload {} can not convert to {} occur an error:{:?}",
+                payload_str,
+                T::identity(),
+                error
+            );
+        }
+
+        let ret: Result<ErrorResponse> = ErrorResponse::from_proto_any(&body_any);
+        if let Ok(error_response) = ret {
+            return Err(ErrResponse(
+                error_response.request_id,
+                error_response.result_code,
+                error_response.error_code,
+                error_response.message,
+            ));
+        }
+
+        // both conversions failed - return original error
+        error!(
+            "trying convert to ErrorResponse occur an error:{:?}",
+            ret.unwrap_err()
+        );
+        Err(error)
     }
 }
 
@@ -182,24 +177,28 @@ pub(crate) trait GrpcMessageData:
             type_url: Self::identity().to_string(),
             ..Default::default()
         };
-        let byte_data = serde_json::to_vec(self);
-        if let Err(error) = byte_data {
-            return Err(Serialization(error));
-        }
-        any.value = byte_data.unwrap();
+        let byte_data = match serde_json::to_vec(self) {
+            Ok(data) => data,
+            Err(error) => {
+                return Err(Serialization(error));
+            }
+        };
+        any.value = byte_data;
         Ok(any)
     }
 
     fn from_proto_any<T: GrpcMessageData>(any: &Any) -> Result<T> {
-        let body: serde_json::Result<T> = serde_json::from_slice(&any.value);
-        if let Err(error) = body {
-            return Err(Serialization(error));
+        let body = match serde_json::from_slice(&any.value) {
+            Ok(data) => data,
+            Err(error) => {
+                return Err(Serialization(error));
+            }
         };
-        let body = body.unwrap();
         Ok(body)
     }
 }
 
+#[allow(dead_code)]
 pub(crate) trait GrpcRequestMessage: GrpcMessageData {
     fn header(&self, key: &str) -> Option<&String>;
 
@@ -216,6 +215,7 @@ pub(crate) trait GrpcRequestMessage: GrpcMessageData {
     fn request_resource(&self) -> Option<RequestResource>;
 }
 
+#[allow(dead_code)]
 pub(crate) trait GrpcResponseMessage: GrpcMessageData {
     fn request_id(&self) -> Option<&String>;
 
@@ -237,9 +237,6 @@ where
     client_ip: String,
 }
 
-static LOCAL_IP: std::sync::LazyLock<String> =
-    std::sync::LazyLock::new(|| local_ipaddress::get().unwrap());
-
 impl<T> GrpcMessageBuilder<T>
 where
     T: GrpcMessageData,
@@ -248,7 +245,7 @@ where
         GrpcMessageBuilder {
             headers: HashMap::<String, String>::new(),
             body,
-            client_ip: LOCAL_IP.to_owned(),
+            client_ip: crate::common::util::LOCAL_IP.to_owned(),
         }
     }
 

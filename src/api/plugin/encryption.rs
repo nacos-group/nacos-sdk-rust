@@ -32,7 +32,7 @@ pub trait EncryptionPlugin: Send + Sync {
         data_id
             .split(DEFAULT_CIPHER_SPLIT)
             .nth(1)
-            .unwrap()
+            .expect("data_id should have algorithm name in the second segment")
             .to_string()
     }
 
@@ -122,27 +122,26 @@ impl ConfigFilter for ConfigEncryptionFilter {
         }
 
         // Get configuration, decrypt
-        if let Some(config_resp) = config_resp {
-            if !config_resp.encrypted_data_key.is_empty() {
-                for plugin in &self.encryption_plugins {
-                    if !plugin.need_cipher(&config_resp.data_id) {
-                        continue;
-                    }
-
-                    // get encrypted data.
-                    let encrypted_secret_key = &config_resp.encrypted_data_key;
-                    let encrypted_content = &config_resp.content;
-
-                    let decrypted_secret_key =
-                        plugin.decrypt_secret_key(encrypted_secret_key).await;
-                    let decrypted_content = plugin
-                        .decrypt(&decrypted_secret_key, encrypted_content)
-                        .await;
-
-                    // set decrypted data.
-                    config_resp.content = decrypted_content;
-                    break;
+        if let Some(config_resp) = config_resp
+            && !config_resp.encrypted_data_key.is_empty()
+        {
+            for plugin in &self.encryption_plugins {
+                if !plugin.need_cipher(&config_resp.data_id) {
+                    continue;
                 }
+
+                // get encrypted data.
+                let encrypted_secret_key = &config_resp.encrypted_data_key;
+                let encrypted_content = &config_resp.content;
+
+                let decrypted_secret_key = plugin.decrypt_secret_key(encrypted_secret_key).await;
+                let decrypted_content = plugin
+                    .decrypt(&decrypted_secret_key, encrypted_content)
+                    .await;
+
+                // set decrypted data.
+                config_resp.content = decrypted_content;
+                break;
             }
         }
     }

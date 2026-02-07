@@ -1,6 +1,7 @@
 use crate::api::config::ConfigResponse;
 use crate::api::plugin::{AuthPlugin, ConfigFilter, ConfigReq, ConfigResp};
 use crate::api::props::ClientProps;
+use crate::common::cache::{Cache, CacheBuilder};
 use crate::common::remote::grpc::message::GrpcResponseMessage;
 use crate::common::remote::grpc::{NacosGrpcClient, NacosGrpcClientBuilder};
 use crate::config::cache::CacheData;
@@ -11,25 +12,35 @@ use crate::config::util;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use tokio::sync::Mutex;
 use tracing::{Instrument, instrument};
 
 #[derive(Clone)]
 pub(crate) struct ConfigWorker {
     pub(crate) client_props: ClientProps,
     remote_client: Arc<NacosGrpcClient>,
-    cache_data_map: Arc<Mutex<HashMap<String, CacheData>>>,
+    unified_cache: Arc<Cache<CacheData>>,
     config_filters: Arc<Vec<Box<dyn ConfigFilter>>>,
 }
 
 impl ConfigWorker {
-    pub(crate) fn new(
+    pub(crate) async fn new(
         client_props: ClientProps,
         auth_plugin: Arc<dyn AuthPlugin>,
         config_filters: Vec<Box<dyn ConfigFilter>>,
         client_id: String,
     ) -> crate::api::error::Result<Self> {
-        let cache_data_map = Arc::new(Mutex::new(HashMap::new()));
+        let mut cache_ns = client_props.get_namespace();
+        if cache_ns.is_empty() {
+            cache_ns = crate::api::constants::DEFAULT_NAMESPACE.to_owned();
+        }
+
+        // Create unified cache using the Cache framework with CacheData directly
+        let unified_cache: Cache<CacheData> = CacheBuilder::config(cache_ns)
+            .load_cache_at_start(client_props.get_config_load_cache_at_start())
+            .disk_store()
+            .build(client_id.clone())
+            .await;
+        let unified_cache = Arc::new(unified_cache);
         let config_filters = Arc::new(config_filters);
 
         // group_key: String
@@ -60,26 +71,27 @@ impl ConfigWorker {
             .auth_plugin(auth_plugin)
             .auth_context(client_props.get_auth_context())
             .max_retries(client_props.get_max_retries())
-            .build(client_id);
+            .build(client_id)
+            .await;
 
         let remote_client = Arc::new(remote_client);
         // todo Event/Subscriber instead of mpsc Sender/Receiver
         crate::common::executor::spawn(Self::notify_change_to_cache_data(
             Arc::clone(&remote_client),
-            Arc::clone(&cache_data_map),
+            Arc::clone(&unified_cache),
             notify_change_rx,
         ));
 
         crate::common::executor::spawn(Self::list_ensure_cache_data_newest(
             Arc::clone(&remote_client),
-            Arc::clone(&cache_data_map),
+            Arc::clone(&unified_cache),
             notify_change_tx_clone,
         ));
 
         Ok(Self {
             client_props,
             remote_client,
-            cache_data_map,
+            unified_cache,
             config_filters,
         })
     }
@@ -93,6 +105,18 @@ impl ConfigWorker {
         group: String,
     ) -> crate::api::error::Result<ConfigResponse> {
         let namespace = self.client_props.get_namespace();
+        let group_key = util::group_key(&data_id, &group, &namespace);
+
+        // Try to get config from cache first (if cache exists and content is complete)
+        if let Some(cache_ref) = self.unified_cache.get(&group_key) {
+            // Check if cache has complete content (not empty and has md5)
+            if !cache_ref.content.is_empty() && !cache_ref.md5.is_empty() {
+                tracing::info!("get_config from cache, group_key={}", group_key);
+                return Ok(cache_ref.get_config_resp_after_filter().await);
+            }
+        }
+
+        // Cache miss or incomplete content, fetch from server
         let config_resp = Self::get_config_inner_async(
             self.remote_client.clone(),
             data_id.clone(),
@@ -106,7 +130,9 @@ impl ConfigWorker {
             data_id,
             group,
             namespace,
-            config_resp.content.unwrap(),
+            config_resp
+                .content
+                .expect("Config content should exist in response"),
             config_resp.encrypted_data_key.unwrap_or_default(),
         );
         for config_filter in self.config_filters.iter() {
@@ -118,8 +144,12 @@ impl ConfigWorker {
             conf_resp.group,
             conf_resp.namespace,
             conf_resp.content,
-            config_resp.content_type.unwrap(),
-            config_resp.md5.unwrap(),
+            config_resp
+                .content_type
+                .expect("Config content_type should exist in response"),
+            config_resp
+                .md5
+                .expect("Config md5 should exist in response"),
         ))
     }
 
@@ -131,26 +161,8 @@ impl ConfigWorker {
         content: String,
         content_type: Option<String>,
     ) -> crate::api::error::Result<bool> {
-        let namespace = self.client_props.get_namespace();
-
-        let mut conf_req = ConfigReq::new(data_id, group, namespace, content, "".to_string());
-        for config_filter in self.config_filters.iter() {
-            config_filter.filter(Some(&mut conf_req), None).await;
-        }
-
-        Self::publish_config_inner_async(
-            self.remote_client.clone(),
-            conf_req.data_id,
-            conf_req.group,
-            conf_req.namespace,
-            conf_req.content,
-            content_type,
-            conf_req.encrypted_data_key,
-            None,
-            None,
-            None,
-        )
-        .await
+        self.publish_config_inner(data_id, group, content, content_type, None, None, None)
+            .await
     }
 
     #[instrument(skip_all)]
@@ -162,21 +174,11 @@ impl ConfigWorker {
         content_type: Option<String>,
         cas_md5: String,
     ) -> crate::api::error::Result<bool> {
-        let namespace = self.client_props.get_namespace();
-
-        let mut conf_req = ConfigReq::new(data_id, group, namespace, content, "".to_string());
-        for config_filter in self.config_filters.iter() {
-            config_filter.filter(Some(&mut conf_req), None).await;
-        }
-
-        Self::publish_config_inner_async(
-            self.remote_client.clone(),
-            conf_req.data_id,
-            conf_req.group,
-            conf_req.namespace,
-            conf_req.content,
+        self.publish_config_inner(
+            data_id,
+            group,
+            content,
             content_type,
-            conf_req.encrypted_data_key,
             Some(cas_md5),
             None,
             None,
@@ -193,21 +195,11 @@ impl ConfigWorker {
         content_type: Option<String>,
         beta_ips: String,
     ) -> crate::api::error::Result<bool> {
-        let namespace = self.client_props.get_namespace();
-
-        let mut conf_req = ConfigReq::new(data_id, group, namespace, content, "".to_string());
-        for config_filter in self.config_filters.iter() {
-            config_filter.filter(Some(&mut conf_req), None).await;
-        }
-
-        Self::publish_config_inner_async(
-            self.remote_client.clone(),
-            conf_req.data_id,
-            conf_req.group,
-            conf_req.namespace,
-            conf_req.content,
+        self.publish_config_inner(
+            data_id,
+            group,
+            content,
             content_type,
-            conf_req.encrypted_data_key,
             None,
             Some(beta_ips),
             None,
@@ -225,6 +217,30 @@ impl ConfigWorker {
         cas_md5: Option<String>,
         params: HashMap<String, String>,
     ) -> crate::api::error::Result<bool> {
+        self.publish_config_inner(
+            data_id,
+            group,
+            content,
+            content_type,
+            cas_md5,
+            None,
+            Some(params),
+        )
+        .await
+    }
+
+    /// Internal implementation for all publish_config variants.
+    #[allow(clippy::too_many_arguments)]
+    async fn publish_config_inner(
+        &self,
+        data_id: String,
+        group: String,
+        content: String,
+        content_type: Option<String>,
+        cas_md5: Option<String>,
+        beta_ips: Option<String>,
+        params: Option<HashMap<String, String>>,
+    ) -> crate::api::error::Result<bool> {
         let namespace = self.client_props.get_namespace();
 
         let mut conf_req = ConfigReq::new(data_id, group, namespace, content, "".to_string());
@@ -241,8 +257,8 @@ impl ConfigWorker {
             content_type,
             conf_req.encrypted_data_key,
             cas_md5,
-            None,
-            Some(params),
+            beta_ips,
+            params,
         )
         .await
     }
@@ -268,8 +284,7 @@ impl ConfigWorker {
         let namespace = self.client_props.get_namespace();
         let group_key = util::group_key(&data_id, &group, &namespace);
 
-        let mut mutex = self.cache_data_map.lock().await;
-        if !mutex.contains_key(group_key.as_str()) {
+        if !self.unified_cache.contains_key(&group_key) {
             let mut cache_data =
                 CacheData::new(self.config_filters.clone(), data_id, group, namespace);
 
@@ -309,12 +324,13 @@ impl ConfigWorker {
                 }
                 .in_current_span(),
             );
-
-            mutex.insert(group_key.clone(), cache_data);
+            // Save to unified cache (will persist to disk)
+            self.unified_cache.insert(group_key.clone(), cache_data);
         }
-        let _ = mutex
-            .get_mut(group_key.as_str())
-            .map(|c| c.add_listener(listener));
+        // Add listener to existing cache data
+        if let Some(mut cache_ref_mut) = self.unified_cache.get_mut(&group_key) {
+            cache_ref_mut.add_listener(listener);
+        }
     }
 
     /// Remove listener.
@@ -328,13 +344,9 @@ impl ConfigWorker {
         let namespace = self.client_props.get_namespace();
         let group_key = util::group_key(&data_id, &group, &namespace);
 
-        let mut mutex = self.cache_data_map.lock().await;
-        if !mutex.contains_key(group_key.as_str()) {
-            return;
+        if let Some(mut cache_ref_mut) = self.unified_cache.get_mut(&group_key) {
+            cache_ref_mut.remove_listener(listener);
         }
-        let _ = mutex
-            .get_mut(group_key.as_str())
-            .map(|c| c.remove_listener(listener));
     }
 }
 
@@ -343,27 +355,25 @@ impl ConfigWorker {
     #[instrument(skip_all)]
     async fn list_ensure_cache_data_newest(
         remote_client: Arc<NacosGrpcClient>,
-        cache_data_map: Arc<Mutex<HashMap<String, CacheData>>>,
+        unified_cache: Arc<Cache<CacheData>>,
         notify_change_tx: tokio::sync::mpsc::Sender<String>,
     ) {
         tracing::info!("list_ensure_cache_data_newest started");
         loop {
             tracing::debug!("list_ensure_cache_data_newest refreshing");
             // todo invoke remove_listener with ConfigBatchListenClientRequest::new(false) when is_empty(),
-            //  and then remove cache_data from cache_data_map.
+            //  and then remove cache_data from unified_cache.
             let mut listen_context_vec = Vec::with_capacity(6);
             {
-                // try_lock, The failure to acquire the lock can be handled by the next loop.
-                if let Ok(mutex) = cache_data_map.try_lock() {
-                    for c in mutex.values() {
-                        listen_context_vec.push(ConfigListenContext::new(
-                            c.data_id.clone(),
-                            c.group.clone(),
-                            c.namespace.clone(),
-                            c.md5.clone(),
-                        ));
-                    }
-                }
+                // Use foreach to iterate over all cached configs
+                unified_cache.for_each(|_key, c| {
+                    listen_context_vec.push(ConfigListenContext::new(
+                        c.data_id.clone(),
+                        c.group.clone(),
+                        c.namespace.clone(),
+                        c.md5.clone(),
+                    ));
+                });
             }
             if !listen_context_vec.is_empty() {
                 tracing::debug!("list_ensure_cache_data_newest context={listen_context_vec:?}");
@@ -375,19 +385,15 @@ impl ConfigWorker {
                     .in_current_span()
                     .await;
 
-                if let Ok(resp) = resp {
-                    if resp.is_success() {
-                        if let Some(change_context_vec) = resp.changed_configs {
-                            for context in change_context_vec {
-                                // notify config change
-                                let group_key = util::group_key(
-                                    &context.data_id,
-                                    &context.group,
-                                    &context.namespace,
-                                );
-                                let _ = notify_change_tx.send(group_key).await;
-                            }
-                        }
+                if let Ok(resp) = resp
+                    && resp.is_success()
+                    && let Some(change_context_vec) = resp.changed_configs
+                {
+                    for context in change_context_vec {
+                        // notify config change
+                        let group_key =
+                            util::group_key(&context.data_id, &context.group, &context.namespace);
+                        let _ = notify_change_tx.send(group_key).await;
                     }
                 }
             }
@@ -398,9 +404,13 @@ impl ConfigWorker {
     }
 
     async fn fill_data_and_notify(cache_data: &mut CacheData, config_resp: ConfigQueryResponse) {
-        cache_data.content_type = config_resp.content_type.unwrap();
-        cache_data.content = config_resp.content.unwrap();
-        cache_data.md5 = config_resp.md5.unwrap();
+        cache_data.content_type = config_resp
+            .content_type
+            .expect("Config content_type missing in response");
+        cache_data.content = config_resp
+            .content
+            .expect("Config content missing in response");
+        cache_data.md5 = config_resp.md5.expect("Config md5 missing in response");
         // Compatibility None < 2.1.0
         cache_data.encrypted_data_key = config_resp.encrypted_data_key.unwrap_or_default();
         cache_data.last_modified = config_resp.last_modified;
@@ -417,7 +427,7 @@ impl ConfigWorker {
     #[instrument(skip_all)]
     async fn notify_change_to_cache_data(
         remote_client: Arc<NacosGrpcClient>,
-        cache_data_map: Arc<Mutex<HashMap<String, CacheData>>>,
+        unified_cache: Arc<Cache<CacheData>>,
         mut notify_change_rx: tokio::sync::mpsc::Receiver<String>,
     ) {
         loop {
@@ -429,24 +439,19 @@ impl ConfigWorker {
                     break;
                 }
                 Some(group_key) => {
-                    let mut mutex = cache_data_map.lock().await;
-
-                    if !mutex.contains_key(group_key.as_str()) {
-                        continue;
-                    }
-                    if let Some(data) = mutex.get_mut(group_key.as_str()) {
+                    if let Some(mut cache_ref_mut) = unified_cache.get_mut(&group_key) {
                         // get the newest config to notify
                         let config_resp = Self::get_config_inner_async(
                             remote_client.clone(),
-                            data.data_id.clone(),
-                            data.group.clone(),
-                            data.namespace.clone(),
+                            cache_ref_mut.data_id.clone(),
+                            cache_ref_mut.group.clone(),
+                            cache_ref_mut.namespace.clone(),
                         )
                         .in_current_span()
                         .await;
                         match config_resp {
                             Ok(config_resp) => {
-                                Self::fill_data_and_notify(data, config_resp).await;
+                                Self::fill_data_and_notify(&mut cache_ref_mut, config_resp).await;
                             }
                             Err(e) => {
                                 tracing::error!("get_config_inner_async, config_resp err={e:?}");
@@ -472,30 +477,16 @@ impl ConfigWorker {
             .await?;
 
         if resp.is_success() {
-            Ok(resp)
-        } else if resp.is_not_found() {
-            Err(crate::api::error::Error::ConfigNotFound(format!(
-                "error_code={},message={}",
-                resp.error_code,
-                resp.message.unwrap()
-            )))
+            return Ok(resp);
+        }
+
+        let err_str = crate::common::error::to_err_msg(&resp, "get_config");
+        if resp.is_not_found() {
+            Err(crate::api::error::Error::ConfigNotFound(err_str))
         } else if resp.is_query_conflict() {
-            Err(crate::api::error::Error::ConfigQueryConflict(format!(
-                "error_code={},message={}",
-                resp.error_code,
-                resp.message.unwrap()
-            )))
+            Err(crate::api::error::Error::ConfigQueryConflict(err_str))
         } else {
-            let ConfigQueryResponse {
-                error_code,
-                message,
-                ..
-            } = resp;
-            Err(crate::api::error::Error::ErrResult(format!(
-                "error_code={},message={}",
-                error_code,
-                message.unwrap_or_default(),
-            )))
+            Err(crate::api::error::Error::ErrResult(err_str))
         }
     }
 
@@ -536,20 +527,7 @@ impl ConfigWorker {
             .send_request::<ConfigPublishRequest, ConfigPublishResponse>(req)
             .await?;
 
-        if resp.is_success() {
-            Ok(true)
-        } else {
-            let ConfigPublishResponse {
-                error_code,
-                message,
-                ..
-            } = resp;
-            Err(crate::api::error::Error::ErrResult(format!(
-                "error_code={},message={}",
-                error_code,
-                message.unwrap_or_default(),
-            )))
-        }
+        crate::common::error::handle_response(&resp, "publish_config").map(|_| true)
     }
 
     async fn remove_config_inner_async(
@@ -563,20 +541,7 @@ impl ConfigWorker {
             .send_request::<ConfigRemoveRequest, ConfigRemoveResponse>(req)
             .await?;
 
-        if resp.is_success() {
-            Ok(true)
-        } else {
-            let ConfigRemoveResponse {
-                error_code,
-                message,
-                ..
-            } = resp;
-            Err(crate::api::error::Error::ErrResult(format!(
-                "error_code={},message={}",
-                error_code,
-                message.unwrap_or_default(),
-            )))
-        }
+        crate::common::error::handle_response(&resp, "remove_config").map(|_| true)
     }
 }
 
@@ -600,23 +565,35 @@ mod tests {
             Vec::new(),
             "test_config".to_string(),
         )
-        .unwrap();
+        .await
+        .expect("Failed to create ConfigWorker in test");
 
         // test add listener1
         let lis1_arc = Arc::new(TestConfigChangeListener1 {});
-        let _listen = client_worker.add_listener(d.clone(), g.clone(), lis1_arc);
+        let _listen = client_worker
+            .add_listener(d.clone(), g.clone(), lis1_arc)
+            .await;
 
         // test add listener2
         let lis2_arc = Arc::new(TestConfigChangeListener2 {});
-        let _listen = client_worker.add_listener(d.clone(), g.clone(), lis2_arc.clone());
+        let _listen = client_worker
+            .add_listener(d.clone(), g.clone(), lis2_arc.clone())
+            .await;
         // test add a listener2 again
-        let _listen = client_worker.add_listener(d.clone(), g.clone(), lis2_arc);
+        let _listen = client_worker
+            .add_listener(d.clone(), g.clone(), lis2_arc)
+            .await;
 
         let group_key = util::group_key(&d, &g, &n);
         {
-            let cache_data_map_mutex = client_worker.cache_data_map.lock().await;
-            let cache_data = cache_data_map_mutex.get(group_key.as_str()).unwrap();
-            let listen_mutex = cache_data.listeners.lock().unwrap();
+            let cache_data = client_worker
+                .unified_cache
+                .get(&group_key)
+                .expect("Cache data should exist for group key");
+            let listen_mutex = cache_data
+                .listeners
+                .lock()
+                .expect("Failed to lock cache data listeners");
             assert_eq!(2, listen_mutex.len());
         }
     }
@@ -632,18 +609,26 @@ mod tests {
             Vec::new(),
             "test_config".to_string(),
         )
-        .unwrap();
+        .await
+        .expect("Failed to create ConfigWorker in test");
 
         // test add listener1
         let lis1_arc = Arc::new(TestConfigChangeListener1 {});
         let lis1_arc2 = Arc::clone(&lis1_arc);
-        let _listen = client_worker.add_listener(d.clone(), g.clone(), lis1_arc);
+        let _listen = client_worker
+            .add_listener(d.clone(), g.clone(), lis1_arc)
+            .await;
 
         let group_key = util::group_key(&d, &g, &n);
         {
-            let cache_data_map_mutex = client_worker.cache_data_map.lock().await;
-            let cache_data = cache_data_map_mutex.get(group_key.as_str()).unwrap();
-            let listen_mutex = cache_data.listeners.lock().unwrap();
+            let cache_data = client_worker
+                .unified_cache
+                .get(&group_key)
+                .expect("Cache data should exist for group key");
+            let listen_mutex = cache_data
+                .listeners
+                .lock()
+                .expect("Failed to lock cache data listeners");
             assert_eq!(1, listen_mutex.len());
         }
 
@@ -651,9 +636,14 @@ mod tests {
             .remove_listener(d.clone(), g.clone(), lis1_arc2)
             .await;
         {
-            let cache_data_map_mutex = client_worker.cache_data_map.lock().await;
-            let cache_data = cache_data_map_mutex.get(group_key.as_str()).unwrap();
-            let listen_mutex = cache_data.listeners.lock().unwrap();
+            let cache_data = client_worker
+                .unified_cache
+                .get(&group_key)
+                .expect("Cache data should exist for group key");
+            let listen_mutex = cache_data
+                .listeners
+                .lock()
+                .expect("Failed to lock cache data listeners");
             assert_eq!(0, listen_mutex.len());
         }
     }

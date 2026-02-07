@@ -1,11 +1,12 @@
 use crate::api::config::ConfigResponse;
 use crate::api::plugin::ConfigFilter;
 use crate::api::plugin::ConfigResp;
+use serde::{Deserialize, Serialize};
 use std::ops::Deref;
 use std::sync::{Arc, Mutex};
 
 /// Cache Data for Config
-#[derive(Default)]
+#[derive(Default, Serialize, Deserialize)]
 pub(crate) struct CacheData {
     pub data_id: String,
     pub group: String,
@@ -19,11 +20,14 @@ pub(crate) struct CacheData {
     pub last_modified: i64,
 
     /// There are some logical differences in the initialization phase, such as no notification of config changed
+    #[serde(skip)]
     pub initializing: bool,
 
-    /// who listen of config change.
+    /// who listen of config change. (runtime only, don't persist)
+    #[serde(skip)]
     pub listeners: Arc<Mutex<Vec<ListenerWrapper>>>,
 
+    #[serde(skip)]
     pub config_filters: Arc<Vec<Box<dyn ConfigFilter>>>,
 }
 
@@ -48,7 +52,7 @@ impl CacheData {
     /// Add listener.
     pub fn add_listener(&mut self, listener: Arc<dyn crate::api::config::ConfigChangeListener>) {
         if let Ok(mut mutex) = self.listeners.lock() {
-            if Self::index_of_listener(mutex.deref(), Arc::clone(&listener)).is_some() {
+            if Self::index_of_listener(mutex.deref(), &listener).is_some() {
                 return;
             }
             mutex.push(ListenerWrapper::new(Arc::clone(&listener)));
@@ -57,25 +61,21 @@ impl CacheData {
 
     /// Remove listener.
     pub fn remove_listener(&mut self, listener: Arc<dyn crate::api::config::ConfigChangeListener>) {
-        if let Ok(mut mutex) = self.listeners.lock() {
-            if let Some(idx) = Self::index_of_listener(mutex.deref(), Arc::clone(&listener)) {
-                mutex.swap_remove(idx);
-            }
+        if let Ok(mut mutex) = self.listeners.lock()
+            && let Some(idx) = Self::index_of_listener(mutex.deref(), &listener)
+        {
+            mutex.swap_remove(idx);
         }
     }
 
     /// fn inner, return idx if existed, else return None.
     fn index_of_listener(
         listen_warp_vec: &[ListenerWrapper],
-        listener: Arc<dyn crate::api::config::ConfigChangeListener>,
+        listener: &Arc<dyn crate::api::config::ConfigChangeListener>,
     ) -> Option<usize> {
-        for (idx, listen_warp) in listen_warp_vec.iter().enumerate() {
-            #[allow(ambiguous_wide_pointer_comparisons)]
-            if Arc::ptr_eq(&listen_warp.listener, &listener) {
-                return Some(idx);
-            }
-        }
-        None
+        listen_warp_vec
+            .iter()
+            .position(|listen_warp| Arc::ptr_eq(&listen_warp.listener, listener))
     }
 
     /// Notify listener. when last-md5 not equals the-newest-md5
@@ -106,8 +106,8 @@ impl CacheData {
         }
     }
 
-    /// inner method, will invoke config_filter
-    async fn get_config_resp_after_filter(&self) -> ConfigResponse {
+    /// Get config response after applying config_filters
+    pub(crate) async fn get_config_resp_after_filter(&self) -> ConfigResponse {
         let mut conf_resp = ConfigResp::new(
             self.data_id.clone(),
             self.group.clone(),
@@ -132,22 +132,26 @@ impl CacheData {
 
 impl std::fmt::Display for CacheData {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let mut content = self.content.clone();
-        if content.chars().count() > 30 {
-            content = content.chars().take(30).collect();
-            content.push_str("...");
-        }
         write!(
             f,
-            "CacheData(namespace={n},data_id={d},group={g},md5={m},encrypted_data_key={k},content_type={t},content={c})",
+            "CacheData(namespace={n},data_id={d},group={g},md5={m},encrypted_data_key={k},content_type={t},content=",
             n = self.namespace,
             d = self.data_id,
             g = self.group,
             m = self.md5,
             k = self.encrypted_data_key,
             t = self.content_type,
-            c = content
-        )
+        )?;
+        // Truncate content for display if it exceeds 30 chars
+        if self.content.chars().count() > 30 {
+            for c in self.content.chars().take(30) {
+                write!(f, "{}", c)?;
+            }
+            write!(f, "...")?;
+        } else {
+            write!(f, "{}", self.content)?;
+        }
+        write!(f, ")")
     }
 }
 
@@ -181,15 +185,18 @@ mod tests {
 
         // test add listener1
         let lis1_arc = Arc::new(TestConfigChangeListener1 {});
-        let _listen = cache_data.add_listener(lis1_arc);
+        cache_data.add_listener(lis1_arc);
 
         // test add listener2
         let lis2_arc = Arc::new(TestConfigChangeListener2 {});
-        let _listen = cache_data.add_listener(lis2_arc.clone());
+        cache_data.add_listener(lis2_arc.clone());
         // test add a listener2 again
-        let _listen = cache_data.add_listener(lis2_arc);
+        cache_data.add_listener(lis2_arc);
 
-        let listen_mutex = cache_data.listeners.lock().unwrap();
+        let listen_mutex = cache_data
+            .listeners
+            .lock()
+            .expect("mutex should not be poisoned");
         assert_eq!(2, listen_mutex.len());
     }
 
@@ -202,25 +209,34 @@ mod tests {
         // test add listener1
         let lis1_arc = Arc::new(TestConfigChangeListener1 {});
         let lis1_arc2 = Arc::clone(&lis1_arc);
-        let _listen = cache_data.add_listener(lis1_arc);
+        cache_data.add_listener(lis1_arc);
 
         // test add listener2
         let lis2_arc = Arc::new(TestConfigChangeListener2 {});
         let lis2_arc2 = Arc::clone(&lis2_arc);
-        let _listen = cache_data.add_listener(lis2_arc);
+        cache_data.add_listener(lis2_arc);
         {
-            let listen_mutex = cache_data.listeners.lock().unwrap();
+            let listen_mutex = cache_data
+                .listeners
+                .lock()
+                .expect("mutex should not be poisoned");
             assert_eq!(2, listen_mutex.len());
         }
 
         cache_data.remove_listener(lis1_arc2);
         {
-            let listen_mutex = cache_data.listeners.lock().unwrap();
+            let listen_mutex = cache_data
+                .listeners
+                .lock()
+                .expect("mutex should not be poisoned");
             assert_eq!(1, listen_mutex.len());
         }
         cache_data.remove_listener(lis2_arc2);
         {
-            let listen_mutex = cache_data.listeners.lock().unwrap();
+            let listen_mutex = cache_data
+                .listeners
+                .lock()
+                .expect("mutex should not be poisoned");
             assert_eq!(0, listen_mutex.len());
         }
     }

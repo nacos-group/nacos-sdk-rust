@@ -34,15 +34,15 @@ pub struct ServiceInfo {
 const SERVICE_INFO_SEPARATOR: &str = "@@";
 impl ServiceInfo {
     pub fn ip_count(&self) -> i32 {
-        if self.hosts.is_none() {
-            return 0;
+        match self.hosts.as_ref() {
+            Some(h) => h.len() as i32,
+            None => 0,
         }
-        self.hosts.as_ref().unwrap().len() as i32
     }
 
     fn is_all_ips(&self) -> bool {
-        if self.all_ips.is_some() {
-            self.all_ips.unwrap()
+        if let Some(item) = self.all_ips {
+            item
         } else {
             self.all_ips_3x.unwrap_or(false)
         }
@@ -53,11 +53,10 @@ impl ServiceInfo {
             return true;
         }
 
-        if self.hosts.is_none() {
+        let Some(hosts) = self.hosts.as_ref() else {
             return false;
-        }
+        };
 
-        let hosts = self.hosts.as_ref().unwrap();
         for host in hosts {
             if !host.healthy {
                 continue;
@@ -80,15 +79,13 @@ impl ServiceInfo {
     }
 
     pub fn hosts_to_json(&self) -> String {
-        if self.hosts.is_none() {
-            return "".to_string();
-        }
-        let json = serde_json::to_string(self.hosts.as_ref().unwrap());
-        if let Err(e) = json {
+        let Some(hosts) = self.hosts.as_ref() else {
+            return "".to_owned();
+        };
+        serde_json::to_string(hosts).unwrap_or_else(|e| {
             error!("hosts to json failed. {e:?}");
-            return "".to_string();
-        }
-        json.unwrap()
+            "".to_owned()
+        })
     }
 
     pub fn get_key(name: &str, clusters: &str) -> String {

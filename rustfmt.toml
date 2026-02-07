@@ -1,0 +1,10 @@
+# Rustfmt configuration for nacos-sdk-rust
+# See https://rust-lang.github.io/rustfmt/ for all options
+
+edition = "2024"
+max_width = 100
+use_small_heuristics = "Default"
+
+# The following are unstable features, only available on nightly:
+# imports_granularity = "Module"
+# group_imports = "StdExternalCrate"

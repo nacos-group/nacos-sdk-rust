@@ -132,15 +132,19 @@ pub trait NamingEventListener: Send + Sync + 'static {
 ///
 /// # Examples
 ///
-/// ```ignore
-///  let mut naming_service = nacos_sdk::api::naming::NamingServiceBuilder::new(
-///        nacos_sdk::api::props::ClientProps::new()
-///           .server_addr("127.0.0.1:8848")
-///           // Attention! "public" is "", it is recommended to customize the namespace with clear meaning.
-///           .namespace("")
-///           .app_name("todo-your-app-name"),
-///   )
-///   .build()?;
+/// ```no_run
+/// # async fn run() -> nacos_sdk::api::error::Result<()> {
+/// let naming_service = nacos_sdk::api::naming::NamingServiceBuilder::new(
+///       nacos_sdk::api::props::ClientProps::new()
+///          .server_addr("127.0.0.1:8848")
+///          // Attention! "public" is "", it is recommended to customize the namespace with clear meaning.
+///          .namespace("")
+///          .app_name("todo-your-app-name"),
+///  )
+///  .build()
+///  .await?;
+/// # Ok(())
+/// # }
 /// ```
 #[doc(alias("naming", "sdk", "api"))]
 #[derive(Clone, Debug)]
@@ -267,15 +271,19 @@ impl NamingService {
 ///
 /// # Examples
 ///
-/// ```ignore
-///  let mut naming_service = nacos_sdk::api::naming::NamingServiceBuilder::new(
-///        nacos_sdk::api::props::ClientProps::new()
-///           .server_addr("127.0.0.1:8848")
-///           // Attention! "public" is "", it is recommended to customize the namespace with clear meaning.
-///           .namespace("")
-///           .app_name("todo-your-app-name"),
-///   )
-///   .build()?;
+/// ```no_run
+/// # async fn run() -> nacos_sdk::api::error::Result<()> {
+/// let naming_service = nacos_sdk::api::naming::NamingServiceBuilder::new(
+///       nacos_sdk::api::props::ClientProps::new()
+///          .server_addr("127.0.0.1:8848")
+///          // Attention! "public" is "", it is recommended to customize the namespace with clear meaning.
+///          .namespace("")
+///          .app_name("todo-your-app-name"),
+///  )
+///  .build()
+///  .await?;
+/// # Ok(())
+/// # }
 /// ```
 #[doc(alias("naming", "builder"))]
 pub struct NamingServiceBuilder {
@@ -307,12 +315,20 @@ impl NamingServiceBuilder {
         self
     }
 
-    pub fn build(self) -> Result<NamingService> {
+    pub async fn build(self) -> Result<NamingService> {
+        #[cfg(feature = "tracing-log")]
+        {
+            // $HOME/logs/nacos
+            let log_path = crate::common::util::HOME_DIR.to_owned() + "/logs/nacos";
+            let log_level = "INFO".to_string();
+            crate::common::log::init(log_path, log_level);
+        }
+
         let auth_plugin = match self.auth_plugin {
             None => Arc::new(plugin::NoopAuthPlugin::default()),
             Some(plugin) => plugin,
         };
-        let inner = NacosNamingService::new(self.client_props, auth_plugin)?;
+        let inner = NacosNamingService::new(self.client_props, auth_plugin).await?;
         let inner = Arc::new(inner);
         Ok(NamingService { inner })
     }

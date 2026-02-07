@@ -1,3 +1,5 @@
+#![allow(clippy::manual_unwrap_or_default)] // for #[darling(default)]
+
 use darling::FromMeta;
 use syn::{parse_macro_input, parse_quote, AttributeArgs, ItemStruct, Path};
 
@@ -44,7 +46,7 @@ struct Crates {
 
 impl Default for Crates {
     fn default() -> Self {
-        Self::from_list(&[]).unwrap()
+        Self::from_list(&[]).expect("Default crates list should be valid")
     }
 }
 
@@ -65,7 +67,7 @@ pub fn request(
     let item_struct = parse_macro_input!(input as ItemStruct);
 
     let attr_args = parse_macro_input!(args as AttributeArgs);
-    let macro_args = MacroArgs::from_list(&attr_args).unwrap();
+    let macro_args = MacroArgs::from_list(&attr_args).expect("Failed to parse macro arguments");
 
     grpc_request(macro_args, item_struct).into()
 }
@@ -77,7 +79,7 @@ pub fn response(
     let item_struct = parse_macro_input!(input as ItemStruct);
 
     let attr_args = parse_macro_input!(args as AttributeArgs);
-    let macro_args = MacroArgs::from_list(&attr_args).unwrap();
+    let macro_args = MacroArgs::from_list(&attr_args).expect("Failed to parse macro arguments");
 
     grpc_response(macro_args, item_struct).into()
 }
