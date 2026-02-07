@@ -1,5 +1,20 @@
 # 变更日志 | Change log
 
+### 0.6.0
+
+- 变更：配置与注册的客户端构建异步初始化，不在内部阻塞，毋必 build 后 await
+- 重构：与 AI-Coding 重构很多品味不佳的代码，非常感谢 Claude + Kimi-K2.5
+- 特性：提供新特性 features of `tracing-log`，仅当您不自定义  tracing-subscriber 时才需要此项
+- 特性：完整实现数据落盘与加载（用于服务端宕机弱依赖），请设置 `load_cache_at_start(true)`
+
+---
+
+- Change: make naming/config service initialization fully async, must build and await
+- Refactor: written a lot of tasteful code with AI Coding. Thanks very much to Claude + Kimi-K2.5
+- Feature: support features of `tracing-log`, only need this if you don't customize `tracing-subscriber`
+- Feature: implement naming/config data persistence and loading, set by `load_cache_at_start(true)`
+
+
 ### 0.5.3
 
 - 增强: tokio 只引入需要的 `features = ["rt-multi-thread", "time", "net", "fs"]`

@@ -23,7 +23,7 @@ Add the dependency in `Cargo.toml`:
 ```toml
 [dependencies]
 # If you need sync API, maybe `futures::executor::block_on(future_fn)`
-nacos-sdk = { version = "0.5", features = ["default"] }
+nacos-sdk = { version = "0.6", features = ["default"] }
 ```
 
 ### Usage of Config
