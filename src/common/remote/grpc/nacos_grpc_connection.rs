@@ -37,7 +37,7 @@ const MAX_RETRY: u32 = 6;
 
 fn sleep_time(retry_count: u32) -> u32 {
     if retry_count > MAX_RETRY {
-        1 << (retry_count % MAX_RETRY)
+        1 << MAX_RETRY
     } else {
         1 << retry_count
     }
@@ -63,6 +63,7 @@ where
         watch::Receiver<Option<String>>,
     ),
     max_retries: Option<u32>,
+    is_initialized: bool,
 }
 
 impl<M> NacosGrpcConnection<M>
@@ -101,6 +102,7 @@ where
             retry_count: 0,
             connection_id_watcher,
             max_retries,
+            is_initialized: false,
         }
     }
 
@@ -429,11 +431,17 @@ where
             debug_span!(parent: None, "grpc_connection", id = self.id.clone()).entered();
 
         loop {
-            if let Some(max_retries) = self.max_retries
-                && self.retry_count > max_retries
-            {
-                error!("Exceeded maximum retry attempts: {}", max_retries);
-                return Poll::Ready(Err(Self::Error::MaxRetriesExceeded(max_retries)));
+            if !self.is_initialized {
+                let max_retries = self.max_retries.unwrap_or(3);
+                if self.retry_count >= max_retries {
+                    error!(
+                        "Connection initialization failed after {} attempts. \
+                         The Nacos server may be unreachable. \
+                         Please check server address and network connectivity.",
+                        max_retries
+                    );
+                    return Poll::Ready(Err(Self::Error::MaxRetriesExceeded(max_retries)));
+                }
             }
 
             match self.state {
@@ -508,6 +516,7 @@ where
 
                             self.retry_count = 0;
                             self.health.store(true, Ordering::Release);
+                            self.is_initialized = true;
                             self.state = State::Connected(service);
                             self.connection_id = Some(connection_id);
                             continue;

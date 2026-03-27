@@ -151,7 +151,7 @@ impl NacosNamingService {
             .auth_plugin(auth_plugin)
             .max_retries(client_props.get_max_retries())
             .build(client_id.clone())
-            .await;
+            .await?;
 
         let nacos_grpc_client = Arc::new(nacos_grpc_client);
 

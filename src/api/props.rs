@@ -28,7 +28,9 @@ pub struct ClientProps {
     client_version: String,
     /// auth context
     auth_context: HashMap<String, String>,
-    /// max retries
+    /// Maximum retry attempts during initialization phase. Defaults to 3 when None.
+    /// Only applies to the connection initialization stage. After successful initialization,
+    /// the client will retry indefinitely during runtime to ensure fault tolerance.
     max_retries: Option<u32>,
 }
 
@@ -305,7 +307,12 @@ impl ClientProps {
         self
     }
 
-    /// Sets the max retries.
+    /// Sets the maximum retry attempts during initialization phase.
+    ///
+    /// This value only applies to the connection initialization stage.
+    /// If not set, defaults to 3 retry attempts.
+    /// After successful initialization, the client will retry indefinitely
+    /// during runtime to ensure fault tolerance.
     pub fn max_retries(mut self, max_retries: u32) -> Self {
         self.max_retries = Some(max_retries);
         self
