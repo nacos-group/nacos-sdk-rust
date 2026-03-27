@@ -11,7 +11,7 @@ use crate::common::remote::grpc::message::{GrpcMessageData, request::NacosClient
 use crate::common::remote::grpc::nacos_grpc_service::DynamicUnaryCallLayerWrapper;
 
 use super::handlers::client_detection_request_handler::ClientDetectionRequestHandler;
-use super::message::request::ClientDetectionRequest;
+use super::message::request::{ClientDetectionRequest, HealthCheckRequest};
 use super::nacos_grpc_connection::{NacosGrpcConnection, SendRequest};
 use super::nacos_grpc_service::{
     DynamicBiStreamingCallLayer, DynamicBiStreamingCallLayerWrapper, DynamicUnaryCallLayer,
@@ -306,7 +306,7 @@ impl NacosGrpcClientBuilder {
         }
     }
 
-    pub(crate) async fn build(mut self, id: String) -> NacosGrpcClient {
+    pub(crate) async fn build(mut self, id: String) -> Result<NacosGrpcClient, Error> {
         self.server_request_handler_map.insert(
             ClientDetectionRequest::identity().to_string(),
             Arc::new(ClientDetectionRequestHandler),
@@ -346,6 +346,13 @@ impl NacosGrpcClientBuilder {
             Arc::new(failover_connection) as Arc<dyn SendRequest + Send + Sync + 'static>
         };
 
+        // Verify connection by sending a health check request
+        let health_check_request = HealthCheckRequest::default();
+        let health_check_request = GrpcMessageBuilder::new(health_check_request)
+            .build()
+            .into_payload()?;
+        send_request.send_request(health_check_request).await?;
+
         init_auth_plugin(
             self.auth_plugin.clone(),
             self.server_list.clone(),
@@ -357,11 +364,11 @@ impl NacosGrpcClientBuilder {
         let app_name = self.app_name;
         let auth_plugin = self.auth_plugin;
 
-        NacosGrpcClient {
+        Ok(NacosGrpcClient {
             app_name,
             send_request,
             auth_plugin,
-        }
+        })
     }
 }
 
