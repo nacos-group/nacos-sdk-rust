@@ -58,9 +58,9 @@ impl ServiceInfoObserver {
     async fn observe(mut receiver: Receiver<(ServiceInfo, Span)>, registry: ListenerRegistry) {
         info!("service info observe task start!");
         while let Some((service_info, span)) = receiver.recv().await {
-            let grouped_name =
-                ServiceInfo::get_grouped_service_name(&service_info.name, &service_info.group_name);
-            let key = ServiceInfo::get_key(&grouped_name, &service_info.clusters);
+            // Use key without clusters to match listener registration (aligned with Java client)
+            let key =
+                ServiceInfo::get_key_without_clusters(&service_info.name, &service_info.group_name);
 
             let map = registry.read().await;
             let Some(listeners) = map.get(&key) else {
@@ -173,9 +173,9 @@ impl ServiceInfoEmitter {
             return false;
         }
 
-        let name =
-            ServiceInfo::get_grouped_service_name(&service_info.name, &service_info.group_name);
-        let key = ServiceInfo::get_key(&name, &service_info.clusters);
+        // Use key without clusters for cache (aligned with Java client's getKeyWithoutClusters())
+        let key =
+            ServiceInfo::get_key_without_clusters(&service_info.name, &service_info.group_name);
 
         let changed = {
             let old_service = self.cache.get(&key);
