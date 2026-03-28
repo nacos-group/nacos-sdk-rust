@@ -72,7 +72,7 @@ impl ConfigWorker {
             .auth_context(client_props.get_auth_context())
             .max_retries(client_props.get_max_retries())
             .build(client_id)
-            .await;
+            .await?;
 
         let remote_client = Arc::new(remote_client);
         // todo Event/Subscriber instead of mpsc Sender/Receiver

@@ -151,7 +151,7 @@ impl NacosNamingService {
             .auth_plugin(auth_plugin)
             .max_retries(client_props.get_max_retries())
             .build(client_id.clone())
-            .await;
+            .await?;
 
         let nacos_grpc_client = Arc::new(nacos_grpc_client);
 
@@ -484,8 +484,8 @@ impl NacosNamingService {
     ) -> Result<ServiceInfo> {
         let clusters = clusters.join(",");
         let group_name = crate::common::util::normalize_group_name(group_name);
-        let grouped_name = ServiceInfo::get_grouped_service_name(&service_name, &group_name);
-        let key = ServiceInfo::get_key(&grouped_name, &clusters);
+        // Use key without clusters for both listener registration and cache operations (aligned with Java client)
+        let key = ServiceInfo::get_key_without_clusters(&service_name, &group_name);
 
         // add updater task (for polling refresh when gRPC push is not available)
         self.service_info_updater
@@ -572,9 +572,8 @@ impl NacosNamingService {
 
         // remove event listener
         if let Some(event_listener) = event_listener {
-            let grouped_name = ServiceInfo::get_grouped_service_name(&service_name, &group_name);
-            let key = ServiceInfo::get_key(&grouped_name, &clusters);
-
+            // Use key without clusters for listener unregistration (aligned with Java client)
+            let key = ServiceInfo::get_key_without_clusters(&service_name, &group_name);
             self.observer.unsubscribe(key, event_listener).await;
         }
 

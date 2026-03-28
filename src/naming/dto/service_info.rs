@@ -96,6 +96,13 @@ impl ServiceInfo {
 
         name.to_string()
     }
+
+    /// Get service key without clusters, aligned with Java client's getKeyWithoutClusters().
+    /// Used for listener registry subscription/unsubscription to ensure notifications
+    /// work correctly regardless of cluster information in server push messages.
+    pub fn get_key_without_clusters(service_name: &str, group_name: &str) -> String {
+        Self::get_grouped_service_name(service_name, group_name)
+    }
 }
 
 impl Default for ServiceInfo {

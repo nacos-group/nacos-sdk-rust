@@ -35,7 +35,7 @@ nacos-sdk = { version = "0.6", features = ["default"] }
             .server_addr("127.0.0.1:8848")
             // Attention! "public" is "", it is recommended to customize the namespace with clear meaning.
             .namespace("")
-            .app_name("simple_app"),
+            .app_name("simple_app")
             .auth_username("username")
             .auth_password("password")
     )
@@ -79,7 +79,7 @@ nacos-sdk = { version = "0.6", features = ["default"] }
             .server_addr("127.0.0.1:8848")
             // Attention! "public" is "", it is recommended to customize the namespace with clear meaning.
             .namespace("")
-            .app_name("simple_app"),
+            .app_name("simple_app")
             .auth_username("username")
             .auth_password("password")
     )
