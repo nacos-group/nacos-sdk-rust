@@ -133,8 +133,12 @@ impl Tonic {
             if let Ok(ca_cert_path) =
                 std::env::var(crate::api::constants::ENV_NACOS_CLIENT_TLS_CA_CERT)
             {
-                let ca_cert_pem = std::fs::read_to_string(&ca_cert_path)
-                    .expect("Failed to read TLS CA certificate file");
+                let ca_cert_pem = std::fs::read_to_string(&ca_cert_path).unwrap_or_else(|e| {
+                    panic!(
+                        "Failed to read TLS CA certificate file '{}': {}",
+                        ca_cert_path, e
+                    )
+                });
                 tls_config = tls_config.ca_certificate(Certificate::from_pem(ca_cert_pem));
             }
             endpoint = endpoint
