@@ -19,7 +19,7 @@
 #[test]
 #[ignore]
 fn build_proto() {
-    tonic_build::configure()
+    tonic_prost_build::configure()
         .build_client(true)
         .build_server(false)
         .build_transport(true)

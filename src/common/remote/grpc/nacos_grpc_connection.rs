@@ -647,7 +647,7 @@ where
     S::Future: Send + 'static,
 {
     id: String,
-    inner: Buffer<S, Payload>,
+    inner: Buffer<Payload, S::Future>,
     svc_health: Arc<AtomicBool>,
     active_health_check: Arc<AtomicBool>,
 }
@@ -690,7 +690,7 @@ where
     }
 
     async fn health_check(
-        mut svc: Buffer<S, Payload>,
+        mut svc: Buffer<Payload, S::Future>,
         active_health_check: Arc<AtomicBool>,
         svc_health: Arc<AtomicBool>,
     ) {

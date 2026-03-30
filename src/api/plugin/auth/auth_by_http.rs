@@ -1,5 +1,5 @@
 use arc_swap::ArcSwap;
-use rand::Rng;
+use rand::RngExt;
 use std::ops::{Add, Deref};
 use std::sync::Arc;
 use tokio::time::{Duration, Instant};
@@ -55,7 +55,7 @@ impl AuthPlugin for HttpLoginAuthPlugin {
         let server_addr = {
             // random one
             server_list
-                .get(rand::thread_rng().gen_range(0..server_list.len()))
+                .get(rand::rng().random_range(0..server_list.len()))
                 .expect("Server list should not be empty")
                 .to_string()
         };

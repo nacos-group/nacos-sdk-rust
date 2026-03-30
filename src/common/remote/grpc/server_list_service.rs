@@ -7,7 +7,7 @@ use std::{
 use crate::api::error::Error;
 use crate::api::error::Error::NoAvailableServer;
 use futures::Future;
-use rand::Rng;
+use rand::RngExt;
 use tower::Service;
 
 use super::server_address::ServerAddress;
@@ -50,7 +50,7 @@ impl PollingServerListService {
 
         Self {
             // random index for load balance the server list
-            index: rand::thread_rng().gen_range(0..server_list.len()),
+            index: rand::rng().random_range(0..server_list.len()),
             server_list,
         }
     }
