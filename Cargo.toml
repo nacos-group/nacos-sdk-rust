@@ -41,7 +41,7 @@ members = [
 default = ["config", "naming", "auth-by-http"]
 config = []
 naming = []
-tls = ["reqwest/default-tls"]
+tls = ["reqwest/default-tls", "tonic/tls", "tonic/tls-roots"]
 auth-by-http = ["reqwest"]
 auth-by-aliyun = ["ring", "base64", "chrono"]
 # only need this if you don't customize tracing-subscriber
