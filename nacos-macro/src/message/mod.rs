@@ -1,7 +1,8 @@
 #![allow(clippy::manual_unwrap_or_default)] // for #[darling(default)]
 
+use darling::ast::NestedMeta;
 use darling::FromMeta;
-use syn::{parse_macro_input, parse_quote, AttributeArgs, ItemStruct, Path};
+use syn::{parse_macro_input, parse_quote, ItemStruct, Path};
 
 use self::{request::grpc_request, response::grpc_response};
 
@@ -66,8 +67,8 @@ pub fn request(
 ) -> proc_macro::TokenStream {
     let item_struct = parse_macro_input!(input as ItemStruct);
 
-    let attr_args = parse_macro_input!(args as AttributeArgs);
-    let macro_args = MacroArgs::from_list(&attr_args).expect("Failed to parse macro arguments");
+    let meta_list = NestedMeta::parse_meta_list(args.into()).expect("Failed to parse meta list");
+    let macro_args = MacroArgs::from_list(&meta_list).expect("Failed to parse macro arguments");
 
     grpc_request(macro_args, item_struct).into()
 }
@@ -78,8 +79,8 @@ pub fn response(
 ) -> proc_macro::TokenStream {
     let item_struct = parse_macro_input!(input as ItemStruct);
 
-    let attr_args = parse_macro_input!(args as AttributeArgs);
-    let macro_args = MacroArgs::from_list(&attr_args).expect("Failed to parse macro arguments");
+    let meta_list = NestedMeta::parse_meta_list(args.into()).expect("Failed to parse meta list");
+    let macro_args = MacroArgs::from_list(&meta_list).expect("Failed to parse macro arguments");
 
     grpc_response(macro_args, item_struct).into()
 }

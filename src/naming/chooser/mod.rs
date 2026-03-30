@@ -1,8 +1,7 @@
-use rand::Rng;
-
 use crate::api::error::Error::ErrResult;
 use crate::api::error::Result;
 use crate::api::naming::{InstanceChooser, ServiceInstance};
+use rand::RngExt;
 
 pub(crate) struct RandomWeightChooser {
     weights: Vec<f64>,
@@ -82,8 +81,7 @@ impl RandomWeightChooser {
 
 impl InstanceChooser for RandomWeightChooser {
     fn choose(mut self) -> Option<ServiceInstance> {
-        let mut rng = rand::thread_rng();
-        let random_number = rng.gen_range(0.0..1.0);
+        let random_number = rand::rng().random_range(0.0..1.0);
         let index = self.weights.binary_search_by(|d| {
             d.partial_cmp(&random_number)
                 .unwrap_or(std::cmp::Ordering::Less)
