@@ -125,6 +125,23 @@ impl Tonic {
         endpoint = endpoint.tcp_nodelay(grpc_config.tcp_nodelay);
         endpoint = endpoint.tcp_keepalive(grpc_config.tcp_keepalive);
 
+        #[cfg(feature = "tls")]
+        {
+            use tonic::transport::{Certificate, ClientTlsConfig};
+
+            let mut tls_config = ClientTlsConfig::new();
+            if let Ok(ca_cert_path) =
+                std::env::var(crate::api::constants::ENV_NACOS_CLIENT_TLS_CA_CERT)
+            {
+                let ca_cert_pem = std::fs::read_to_string(&ca_cert_path)
+                    .expect("Failed to read TLS CA certificate file");
+                tls_config = tls_config.ca_certificate(Certificate::from_pem(ca_cert_pem));
+            }
+            endpoint = endpoint
+                .tls_config(tls_config)
+                .expect("Failed to configure TLS on gRPC endpoint");
+        }
+
         let channel = endpoint.connect_lazy();
 
         let request_client = RequestClient::new(channel.clone());
