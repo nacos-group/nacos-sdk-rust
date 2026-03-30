@@ -106,11 +106,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         port: 9090,
         ..Default::default()
     };
+    let service_instance2 = ServiceInstance {
+        ip: "127.0.0.2".to_string(),
+        port: 9099,
+        cluster_name: Some("TEST".into()),
+        ..Default::default()
+    };
     let _register_instance_ret = naming_service
         .batch_register_instance(
             "test-service".to_string(),
             Some(constants::DEFAULT_GROUP.to_string()),
-            vec![service_instance1],
+            vec![service_instance1, service_instance2],
         )
         .await;
     tokio::time::sleep(tokio::time::Duration::from_millis(666)).await;
