@@ -28,7 +28,7 @@
 //!
 //! - 请注意！一般情况下，应用下仅需一个 Naming 客户端，而且需要长期持有直至应用停止。
 //!   因为它内部会初始化与服务端的长链接，后续的数据交互及变更订阅，都是实时地通过长链接告知客户端的。
-//! - Naming 客户端通过 OnceCell 懒初始化，在首次路由调用时创建并订阅。
+//! - Naming 客户端通过 zino **Plugin 机制在启动阶段** 完成初始化与服务订阅，确保 HTTP 服务开始接受请求前，Nacos 长连接已就绪。
 //! - 服务发现后使用 reqwest 发起 HTTP 调用（plain HTTP，适用于本地开发场景）。
 
 use axum::{Router, routing::get};
@@ -66,34 +66,36 @@ fn client_port() -> i32 {
         .unwrap_or(DEFAULT_CLIENT_PORT)
 }
 
-// ── Lazy getter ───────────────────────────────────────────────────
+// ── Nacos Plugin ──────────────────────────────────────────────────
 
-async fn get_naming_service() -> &'static NamingService {
-    NAMING_SERVICE
-        .get_or_init(|| async {
-            let service = NamingServiceBuilder::new((*CLIENT_PROPS).clone())
-                .enable_auth_plugin_http()
-                .build()
-                .await
-                .expect("Failed to build NamingService");
-            let _ = service
-                .subscribe(
-                    SERVICE_NAME.to_string(),
-                    Some(constants::DEFAULT_GROUP.to_string()),
-                    Vec::default(),
-                    Arc::new(ClientInstanceChangeListener),
-                )
-                .await;
-            tracing::info!("NamingService initialized and subscribed to {SERVICE_NAME}");
-            service
-        })
-        .await
+fn nacos_plugin() -> Plugin {
+    let loader = Box::pin(async {
+        let service = NamingServiceBuilder::new((*CLIENT_PROPS).clone())
+            .enable_auth_plugin_http()
+            .build()
+            .await
+            .expect("Failed to build NamingService");
+        let _ = service
+            .subscribe(
+                SERVICE_NAME.to_string(),
+                Some(constants::DEFAULT_GROUP.to_string()),
+                Vec::default(),
+                Arc::new(ClientInstanceChangeListener),
+            )
+            .await;
+        NAMING_SERVICE
+            .set(service)
+            .expect("NamingService already initialized");
+        tracing::info!("Nacos plugin ready: subscribed to {SERVICE_NAME}");
+        Ok(())
+    });
+    Plugin::with_loader("nacos", loader)
 }
 
 // ── Handlers ──────────────────────────────────────────────────────
 
 async fn call_server(path: &str) -> std::result::Result<String, String> {
-    let naming_service = get_naming_service().await;
+    let naming_service = NAMING_SERVICE.get().expect("NamingService not initialized");
 
     let instance = naming_service
         .select_one_healthy_instance(
@@ -186,12 +188,16 @@ fn main() {
     std::fs::create_dir_all("config").ok();
     std::fs::write(
         "config/config.dev.toml",
-        format!("[main]\nhost = \"127.0.0.1\"\nport = {port}\n"),
+        format!("[main]\nhost = \"0.0.0.0\"\nport = {port}\n"),
     )
     .expect("Failed to write config file");
 
     println!("Starting zino-client-app on port {port}");
-    Cluster::boot().register(routes()).run();
+
+    Cluster::boot()
+        .add_plugin(nacos_plugin()) // ← Nacos init + subscription BEFORE HTTP bind
+        .register(routes())
+        .run();
 }
 
 struct ClientInstanceChangeListener;

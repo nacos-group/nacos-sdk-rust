@@ -36,7 +36,8 @@
 //!
 //! - 请注意！一般情况下，应用下仅需一个 Config/Naming 客户端，而且需要长期持有直至应用停止。
 //!   因为它内部会初始化与服务端的长链接，后续的数据交互及变更订阅，都是实时地通过长链接告知客户端的。
-//! - Nacos 客户端通过 OnceCell 懒初始化，在首次路由调用时创建并订阅/注册。
+//! - Nacos 客户端通过 zino **Plugin 机制在启动阶段** 完成初始化，确保 HTTP 服务开始接受请求前，Nacos 长连接已就绪。
+//! - 服务注册在 HTTP 监听器 bind 之后执行，避免"已注册但 HTTP 未就绪"的短暂窗口。
 //! - 服务实例为 ephemeral=true（默认），当进程退出 gRPC 长链接断开时，Nacos 会自动清理。
 //! - zino 框架自身管理 Ctrl+C 信号处理和 HTTP 服务器优雅关闭。
 
@@ -50,6 +51,7 @@ use nacos_sdk::api::props::ClientProps;
 use std::sync::Arc;
 use std::sync::LazyLock;
 use tokio::sync::OnceCell;
+use tokio::time::{Duration, sleep};
 use zino::{Cluster, Request, Response, Result, prelude::*};
 
 static LOCAL_IP: LazyLock<String> =
@@ -70,7 +72,7 @@ static NAMING_SERVICE: OnceCell<NamingService> = OnceCell::const_new();
 const DEFAULT_SERVER_PORT: i32 = 6080;
 const SERVICE_NAME: &str = "zino-server-app";
 const CONFIG_DATA_ID: &str = "greeting";
-const CONFIG_GROUP: &str = "SERVER_APP_GROUP";
+const CONFIG_GROUP: &str = constants::DEFAULT_GROUP;
 
 fn server_port() -> i32 {
     std::env::var("ZINO_MAIN_PORT")
@@ -79,63 +81,73 @@ fn server_port() -> i32 {
         .unwrap_or(DEFAULT_SERVER_PORT)
 }
 
-// ── Lazy getters ──────────────────────────────────────────────────
+// ── Nacos Plugin ──────────────────────────────────────────────────
 
-async fn get_config_service() -> &'static ConfigService {
-    CONFIG_SERVICE
-        .get_or_init(|| async {
-            let service = ConfigServiceBuilder::new((*CLIENT_PROPS).clone())
-                .enable_auth_plugin_http()
-                .build()
-                .await
-                .expect("Failed to build ConfigService");
-            let _ = service
-                .add_listener(
-                    CONFIG_DATA_ID.to_string(),
-                    CONFIG_GROUP.to_string(),
-                    Arc::new(ServerConfigChangeListener),
-                )
-                .await;
-            tracing::info!("ConfigService initialized and listener registered");
-            service
-        })
-        .await
-}
+fn nacos_plugin() -> Plugin {
+    let loader = Box::pin(async {
+        let config_service = ConfigServiceBuilder::new((*CLIENT_PROPS).clone())
+            .enable_auth_plugin_http()
+            .build()
+            .await
+            .expect("Failed to build ConfigService");
+        let _ = config_service
+            .add_listener(
+                CONFIG_DATA_ID.to_string(),
+                CONFIG_GROUP.to_string(),
+                Arc::new(ServerConfigChangeListener),
+            )
+            .await;
+        CONFIG_SERVICE
+            .set(config_service)
+            .expect("ConfigService already initialized");
 
-async fn get_naming_service() -> &'static NamingService {
-    NAMING_SERVICE
-        .get_or_init(|| async {
+        let naming_service = NamingServiceBuilder::new((*CLIENT_PROPS).clone())
+            .enable_auth_plugin_http()
+            .build()
+            .await
+            .expect("Failed to build NamingService");
+        NAMING_SERVICE
+            .set(naming_service)
+            .expect("NamingService already initialized");
+
+        tracing::info!("Nacos connections established");
+
+        // Defer registration until after HTTP listener binds and starts serving.
+        // Plugin loaders run BEFORE TcpListener::bind; spawning a background task
+        // ensures the instance is registered only after the server is ready.
+        tokio::spawn(async {
+            sleep(Duration::from_millis(666)).await;
             let port = server_port();
-            let service = NamingServiceBuilder::new((*CLIENT_PROPS).clone())
-                .enable_auth_plugin_http()
-                .build()
-                .await
-                .expect("Failed to build NamingService");
-            let instance = ServiceInstance {
-                ip: LOCAL_IP.to_string(),
-                port,
-                ..Default::default()
-            };
-            let _ = service
-                .batch_register_instance(
-                    SERVICE_NAME.to_string(),
-                    Some(constants::DEFAULT_GROUP.to_string()),
-                    vec![instance],
-                )
-                .await;
-            tracing::info!(
-                "NamingService initialized and registered: {}:{port}",
-                *LOCAL_IP
-            );
-            service
-        })
-        .await
+            if let Some(ns) = NAMING_SERVICE.get() {
+                let instance = ServiceInstance {
+                    ip: LOCAL_IP.to_string(),
+                    port,
+                    ..Default::default()
+                };
+                match ns
+                    .batch_register_instance(
+                        SERVICE_NAME.to_string(),
+                        Some(constants::DEFAULT_GROUP.to_string()),
+                        vec![instance],
+                    )
+                    .await
+                {
+                    Ok(()) => tracing::info!("Registered to Nacos: {}:{port}", *LOCAL_IP),
+                    Err(e) => tracing::error!("Failed to register to Nacos: {e:?}"),
+                }
+            }
+        });
+
+        Ok(())
+    });
+    Plugin::with_loader("nacos", loader)
 }
 
 // ── Handlers ──────────────────────────────────────────────────────
 
 async fn greeting(req: Request) -> Result {
-    let config_service = get_config_service().await;
+    let config_service = CONFIG_SERVICE.get().expect("ConfigService not initialized");
+
     let greeting_text = match config_service
         .get_config(CONFIG_DATA_ID.to_string(), CONFIG_GROUP.to_string())
         .await
@@ -159,8 +171,6 @@ async fn greeting(req: Request) -> Result {
 }
 
 async fn health(req: Request) -> Result {
-    // Ensure naming service is initialized (triggers registration)
-    let _ = get_naming_service().await;
     let port = server_port();
     let mut res = Response::ok().context(&req);
     res.set_json_data(json!({
@@ -192,13 +202,16 @@ fn main() {
     std::fs::create_dir_all("config").ok();
     std::fs::write(
         "config/config.dev.toml",
-        format!("[main]\nhost = \"127.0.0.1\"\nport = {port}\n"),
+        format!("[main]\nhost = \"0.0.0.0\"\nport = {port}\n"),
     )
     .expect("Failed to write config file");
 
     println!("Starting zino-server-app on port {port}");
 
-    Cluster::boot().register(routes()).run();
+    Cluster::boot()
+        .add_plugin(nacos_plugin())
+        .register(routes())
+        .run();
 }
 
 struct ServerConfigChangeListener;
