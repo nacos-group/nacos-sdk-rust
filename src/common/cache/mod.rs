@@ -6,7 +6,7 @@ use dashmap::{
     DashMap,
     mapref::one::{Ref, RefMut},
 };
-use tracing::{Instrument, info, info_span};
+use tracing::{Instrument, info};
 
 use crate::common::cache::disk::DiskStore;
 
@@ -23,9 +23,7 @@ impl<V> Cache<V>
 where
     V: serde::Serialize + serde::de::DeserializeOwned + Send + Sync + 'static,
 {
-    async fn new(id: &str, store: Option<Arc<dyn Store<V>>>, load_cache_at_start: bool) -> Self {
-        let _span_enter = info_span!("cache", id = id).entered();
-
+    async fn new(store: Option<Arc<dyn Store<V>>>, load_cache_at_start: bool) -> Self {
         let inner = match &store {
             Some(store) => {
                 let map: HashMap<String, V> = if load_cache_at_start {
@@ -236,8 +234,8 @@ where
         }
     }
 
-    pub(crate) async fn build(self, id: String) -> Cache<V> {
-        Cache::new(&id, self.store, self.load_cache_at_start).await
+    pub(crate) async fn build(self) -> Cache<V> {
+        Cache::new(self.store, self.load_cache_at_start).await
     }
 }
 
@@ -274,7 +272,7 @@ pub mod tests {
         let cache: Cache<String> = CacheBuilder::naming("test-naming".to_string())
             .load_cache_at_start(true)
             .disk_store()
-            .build("test-id".to_string())
+            .build()
             .await;
         let key = String::from("key");
 
@@ -357,7 +355,7 @@ pub mod tests {
         let cache: Cache<String> = CacheBuilder::naming("test-naming".to_string())
             .load_cache_at_start(true)
             .disk_store()
-            .build("test-id".to_string())
+            .build()
             .await;
 
         let key = String::from("key1");

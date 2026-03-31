@@ -38,7 +38,7 @@ impl ConfigWorker {
         let unified_cache: Cache<CacheData> = CacheBuilder::config(cache_ns)
             .load_cache_at_start(client_props.get_config_load_cache_at_start())
             .disk_store()
-            .build(client_id.clone())
+            .build()
             .await;
         let unified_cache = Arc::new(unified_cache);
         let config_filters = Arc::new(config_filters);
