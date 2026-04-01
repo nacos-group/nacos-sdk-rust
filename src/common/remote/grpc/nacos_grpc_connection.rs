@@ -432,7 +432,7 @@ where
 
         loop {
             if !self.is_initialized {
-                let max_retries = self.max_retries.unwrap_or(3);
+                let max_retries = self.max_retries.unwrap_or(1);
                 if self.retry_count >= max_retries {
                     error!(
                         "Connection initialization failed after {} attempts. \
@@ -440,7 +440,10 @@ where
                          Please check server address and network connectivity.",
                         max_retries
                     );
-                    return Poll::Ready(Err(Self::Error::MaxRetriesExceeded(max_retries)));
+                    // FIXME Tower Service 契约违反：poll_ready 返回 Ok(()) 但 call() 返回错误
+                    //  但当前先与 emergency_start 配合，允许应急启动。
+                    self.retry_count = 0;
+                    return Poll::Ready(Ok(()));
                 }
             }
 

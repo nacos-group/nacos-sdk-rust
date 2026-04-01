@@ -81,6 +81,7 @@ pub(crate) struct NacosGrpcClientBuilder {
     auth_plugin: Arc<dyn AuthPlugin>,
     auth_context: HashMap<String, String>,
     max_retries: Option<u32>,
+    emergency_start: bool,
 }
 
 #[allow(dead_code)]
@@ -102,6 +103,7 @@ impl NacosGrpcClientBuilder {
             auth_context: Default::default(),
             auth_plugin: Arc::new(NoopAuthPlugin::default()),
             max_retries: None,
+            emergency_start: false,
         }
     }
 
@@ -132,6 +134,11 @@ impl NacosGrpcClientBuilder {
 
     pub(crate) fn max_retries(mut self, max_retries: Option<u32>) -> Self {
         self.max_retries = max_retries;
+        Self { ..self }
+    }
+
+    pub(crate) fn emergency_start(mut self, emergency_start: bool) -> Self {
+        self.emergency_start = emergency_start;
         Self { ..self }
     }
 
@@ -347,11 +354,24 @@ impl NacosGrpcClientBuilder {
         };
 
         // Verify connection by sending a health check request
-        let health_check_request = HealthCheckRequest::default();
-        let health_check_request = GrpcMessageBuilder::new(health_check_request)
+        let health_check_request = GrpcMessageBuilder::new(HealthCheckRequest::default())
             .build()
             .into_payload()?;
-        send_request.send_request(health_check_request).await?;
+        match send_request.send_request(health_check_request).await {
+            Ok(_) => {
+                tracing::info!("health check passed, connected to Nacos server");
+            }
+            Err(e) => {
+                if self.emergency_start {
+                    tracing::warn!(
+                        "health check failed, cannot connect to Nacos server, but continuing startup in emergency mode: {}",
+                        e
+                    );
+                } else {
+                    return Err(e);
+                }
+            }
+        }
 
         init_auth_plugin(
             self.auth_plugin.clone(),

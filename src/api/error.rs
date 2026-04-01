@@ -20,6 +20,7 @@ use tower::BoxError;
 pub type Result<T> = std::result::Result<T, Error>;
 
 /// Nacos Sdk Rust Error.
+#[non_exhaustive]
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("Serialization failed: {0}")]
@@ -65,6 +66,8 @@ pub enum Error {
     #[error("Wrong server address: {0}")]
     WrongServerAddress(String),
 
+    #[deprecated]
+    #[allow(unused)]
     #[error("Exceeded maximum retry attempts: {0}")]
     MaxRetriesExceeded(u32),
 }

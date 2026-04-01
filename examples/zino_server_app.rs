@@ -60,10 +60,11 @@ static LOCAL_IP: LazyLock<String> =
 static CLIENT_PROPS: LazyLock<ClientProps> = LazyLock::new(|| {
     ClientProps::new()
         .server_addr(constants::DEFAULT_SERVER_ADDR)
-        .namespace("")
+        .namespace("zino-test")
         .app_name("zino_server_app")
         .auth_username("nacos")
         .auth_password("nacos")
+        .load_cache_at_start(true)
 });
 
 static CONFIG_SERVICE: OnceCell<ConfigService> = OnceCell::const_new();
@@ -161,6 +162,7 @@ async fn greeting(req: Request) -> Result {
 
     let port = server_port();
     let mut res = Response::ok().context(&req);
+    #[allow(clippy::disallowed_methods)]
     res.set_json_data(json!({
         "greeting": greeting_text,
         "server": SERVICE_NAME,
@@ -173,6 +175,7 @@ async fn greeting(req: Request) -> Result {
 async fn health(req: Request) -> Result {
     let port = server_port();
     let mut res = Response::ok().context(&req);
+    #[allow(clippy::disallowed_methods)]
     res.set_json_data(json!({
         "status": "UP",
         "server": SERVICE_NAME,
