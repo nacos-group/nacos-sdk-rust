@@ -40,7 +40,9 @@ jobs:
       - name: Install rnacos
         run: |
           cargo install rnacos
-          rnacos --version || echo "rnacos installed"
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+      - name: Verify rnacos
+        run: rnacos --version
       - name: Run integration tests
         run: |
           cargo test --test it_config --test it_naming --test it_auth --features "config,naming,auth-by-http" -- --include-ignored --test-threads=1
