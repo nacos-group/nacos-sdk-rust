@@ -1,3 +1,5 @@
+mod shared;
+
 #[cfg(feature = "config")]
 #[cfg(test)]
 mod config_cache_tests {
@@ -7,10 +9,7 @@ mod config_cache_tests {
     #[tokio::test]
     #[ignore] // Run manually with cargo test --test config_cache_test -- --ignored
     async fn test_config_persistence_with_server_down() {
-        // Initialize tracing
-        tracing_subscriber::fmt()
-            .with_max_level(tracing::Level::INFO)
-            .init();
+        crate::shared::setup_log();
 
         // Test data
         let data_id = "test-cache-config";

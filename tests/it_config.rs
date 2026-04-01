@@ -104,9 +104,7 @@ mod config_integration_tests {
     #[tokio::test]
     #[ignore]
     async fn test_publish_and_get_config() {
-        let _ = tracing_subscriber::fmt()
-            .with_max_level(tracing::Level::DEBUG)
-            .try_init();
+        crate::shared::setup_log();
 
         let server_addr = get_shared_server_addr().await;
         let service = create_config_service(&server_addr).await;
@@ -142,9 +140,7 @@ mod config_integration_tests {
     #[tokio::test]
     #[ignore]
     async fn test_remove_config() {
-        let _ = tracing_subscriber::fmt()
-            .with_max_level(tracing::Level::DEBUG)
-            .try_init();
+        crate::shared::setup_log();
 
         let server_addr = get_shared_server_addr().await;
         let service = create_config_service(&server_addr).await;
@@ -191,9 +187,7 @@ mod config_integration_tests {
     #[tokio::test]
     #[ignore]
     async fn test_cas_publish() {
-        let _ = tracing_subscriber::fmt()
-            .with_max_level(tracing::Level::DEBUG)
-            .try_init();
+        crate::shared::setup_log();
 
         let server_addr = get_shared_server_addr().await;
         let service = create_config_service(&server_addr).await;
@@ -263,9 +257,7 @@ mod config_integration_tests {
     #[tokio::test]
     #[ignore]
     async fn test_config_not_found() {
-        let _ = tracing_subscriber::fmt()
-            .with_max_level(tracing::Level::DEBUG)
-            .try_init();
+        crate::shared::setup_log();
 
         let server_addr = get_shared_server_addr().await;
         let service = create_config_service(&server_addr).await;
@@ -302,9 +294,7 @@ mod config_integration_tests {
     #[tokio::test]
     #[ignore]
     async fn test_multiple_configs() {
-        let _ = tracing_subscriber::fmt()
-            .with_max_level(tracing::Level::DEBUG)
-            .try_init();
+        crate::shared::setup_log();
 
         let server_addr = get_shared_server_addr().await;
         let service = create_config_service(&server_addr).await;
@@ -372,9 +362,7 @@ mod config_integration_tests {
     #[tokio::test]
     #[ignore]
     async fn test_publish_config_param() {
-        let _ = tracing_subscriber::fmt()
-            .with_max_level(tracing::Level::DEBUG)
-            .try_init();
+        crate::shared::setup_log();
 
         let server_addr = get_shared_server_addr().await;
         let service = create_config_service(&server_addr).await;
@@ -422,9 +410,7 @@ mod config_integration_tests {
             return;
         }
 
-        let _ = tracing_subscriber::fmt()
-            .with_max_level(tracing::Level::DEBUG)
-            .try_init();
+        crate::shared::setup_log();
 
         let server_addr = get_shared_server_addr().await;
         let service = create_config_service(&server_addr).await;
@@ -460,9 +446,7 @@ mod config_integration_tests {
     #[tokio::test]
     #[ignore]
     async fn test_remove_non_existent_config() {
-        let _ = tracing_subscriber::fmt()
-            .with_max_level(tracing::Level::DEBUG)
-            .try_init();
+        crate::shared::setup_log();
 
         let server_addr = get_shared_server_addr().await;
         let service = create_config_service(&server_addr).await;
@@ -481,9 +465,7 @@ mod config_integration_tests {
     #[tokio::test]
     #[ignore]
     async fn test_listener_lifecycle() {
-        let _ = tracing_subscriber::fmt()
-            .with_max_level(tracing::Level::DEBUG)
-            .try_init();
+        crate::shared::setup_log();
 
         let server_addr = get_shared_server_addr().await;
         let service = create_config_service(&server_addr).await;
@@ -547,9 +529,7 @@ mod config_integration_tests {
     #[tokio::test]
     #[ignore]
     async fn test_json_config() {
-        let _ = tracing_subscriber::fmt()
-            .with_max_level(tracing::Level::DEBUG)
-            .try_init();
+        crate::shared::setup_log();
 
         let server_addr = get_shared_server_addr().await;
         let service = create_config_service(&server_addr).await;
@@ -582,9 +562,7 @@ mod config_integration_tests {
     #[tokio::test]
     #[ignore]
     async fn test_yaml_config() {
-        let _ = tracing_subscriber::fmt()
-            .with_max_level(tracing::Level::DEBUG)
-            .try_init();
+        crate::shared::setup_log();
 
         let server_addr = get_shared_server_addr().await;
         let service = create_config_service(&server_addr).await;
@@ -616,9 +594,7 @@ mod config_integration_tests {
     #[tokio::test]
     #[ignore]
     async fn test_cas_publish_with_param() {
-        let _ = tracing_subscriber::fmt()
-            .with_max_level(tracing::Level::DEBUG)
-            .try_init();
+        crate::shared::setup_log();
 
         let server_addr = get_shared_server_addr().await;
         let service = create_config_service(&server_addr).await;

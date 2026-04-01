@@ -28,6 +28,7 @@
 #![allow(dead_code)]
 
 mod fixtures;
+mod shared;
 
 #[cfg(feature = "config")]
 mod cache_integration_tests {
@@ -95,9 +96,7 @@ mod cache_integration_tests {
     #[tokio::test]
     #[ignore] // Requires running Nacos server: cargo test --test it_cache -- --ignored
     async fn test_cache_persistence_with_load_cache_at_start() {
-        let _ = tracing_subscriber::fmt()
-            .with_max_level(tracing::Level::DEBUG)
-            .try_init();
+        crate::shared::setup_log();
 
         let mut server = create_server(ServerMode::default(), random_test_port());
         server
@@ -183,9 +182,7 @@ mod cache_integration_tests {
     #[tokio::test]
     #[ignore] // Requires running Nacos server: cargo test --test it_cache -- --ignored
     async fn test_cache_directory_structure() {
-        let _ = tracing_subscriber::fmt()
-            .with_max_level(tracing::Level::DEBUG)
-            .try_init();
+        crate::shared::setup_log();
 
         let mut server = create_server(ServerMode::default(), random_test_port());
         server
@@ -250,9 +247,7 @@ mod cache_integration_tests {
     #[tokio::test]
     #[ignore] // Requires running Nacos server: cargo test --test it_cache -- --ignored
     async fn test_cache_survives_service_restart() {
-        let _ = tracing_subscriber::fmt()
-            .with_max_level(tracing::Level::DEBUG)
-            .try_init();
+        crate::shared::setup_log();
 
         let mut server = create_server(ServerMode::default(), random_test_port());
         server
@@ -348,9 +343,7 @@ mod cache_integration_tests {
     #[tokio::test]
     #[ignore] // Requires running Nacos server: cargo test --test it_cache -- --ignored
     async fn test_cache_cleanup_on_remove() {
-        let _ = tracing_subscriber::fmt()
-            .with_max_level(tracing::Level::DEBUG)
-            .try_init();
+        crate::shared::setup_log();
 
         let mut server = create_server(ServerMode::default(), random_test_port());
         server
@@ -404,9 +397,7 @@ mod cache_integration_tests {
     #[tokio::test]
     #[ignore] // Requires running Nacos server: cargo test --test it_cache -- --ignored
     async fn test_multiple_configs_cached_independently() {
-        let _ = tracing_subscriber::fmt()
-            .with_max_level(tracing::Level::DEBUG)
-            .try_init();
+        crate::shared::setup_log();
 
         let mut server = create_server(ServerMode::default(), random_test_port());
         server

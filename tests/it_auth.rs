@@ -26,6 +26,7 @@
 #![allow(dead_code)]
 
 mod fixtures;
+mod shared;
 
 #[cfg(feature = "auth-by-http")]
 mod auth_integration_tests {
@@ -130,9 +131,7 @@ mod auth_integration_tests {
     #[tokio::test]
     #[ignore]
     async fn test_config_with_http_auth() {
-        let _ = tracing_subscriber::fmt()
-            .with_max_level(tracing::Level::DEBUG)
-            .try_init();
+        crate::shared::setup_log();
 
         let server_addr = get_shared_server_addr().await;
         let config_service =
@@ -176,9 +175,7 @@ mod auth_integration_tests {
     #[tokio::test]
     #[ignore]
     async fn test_naming_with_http_auth() {
-        let _ = tracing_subscriber::fmt()
-            .with_max_level(tracing::Level::DEBUG)
-            .try_init();
+        crate::shared::setup_log();
 
         let server_addr = get_shared_server_addr().await;
         let naming_service =
@@ -246,9 +243,7 @@ mod auth_integration_tests {
     #[tokio::test]
     #[ignore]
     async fn test_naming_subscribe_with_http_auth() {
-        let _ = tracing_subscriber::fmt()
-            .with_max_level(tracing::Level::DEBUG)
-            .try_init();
+        crate::shared::setup_log();
 
         let server_addr = get_shared_server_addr().await;
         let naming_service =
@@ -309,9 +304,7 @@ mod auth_integration_tests {
     #[tokio::test]
     #[ignore]
     async fn test_config_multiple_operations_with_auth() {
-        let _ = tracing_subscriber::fmt()
-            .with_max_level(tracing::Level::DEBUG)
-            .try_init();
+        crate::shared::setup_log();
 
         let server_addr = get_shared_server_addr().await;
         let config_service =
@@ -328,7 +321,7 @@ mod auth_integration_tests {
                 .expect("publish_config failed");
             assert!(result, "publish_config should return true");
 
-            tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+            tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
             let config = config_service
                 .get_config(data_id.clone(), group.clone())
                 .await
@@ -345,9 +338,7 @@ mod auth_integration_tests {
     #[tokio::test]
     #[ignore]
     async fn test_naming_batch_register_with_http_auth() {
-        let _ = tracing_subscriber::fmt()
-            .with_max_level(tracing::Level::DEBUG)
-            .try_init();
+        crate::shared::setup_log();
 
         let server_addr = get_shared_server_addr().await;
         let naming_service =
