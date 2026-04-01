@@ -141,7 +141,8 @@ mod auth_integration_tests {
         let group = "TEST_GROUP".to_string();
         let content = "authenticated-content".to_string();
 
-        let publish_result = config_service
+        // Retry up to 3 times for occasional Nacos DB lock timeouts
+        let mut publish_result = config_service
             .publish_config(
                 data_id.clone(),
                 group.clone(),
@@ -149,6 +150,25 @@ mod auth_integration_tests {
                 Some("text".to_string()),
             )
             .await;
+        for _ in 0..3 {
+            if let Err(ref e) = publish_result {
+                if e.to_string().contains("lock could not be obtained") {
+                    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+                    publish_result = config_service
+                        .publish_config(
+                            data_id.clone(),
+                            group.clone(),
+                            content.clone(),
+                            Some("text".to_string()),
+                        )
+                        .await;
+                } else {
+                    break;
+                }
+            } else {
+                break;
+            }
+        }
 
         assert!(
             publish_result.expect("publish_config should succeed with valid auth"),
