@@ -109,10 +109,10 @@ Tests use `rnacos` by default for fast local testing. Set `NACOS_SERVER=docker` 
 cargo install rnacos
 
 # Run with rnacos (default)
-cargo test --test it_config --test it_naming --test it_auth -- --include-ignored --test-threads=1
+cargo test --test it_config --test it_naming --test it_auth --features "config,naming,auth-by-http" -- --include-ignored --test-threads=1
 
 # Run with Docker Nacos v2.5.2
-NACOS_SERVER=docker cargo test --test it_config --test it_naming --test it_auth -- --include-ignored --test-threads=1
+NACOS_SERVER=docker cargo test --test it_config --test it_naming --test it_auth --features "config,naming,auth-by-http" -- --include-ignored --test-threads=1
 ```
 
 ### Test Files

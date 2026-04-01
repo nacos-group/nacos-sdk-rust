@@ -43,7 +43,7 @@ jobs:
           rnacos --version || echo "rnacos installed"
       - name: Run integration tests
         run: |
-          cargo test --test it_config --test it_naming --test it_auth -- --include-ignored --test-threads=1
+          cargo test --test it_config --test it_naming --test it_auth --features "config,naming,auth-by-http" -- --include-ignored --test-threads=1
 
   integration-docker:
     name: Integration Tests (Docker Nacos v2.5.2)
@@ -72,7 +72,7 @@ jobs:
         run: sleep 30 && curl -s http://localhost:8848/nacos/v1/console/health/readiness || true
       - name: Run integration tests
         run: |
-          cargo test --test it_config --test it_naming --test it_auth -- --include-ignored --test-threads=1
+          cargo test --test it_config --test it_naming --test it_auth --features "config,naming,auth-by-http" -- --include-ignored --test-threads=1
         env:
           NACOS_SERVER: docker
 
@@ -101,21 +101,9 @@ jobs:
           - "config,naming,auth-by-http"
           - "config,naming,auth-by-http,tls"
           - "config,naming,auth-by-aliyun"
-#          - "--all-features"
     steps:
       - uses: actions/checkout@v3
       - name: Build with features
         run: cargo build --features "${{ matrix.features }}"
       - name: Test with features
         run: cargo test --features "${{ matrix.features }}"
-
-#  publish:
-#    name: Publish
-#    runs-on: ubuntu-latest
-#    needs: [lint, build]
-#    if: startswith(github.ref, 'refs/tags/v')
-#
-#    steps:
-#      - uses: actions/checkout@v3
-#      - name: cargo publish
-#        run: cargo publish --token ${{ env.CARGO_TOKEN }}

@@ -223,11 +223,11 @@ let naming_service = NamingServiceBuilder::new(props).build().await?;
   cargo install rnacos
   
   # 运行集成测试（默认使用 rnacos）
-  cargo test --test it_config --test it_naming --test it_auth -- --include-ignored --test-threads=1
+  cargo test --test it_config --test it_naming --test it_auth --features "config,naming,auth-by-http" -- --include-ignored --test-threads=1
   ```
 - **Docker Nacos**：如需测试 Java Nacos 兼容性，设置环境变量 `NACOS_SERVER=docker`
   ```bash
-  NACOS_SERVER=docker cargo test --test it_config --test it_naming --test it_auth -- --include-ignored --test-threads=1
+  NACOS_SERVER=docker cargo test --test it_config --test it_naming --test it_auth --features "config,naming,auth-by-http" -- --include-ignored --test-threads=1
   ```
 
 ### 主要依赖包
