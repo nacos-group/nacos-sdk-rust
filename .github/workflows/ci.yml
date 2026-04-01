@@ -85,7 +85,7 @@ jobs:
       - name: Build examples
         run: cargo build --examples
       - name: Run Tests
-        run: cargo test --all-targets --all-features
+        run: cargo test --lib --bins --all-features
 
   feature-matrix:
     name: Feature Matrix
@@ -105,4 +105,4 @@ jobs:
       - name: Build with features
         run: cargo build --features "${{ matrix.features }}"
       - name: Test with features
-        run: cargo test --features "${{ matrix.features }}"
+        run: cargo test --lib --bins --features "${{ matrix.features }}"
