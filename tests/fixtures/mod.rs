@@ -1,4 +1,5 @@
 pub mod docker_nacos;
+pub mod externally_managed;
 pub mod rnacos;
 
 use std::fmt;
@@ -43,18 +44,13 @@ impl From<std::io::Error> for FixtureError {
 pub enum ServerMode {
     Rnacos,
     Docker,
+    ExternallyManaged,
 }
 
 impl Default for ServerMode {
     fn default() -> Self {
         match std::env::var("NACOS_SERVER").as_deref() {
-            Ok("docker") if docker_nacos::DockerNacosServer::is_docker_available() => {
-                ServerMode::Docker
-            }
-            Ok("docker") => {
-                eprintln!("Docker requested but not available, falling back to rnacos");
-                ServerMode::Rnacos
-            }
+            Ok("docker") => ServerMode::ExternallyManaged,
             _ => ServerMode::Rnacos,
         }
     }
@@ -63,6 +59,7 @@ impl Default for ServerMode {
 pub enum NacosServerEnum {
     Rnacos(rnacos::RnacosServer),
     Docker(docker_nacos::DockerNacosServer),
+    ExternallyManaged(externally_managed::ExternallyManagedServer),
 }
 
 impl NacosServerEnum {
@@ -70,6 +67,7 @@ impl NacosServerEnum {
         match self {
             NacosServerEnum::Rnacos(s) => s.server_addr(),
             NacosServerEnum::Docker(s) => s.server_addr(),
+            NacosServerEnum::ExternallyManaged(s) => s.server_addr(),
         }
     }
 
@@ -77,6 +75,7 @@ impl NacosServerEnum {
         match self {
             NacosServerEnum::Rnacos(s) => s.grpc_port(),
             NacosServerEnum::Docker(s) => s.grpc_port(),
+            NacosServerEnum::ExternallyManaged(s) => s.grpc_port(),
         }
     }
 
@@ -84,6 +83,7 @@ impl NacosServerEnum {
         match self {
             NacosServerEnum::Rnacos(s) => s.start().await,
             NacosServerEnum::Docker(s) => s.start().await,
+            NacosServerEnum::ExternallyManaged(s) => s.start().await,
         }
     }
 
@@ -91,6 +91,7 @@ impl NacosServerEnum {
         match self {
             NacosServerEnum::Rnacos(s) => s.stop().await,
             NacosServerEnum::Docker(s) => s.stop().await,
+            NacosServerEnum::ExternallyManaged(s) => s.stop().await,
         }
     }
 
@@ -98,6 +99,7 @@ impl NacosServerEnum {
         match self {
             NacosServerEnum::Rnacos(s) => s.health_check().await,
             NacosServerEnum::Docker(s) => s.health_check().await,
+            NacosServerEnum::ExternallyManaged(s) => s.health_check().await,
         }
     }
 }
@@ -108,6 +110,9 @@ pub fn create_server(mode: ServerMode, http_port: u16) -> NacosServerEnum {
         ServerMode::Docker => {
             NacosServerEnum::Docker(docker_nacos::DockerNacosServer::new(http_port))
         }
+        ServerMode::ExternallyManaged => NacosServerEnum::ExternallyManaged(
+            externally_managed::ExternallyManagedServer::new(DEFAULT_DOCKER_HTTP_PORT),
+        ),
     }
 }
 
