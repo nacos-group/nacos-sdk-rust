@@ -109,27 +109,14 @@ Tests use `rnacos` by default for fast local testing.
 cargo install rnacos
 
 # Run with rnacos (default)
-cargo test --test it_config --test it_naming --test it_auth --features "config,naming,auth-by-http" -- --include-ignored --test-threads=1
+cargo test --test it_config --test it_naming --test it_auth --features "config,naming,auth-by-http" -- --include-ignored
 
 # Run with Docker Nacos (auto-starts container)
-NACOS_SERVER=docker cargo test --test it_config --test it_naming --test it_auth --features "config,naming,auth-by-http" -- --include-ignored --test-threads=1
+NACOS_SERVER=docker cargo test --test it_config --test it_naming --test it_auth --features "config,naming,auth-by-http" -- --include-ignored
 
 # Run with external Nacos server (connects to localhost:8848)
-NACOS_SERVER=external cargo test --test it_config --test it_naming --test it_auth --features "config,naming,auth-by-http" -- --include-ignored --test-threads=1
+NACOS_SERVER=external cargo test --test it_config --test it_naming --test it_auth --features "config,naming,auth-by-http" -- --include-ignored
 ```
-
-### Environment Variables
-- `NACOS_SERVER`: Test server type
-  - `rnacos` (default): Use rnacos, no external service needed
-  - `docker`: Start Docker container (local development)
-  - `external`: Connect to existing Nacos server (CI/CD)
-
-### Test Files
-- `tests/it_config.rs` - Config service tests (publish, get, listen, CAS)
-- `tests/it_naming.rs` - Naming service tests (register, subscribe, query)
-- `tests/it_auth.rs` - Auth plugin tests (HTTP auth)
-- `tests/fixtures/` - Test server fixtures (rnacos, docker)
-- `tests/shared/` - Shared test utilities
 
 ## Key Implementation Files
 

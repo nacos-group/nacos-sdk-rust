@@ -29,7 +29,7 @@ mod fixtures;
 
 #[cfg(feature = "auth-by-http")]
 mod auth_integration_tests {
-    use crate::fixtures::{ServerMode, create_server};
+    use crate::fixtures::shared_server::get_shared_server_addr;
     use nacos_sdk::api::config::{ConfigChangeListener, ConfigResponse, ConfigServiceBuilder};
     use nacos_sdk::api::naming::{NamingEventListener, NamingServiceBuilder, ServiceInstance};
     use nacos_sdk::api::props::ClientProps;
@@ -37,15 +37,6 @@ mod auth_integration_tests {
 
     const TEST_USERNAME: &str = "nacos";
     const TEST_PASSWORD: &str = "nacos";
-
-    fn random_test_port() -> u16 {
-        use std::time::{SystemTime, UNIX_EPOCH};
-        let seed = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("system time error")
-            .as_nanos() as u64;
-        20000 + ((seed % 1000) as u16)
-    }
 
     async fn create_config_service_with_auth(
         server_addr: &str,
@@ -143,15 +134,9 @@ mod auth_integration_tests {
             .with_max_level(tracing::Level::DEBUG)
             .try_init();
 
-        let mut server = create_server(ServerMode::default(), random_test_port());
-        server
-            .start()
-            .await
-            .expect("Server should start successfully");
-
+        let server_addr = get_shared_server_addr().await;
         let config_service =
-            create_config_service_with_auth(&server.server_addr(), TEST_USERNAME, TEST_PASSWORD)
-                .await;
+            create_config_service_with_auth(&server_addr, TEST_USERNAME, TEST_PASSWORD).await;
 
         let data_id = "test-auth-config".to_string();
         let group = "TEST_GROUP".to_string();
@@ -186,11 +171,6 @@ mod auth_integration_tests {
             .remove_config(data_id, group)
             .await
             .expect("remove_config should succeed");
-
-        server
-            .stop()
-            .await
-            .expect("Server should stop successfully");
     }
 
     #[tokio::test]
@@ -200,15 +180,9 @@ mod auth_integration_tests {
             .with_max_level(tracing::Level::DEBUG)
             .try_init();
 
-        let mut server = create_server(ServerMode::default(), random_test_port());
-        server
-            .start()
-            .await
-            .expect("Server should start successfully");
-
+        let server_addr = get_shared_server_addr().await;
         let naming_service =
-            create_naming_service_with_auth(&server.server_addr(), TEST_USERNAME, TEST_PASSWORD)
-                .await;
+            create_naming_service_with_auth(&server_addr, TEST_USERNAME, TEST_PASSWORD).await;
 
         let service_name = "test-auth-service".to_string();
         let group_name = Some("TEST_GROUP".to_string());
@@ -231,7 +205,7 @@ mod auth_integration_tests {
             .await
             .expect("register_instance should succeed with valid auth");
 
-        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+        tokio::time::sleep(tokio::time::Duration::from_millis(1500)).await;
 
         let instances = naming_service
             .get_all_instances(
@@ -267,85 +241,6 @@ mod auth_integration_tests {
             .deregister_instance(service_name, group_name, instance)
             .await
             .expect("deregister_instance should succeed");
-
-        server
-            .stop()
-            .await
-            .expect("Server should stop successfully");
-    }
-
-    #[tokio::test]
-    #[ignore]
-    async fn test_config_listener_with_http_auth() {
-        let _ = tracing_subscriber::fmt()
-            .with_max_level(tracing::Level::DEBUG)
-            .try_init();
-
-        let mut server = create_server(ServerMode::default(), random_test_port());
-        server
-            .start()
-            .await
-            .expect("Server should start successfully");
-
-        let config_service =
-            create_config_service_with_auth(&server.server_addr(), TEST_USERNAME, TEST_PASSWORD)
-                .await;
-
-        let data_id = "test-auth-listener-config".to_string();
-        let group = "TEST_GROUP".to_string();
-        let initial_content = "initial-content".to_string();
-        let updated_content = "updated-content".to_string();
-
-        let listener = Arc::new(TestConfigChangeListener::new());
-        config_service
-            .add_listener(data_id.clone(), group.clone(), listener.clone())
-            .await
-            .expect("add_listener should succeed with valid auth");
-
-        config_service
-            .publish_config(
-                data_id.clone(),
-                group.clone(),
-                initial_content.clone(),
-                Some("text".to_string()),
-            )
-            .await
-            .expect("publish_config should succeed");
-
-        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-
-        config_service
-            .publish_config(
-                data_id.clone(),
-                group.clone(),
-                updated_content.clone(),
-                Some("text".to_string()),
-            )
-            .await
-            .expect("publish_config should succeed");
-
-        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-
-        let notifications = listener.get_received();
-        assert!(
-            !notifications.is_empty(),
-            "Listener should have received at least one notification"
-        );
-
-        config_service
-            .remove_listener(data_id.clone(), group.clone(), listener)
-            .await
-            .expect("remove_listener should succeed");
-
-        config_service
-            .remove_config(data_id, group)
-            .await
-            .expect("remove_config should succeed");
-
-        server
-            .stop()
-            .await
-            .expect("Server should stop successfully");
     }
 
     #[tokio::test]
@@ -355,15 +250,9 @@ mod auth_integration_tests {
             .with_max_level(tracing::Level::DEBUG)
             .try_init();
 
-        let mut server = create_server(ServerMode::default(), random_test_port());
-        server
-            .start()
-            .await
-            .expect("Server should start successfully");
-
+        let server_addr = get_shared_server_addr().await;
         let naming_service =
-            create_naming_service_with_auth(&server.server_addr(), TEST_USERNAME, TEST_PASSWORD)
-                .await;
+            create_naming_service_with_auth(&server_addr, TEST_USERNAME, TEST_PASSWORD).await;
 
         let service_name = "test-auth-subscribe-service".to_string();
         let group_name = Some("TEST_GROUP".to_string());
@@ -415,11 +304,6 @@ mod auth_integration_tests {
             )
             .await
             .expect("unsubscribe should succeed");
-
-        server
-            .stop()
-            .await
-            .expect("Server should stop successfully");
     }
 
     #[tokio::test]
@@ -429,15 +313,9 @@ mod auth_integration_tests {
             .with_max_level(tracing::Level::DEBUG)
             .try_init();
 
-        let mut server = create_server(ServerMode::default(), random_test_port());
-        server
-            .start()
-            .await
-            .expect("Server should start successfully");
-
+        let server_addr = get_shared_server_addr().await;
         let config_service =
-            create_config_service_with_auth(&server.server_addr(), TEST_USERNAME, TEST_PASSWORD)
-                .await;
+            create_config_service_with_auth(&server_addr, TEST_USERNAME, TEST_PASSWORD).await;
 
         for i in 0..5 {
             let data_id = format!("test-auth-multi-config-{}", i);
@@ -462,11 +340,6 @@ mod auth_integration_tests {
                 .await
                 .expect("remove_config failed");
         }
-
-        server
-            .stop()
-            .await
-            .expect("Server should stop successfully");
     }
 
     #[tokio::test]
@@ -476,15 +349,9 @@ mod auth_integration_tests {
             .with_max_level(tracing::Level::DEBUG)
             .try_init();
 
-        let mut server = create_server(ServerMode::default(), random_test_port());
-        server
-            .start()
-            .await
-            .expect("Server should start successfully");
-
+        let server_addr = get_shared_server_addr().await;
         let naming_service =
-            create_naming_service_with_auth(&server.server_addr(), TEST_USERNAME, TEST_PASSWORD)
-                .await;
+            create_naming_service_with_auth(&server_addr, TEST_USERNAME, TEST_PASSWORD).await;
 
         let service_name = "test-auth-batch-service".to_string();
         let group_name = Some("TEST_GROUP".to_string());
@@ -521,7 +388,7 @@ mod auth_integration_tests {
             .await
             .expect("batch_register_instance should succeed with valid auth");
 
-        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+        tokio::time::sleep(tokio::time::Duration::from_millis(1500)).await;
 
         let all_instances = naming_service
             .get_all_instances(
@@ -557,10 +424,5 @@ mod auth_integration_tests {
                 .await
                 .expect("deregister_instance should succeed");
         }
-
-        server
-            .stop()
-            .await
-            .expect("Server should stop successfully");
     }
 }

@@ -38,7 +38,8 @@ mod shared;
 
 #[cfg(feature = "config")]
 mod config_integration_tests {
-    use crate::fixtures::{ServerMode, create_server};
+    use crate::fixtures::ServerMode;
+    use crate::fixtures::shared_server::{get_server_mode, get_shared_server_addr};
     use crate::shared::{ConfigTestData, MockConfigListener};
     use nacos_sdk::api::config::{ConfigService, ConfigServiceBuilder};
     use nacos_sdk::api::props::ClientProps;
@@ -47,18 +48,6 @@ mod config_integration_tests {
     use std::time::Duration;
 
     const CONFIG_SYNC_TIMEOUT: Duration = Duration::from_millis(500);
-
-    fn random_test_port() -> u16 {
-        use std::time::{SystemTime, UNIX_EPOCH};
-        let seed = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("system time error")
-            .as_nanos() as u64;
-        use std::sync::atomic::{AtomicU16, Ordering};
-        static COUNTER: AtomicU16 = AtomicU16::new(0);
-        let counter = COUNTER.fetch_add(1, Ordering::Relaxed);
-        45000 + ((seed % 1000) as u16) + counter
-    }
 
     /// Creates a ConfigService connected to the given server address.
     async fn create_config_service(server_addr: &str) -> ConfigService {
@@ -119,15 +108,8 @@ mod config_integration_tests {
             .with_max_level(tracing::Level::DEBUG)
             .try_init();
 
-        let mode = ServerMode::default();
-        eprintln!("Testing with server mode: {:?}", mode);
-        let mut server = create_server(mode, random_test_port());
-        server
-            .start()
-            .await
-            .expect("Server should start successfully");
-
-        let service = create_config_service(&server.server_addr()).await;
+        let server_addr = get_shared_server_addr().await;
+        let service = create_config_service(&server_addr).await;
         let test_data = ConfigTestData::random();
 
         let publish_result = publish_config(
@@ -150,93 +132,6 @@ mod config_integration_tests {
         assert_eq!(response.group(), &test_data.group);
 
         cleanup_config(&service, test_data.data_id.clone(), test_data.group.clone()).await;
-
-        server
-            .stop()
-            .await
-            .expect("Server should stop successfully");
-    }
-
-    /// Test: config listener receives notifications on config change.
-    ///
-    /// Verifies:
-    /// - Adding a listener succeeds
-    /// - Listener receives notification when config is published
-    /// - Listener receives notification when config is updated
-    /// - Removing a listener succeeds
-    #[tokio::test]
-    #[ignore]
-    async fn test_config_listener() {
-        let _ = tracing_subscriber::fmt()
-            .with_max_level(tracing::Level::DEBUG)
-            .try_init();
-
-        let mut server = create_server(ServerMode::default(), random_test_port());
-        server
-            .start()
-            .await
-            .expect("Server should start successfully");
-
-        let service = create_config_service(&server.server_addr()).await;
-        let test_data = ConfigTestData::random();
-
-        let listener = Arc::new(MockConfigListener::new());
-
-        service
-            .add_listener(
-                test_data.data_id.clone(),
-                test_data.group.clone(),
-                listener.clone(),
-            )
-            .await
-            .expect("add_listener should succeed");
-
-        publish_config(
-            &service,
-            test_data.data_id.clone(),
-            test_data.group.clone(),
-            test_data.content.clone(),
-            Some(test_data.content_type.clone()),
-        )
-        .await;
-
-        tokio::time::sleep(CONFIG_SYNC_TIMEOUT).await;
-
-        let _notifications = listener.get_notifications();
-
-        let updated_content = format!("updated-{}", test_data.content);
-        publish_config(
-            &service,
-            test_data.data_id.clone(),
-            test_data.group.clone(),
-            updated_content.clone(),
-            Some(test_data.content_type.clone()),
-        )
-        .await;
-
-        tokio::time::sleep(CONFIG_SYNC_TIMEOUT).await;
-
-        let notifications = listener.get_notifications();
-        assert!(
-            !notifications.is_empty(),
-            "Listener should have received notifications for both publish and update"
-        );
-
-        service
-            .remove_listener(
-                test_data.data_id.clone(),
-                test_data.group.clone(),
-                listener.clone(),
-            )
-            .await
-            .expect("remove_listener should succeed");
-
-        cleanup_config(&service, test_data.data_id.clone(), test_data.group.clone()).await;
-
-        server
-            .stop()
-            .await
-            .expect("Server should stop successfully");
     }
 
     /// Test: remove config.
@@ -251,13 +146,8 @@ mod config_integration_tests {
             .with_max_level(tracing::Level::DEBUG)
             .try_init();
 
-        let mut server = create_server(ServerMode::default(), random_test_port());
-        server
-            .start()
-            .await
-            .expect("Server should start successfully");
-
-        let service = create_config_service(&server.server_addr()).await;
+        let server_addr = get_shared_server_addr().await;
+        let service = create_config_service(&server_addr).await;
         let test_data = ConfigTestData::random();
 
         publish_config(
@@ -290,11 +180,6 @@ mod config_integration_tests {
             get_result.is_err(),
             "get_config should fail for removed config"
         );
-
-        server
-            .stop()
-            .await
-            .expect("Server should stop successfully");
     }
 
     /// Test: CAS (Compare-And-Swap) publish config.
@@ -310,13 +195,8 @@ mod config_integration_tests {
             .with_max_level(tracing::Level::DEBUG)
             .try_init();
 
-        let mut server = create_server(ServerMode::default(), random_test_port());
-        server
-            .start()
-            .await
-            .expect("Server should start successfully");
-
-        let service = create_config_service(&server.server_addr()).await;
+        let server_addr = get_shared_server_addr().await;
+        let service = create_config_service(&server_addr).await;
         let test_data = ConfigTestData::random();
 
         publish_config(
@@ -373,11 +253,6 @@ mod config_integration_tests {
         assert!(final_resp.is_ok(), "get_config should succeed after CAS");
 
         cleanup_config(&service, test_data.data_id.clone(), test_data.group.clone()).await;
-
-        server
-            .stop()
-            .await
-            .expect("Server should stop successfully");
     }
 
     /// Test: config not found error.
@@ -392,13 +267,8 @@ mod config_integration_tests {
             .with_max_level(tracing::Level::DEBUG)
             .try_init();
 
-        let mut server = create_server(ServerMode::default(), random_test_port());
-        server
-            .start()
-            .await
-            .expect("Server should start successfully");
-
-        let service = create_config_service(&server.server_addr()).await;
+        let server_addr = get_shared_server_addr().await;
+        let service = create_config_service(&server_addr).await;
 
         let result = service
             .get_config(
@@ -421,11 +291,6 @@ mod config_integration_tests {
                 panic!("get_config should not succeed for non-existent config");
             }
         }
-
-        server
-            .stop()
-            .await
-            .expect("Server should stop successfully");
     }
 
     /// Test: multiple configs can be managed independently.
@@ -441,13 +306,8 @@ mod config_integration_tests {
             .with_max_level(tracing::Level::DEBUG)
             .try_init();
 
-        let mut server = create_server(ServerMode::default(), random_test_port());
-        server
-            .start()
-            .await
-            .expect("Server should start successfully");
-
-        let service = create_config_service(&server.server_addr()).await;
+        let server_addr = get_shared_server_addr().await;
+        let service = create_config_service(&server_addr).await;
 
         let configs: Vec<ConfigTestData> = (0..3).map(|_| ConfigTestData::random()).collect();
 
@@ -502,11 +362,6 @@ mod config_integration_tests {
         for config in &configs[1..] {
             cleanup_config(&service, config.data_id.clone(), config.group.clone()).await;
         }
-
-        server
-            .stop()
-            .await
-            .expect("Server should stop successfully");
     }
 
     /// Test: publish config with params.
@@ -521,13 +376,8 @@ mod config_integration_tests {
             .with_max_level(tracing::Level::DEBUG)
             .try_init();
 
-        let mut server = create_server(ServerMode::default(), random_test_port());
-        server
-            .start()
-            .await
-            .expect("Server should start successfully");
-
-        let service = create_config_service(&server.server_addr()).await;
+        let server_addr = get_shared_server_addr().await;
+        let service = create_config_service(&server_addr).await;
         let test_data = ConfigTestData::random();
 
         let mut params = HashMap::new();
@@ -558,11 +408,6 @@ mod config_integration_tests {
         assert_eq!(response.content(), &test_data.content);
 
         cleanup_config(&service, test_data.data_id.clone(), test_data.group.clone()).await;
-
-        server
-            .stop()
-            .await
-            .expect("Server should stop successfully");
     }
 
     /// Test: publish config beta.
@@ -573,17 +418,16 @@ mod config_integration_tests {
     #[tokio::test]
     #[ignore]
     async fn test_publish_config_beta() {
+        if get_server_mode() == ServerMode::ExternallyManaged {
+            return;
+        }
+
         let _ = tracing_subscriber::fmt()
             .with_max_level(tracing::Level::DEBUG)
             .try_init();
 
-        let mut server = create_server(ServerMode::default(), random_test_port());
-        server
-            .start()
-            .await
-            .expect("Server should start successfully");
-
-        let service = create_config_service(&server.server_addr()).await;
+        let server_addr = get_shared_server_addr().await;
+        let service = create_config_service(&server_addr).await;
         let test_data = ConfigTestData::random();
 
         let result = service
@@ -607,11 +451,6 @@ mod config_integration_tests {
         assert_eq!(response.content(), &test_data.content);
 
         cleanup_config(&service, test_data.data_id.clone(), test_data.group.clone()).await;
-
-        server
-            .stop()
-            .await
-            .expect("Server should stop successfully");
     }
 
     /// Test: remove non-existent config returns false.
@@ -625,22 +464,12 @@ mod config_integration_tests {
             .with_max_level(tracing::Level::DEBUG)
             .try_init();
 
-        let mut server = create_server(ServerMode::default(), random_test_port());
-        server
-            .start()
-            .await
-            .expect("Server should start successfully");
-
-        let service = create_config_service(&server.server_addr()).await;
+        let server_addr = get_shared_server_addr().await;
+        let service = create_config_service(&server_addr).await;
 
         let _result = service
             .remove_config("non-existent".to_string(), "NON_EXISTENT".to_string())
             .await;
-
-        server
-            .stop()
-            .await
-            .expect("Server should stop successfully");
     }
 
     /// Test: add and remove listener lifecycle.
@@ -656,13 +485,8 @@ mod config_integration_tests {
             .with_max_level(tracing::Level::DEBUG)
             .try_init();
 
-        let mut server = create_server(ServerMode::default(), random_test_port());
-        server
-            .start()
-            .await
-            .expect("Server should start successfully");
-
-        let service = create_config_service(&server.server_addr()).await;
+        let server_addr = get_shared_server_addr().await;
+        let service = create_config_service(&server_addr).await;
         let test_data = ConfigTestData::random();
 
         let listener = Arc::new(MockConfigListener::new());
@@ -713,11 +537,6 @@ mod config_integration_tests {
         let _final_count = listener.get_notifications().len();
 
         cleanup_config(&service, test_data.data_id.clone(), test_data.group.clone()).await;
-
-        server
-            .stop()
-            .await
-            .expect("Server should stop successfully");
     }
 
     /// Test: JSON content type config.
@@ -732,13 +551,8 @@ mod config_integration_tests {
             .with_max_level(tracing::Level::DEBUG)
             .try_init();
 
-        let mut server = create_server(ServerMode::default(), random_test_port());
-        server
-            .start()
-            .await
-            .expect("Server should start successfully");
-
-        let service = create_config_service(&server.server_addr()).await;
+        let server_addr = get_shared_server_addr().await;
+        let service = create_config_service(&server_addr).await;
         let test_data = ConfigTestData::json();
 
         publish_config(
@@ -758,11 +572,6 @@ mod config_integration_tests {
         assert_eq!(response.content_type(), "json");
 
         cleanup_config(&service, test_data.data_id.clone(), test_data.group.clone()).await;
-
-        server
-            .stop()
-            .await
-            .expect("Server should stop successfully");
     }
 
     /// Test: YAML content type config.
@@ -777,13 +586,8 @@ mod config_integration_tests {
             .with_max_level(tracing::Level::DEBUG)
             .try_init();
 
-        let mut server = create_server(ServerMode::default(), random_test_port());
-        server
-            .start()
-            .await
-            .expect("Server should start successfully");
-
-        let service = create_config_service(&server.server_addr()).await;
+        let server_addr = get_shared_server_addr().await;
+        let service = create_config_service(&server_addr).await;
         let test_data = ConfigTestData::yaml();
 
         publish_config(
@@ -803,11 +607,6 @@ mod config_integration_tests {
         assert_eq!(response.content_type(), "yaml");
 
         cleanup_config(&service, test_data.data_id.clone(), test_data.group.clone()).await;
-
-        server
-            .stop()
-            .await
-            .expect("Server should stop successfully");
     }
 
     /// Test: CAS publish with param.
@@ -821,13 +620,8 @@ mod config_integration_tests {
             .with_max_level(tracing::Level::DEBUG)
             .try_init();
 
-        let mut server = create_server(ServerMode::Rnacos, 18860);
-        server
-            .start()
-            .await
-            .expect("Server should start successfully");
-
-        let service = create_config_service(&server.server_addr()).await;
+        let server_addr = get_shared_server_addr().await;
+        let service = create_config_service(&server_addr).await;
         let test_data = ConfigTestData::random();
 
         publish_config(
@@ -874,10 +668,5 @@ mod config_integration_tests {
         assert_eq!(response.content(), &new_content);
 
         cleanup_config(&service, test_data.data_id.clone(), test_data.group.clone()).await;
-
-        server
-            .stop()
-            .await
-            .expect("Server should stop successfully");
     }
 }

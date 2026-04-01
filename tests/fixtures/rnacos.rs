@@ -89,6 +89,10 @@ impl Drop for RnacosServer {
 }
 
 impl RnacosServer {
+    pub fn is_running(&self) -> bool {
+        self.running.load(Ordering::SeqCst)
+    }
+
     pub fn server_addr(&self) -> String {
         format!("127.0.0.1:{}", self.http_port)
     }

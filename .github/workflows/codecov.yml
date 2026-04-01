@@ -30,12 +30,39 @@ jobs:
       - name: Install cargo-tarpaulin
         run: cargo install cargo-tarpaulin
 
-      - name: Generate coverage report
-        run: cargo tarpaulin --lib --bins --out Xml
+      - name: Install rnacos
+        run: cargo install rnacos
+
+      - name: Start rnacos server
+        run: |
+          export PATH="$HOME/.cargo/bin:$PATH"
+          rnacos --version
+          nohup rnacos > /tmp/rnacos.log 2>&1 &
+          RNACOS_PID=$!
+          echo "RNACOS_PID=$RNACOS_PID" >> $GITHUB_ENV
+          echo "Waiting for rnacos to be ready..."
+          for i in {1..30}; do
+            if curl -s http://127.0.0.1:8848 > /dev/null 2>&1; then
+              echo "rnacos is ready"
+              break
+            fi
+            sleep 1
+          done
+
+      - name: Generate coverage report (with integration tests)
+        run: |
+          export PATH="$HOME/.cargo/bin:$PATH"
+          cargo tarpaulin --lib --bins --tests --out Xml --features "config,naming,auth-by-http" -- --include-ignored
+
+      - name: Stop rnacos server
+        if: always()
+        run: |
+          if [ -n "$RNACOS_PID" ]; then
+            kill $RNACOS_PID 2>/dev/null || true
+          fi
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v3
         with:
           files: coverage.xml
           fail_ci_if_error: false
-

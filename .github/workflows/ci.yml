@@ -21,7 +21,7 @@ jobs:
     name: Lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: cargo fmt
         run: cargo fmt --all -- --check --color ${{ env.CARGO_TERM_COLOR }}
       - name: cargo clippy
@@ -37,12 +37,30 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
-      - name: Install and test with rnacos
+      - name: Install and start rnacos
         run: |
           cargo install rnacos
           export PATH="$HOME/.cargo/bin:$PATH"
           rnacos --version
-          cargo test --test it_config --test it_naming --test it_auth --features "config,naming,auth-by-http" -- --include-ignored --test-threads=1
+          nohup rnacos > /tmp/rnacos.log 2>&1 &
+          echo "RNACOS_PID=$!" >> $GITHUB_ENV
+          echo "Waiting for rnacos to be ready..."
+          for i in {1..30}; do
+            if curl -s http://127.0.0.1:18848 > /dev/null 2>&1; then
+              echo "rnacos is ready"
+              break
+            fi
+            sleep 1
+          done
+      - name: Run integration tests
+        run: |
+          cargo test --test it_config --test it_naming --test it_auth --features "config,naming,auth-by-http" -- --include-ignored
+      - name: Stop rnacos
+        if: always()
+        run: |
+          if [ -n "$RNACOS_PID" ]; then
+            kill $RNACOS_PID 2>/dev/null || true
+          fi
 
   integration-docker:
     name: Integration Tests (Docker Nacos v2.5.2)
@@ -71,7 +89,7 @@ jobs:
         run: sleep 30 && curl -s http://localhost:8848/nacos/v1/console/health/readiness || true
       - name: Run integration tests
         run: |
-          cargo test --test it_config --test it_naming --test it_auth --features "config,naming,auth-by-http" -- --include-ignored --test-threads=1
+          cargo test --test it_config --test it_naming --test it_auth --features "config,naming,auth-by-http" -- --include-ignored
         env:
           NACOS_SERVER: external
 
@@ -79,7 +97,7 @@ jobs:
     name: Build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Build
         run: cargo build
       - name: Build examples
@@ -101,7 +119,7 @@ jobs:
           - "config,naming,auth-by-http,tls"
           - "config,naming,auth-by-aliyun"
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Build with features
         run: cargo build --features "${{ matrix.features }}"
       - name: Test with features

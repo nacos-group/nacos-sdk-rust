@@ -1,6 +1,7 @@
 pub mod docker_nacos;
 pub mod externally_managed;
 pub mod rnacos;
+pub mod shared_server;
 
 use std::fmt;
 
