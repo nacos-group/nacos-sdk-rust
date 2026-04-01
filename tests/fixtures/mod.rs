@@ -48,7 +48,13 @@ pub enum ServerMode {
 impl Default for ServerMode {
     fn default() -> Self {
         match std::env::var("NACOS_SERVER").as_deref() {
-            Ok("docker") => ServerMode::Docker,
+            Ok("docker") if docker_nacos::DockerNacosServer::is_docker_available() => {
+                ServerMode::Docker
+            }
+            Ok("docker") => {
+                eprintln!("Docker requested but not available, falling back to rnacos");
+                ServerMode::Rnacos
+            }
             _ => ServerMode::Rnacos,
         }
     }
