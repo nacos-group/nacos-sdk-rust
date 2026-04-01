@@ -60,7 +60,7 @@ mod naming_integration_tests {
     /// Test: register a single ephemeral instance and verify it can be queried.
     #[tokio::test]
     async fn test_register_instance() {
-        let mut server = create_server(ServerMode::Rnacos, random_test_port());
+        let mut server = create_server(ServerMode::default(), random_test_port());
         server.start().await.expect("server start failed");
 
         let service = create_naming_service(server.server_addr()).await;
@@ -106,7 +106,7 @@ mod naming_integration_tests {
     /// Test: register a persistent instance and verify it can be queried.
     #[tokio::test]
     async fn test_register_persistent_instance() {
-        let mut server = create_server(ServerMode::Rnacos, random_test_port());
+        let mut server = create_server(ServerMode::default(), random_test_port());
         server.start().await.expect("server start failed");
 
         let service = create_naming_service(server.server_addr()).await;
@@ -147,7 +147,7 @@ mod naming_integration_tests {
     /// Test: deregister an instance and verify it is removed.
     #[tokio::test]
     async fn test_deregister_instance() {
-        let mut server = create_server(ServerMode::Rnacos, random_test_port());
+        let mut server = create_server(ServerMode::default(), random_test_port());
         server.start().await.expect("server start failed");
 
         let service = create_naming_service(server.server_addr()).await;
@@ -198,7 +198,7 @@ mod naming_integration_tests {
     /// Test: batch register multiple instances.
     #[tokio::test]
     async fn test_batch_register_instance() {
-        let mut server = create_server(ServerMode::Rnacos, random_test_port());
+        let mut server = create_server(ServerMode::default(), random_test_port());
         server.start().await.expect("server start failed");
 
         let service = create_naming_service(server.server_addr()).await;
@@ -244,7 +244,7 @@ mod naming_integration_tests {
     /// Test: get all instances for a service.
     #[tokio::test]
     async fn test_get_all_instances() {
-        let mut server = create_server(ServerMode::Rnacos, random_test_port());
+        let mut server = create_server(ServerMode::default(), random_test_port());
         server.start().await.expect("server start failed");
 
         let service = create_naming_service(server.server_addr()).await;
@@ -287,7 +287,7 @@ mod naming_integration_tests {
     /// Test: select instances with healthy filter.
     #[tokio::test]
     async fn test_select_instances() {
-        let mut server = create_server(ServerMode::Rnacos, random_test_port());
+        let mut server = create_server(ServerMode::default(), random_test_port());
         server.start().await.expect("server start failed");
 
         let service = create_naming_service(server.server_addr()).await;
@@ -348,7 +348,7 @@ mod naming_integration_tests {
     /// Test: select one healthy instance.
     #[tokio::test]
     async fn test_select_one_healthy_instance() {
-        let mut server = create_server(ServerMode::Rnacos, random_test_port());
+        let mut server = create_server(ServerMode::default(), random_test_port());
         server.start().await.expect("server start failed");
 
         let service = create_naming_service(server.server_addr()).await;
@@ -393,7 +393,7 @@ mod naming_integration_tests {
     /// Test: get service list.
     #[tokio::test]
     async fn test_get_service_list() {
-        let mut server = create_server(ServerMode::Rnacos, random_test_port());
+        let mut server = create_server(ServerMode::default(), random_test_port());
         server.start().await.expect("server start failed");
 
         let service = create_naming_service(server.server_addr()).await;
@@ -436,7 +436,7 @@ mod naming_integration_tests {
     /// Test: subscribe to service changes and receive events.
     #[tokio::test]
     async fn test_subscribe() {
-        let mut server = create_server(ServerMode::Rnacos, random_test_port());
+        let mut server = create_server(ServerMode::default(), random_test_port());
         server.start().await.expect("server start failed");
 
         let service = create_naming_service(server.server_addr()).await;
@@ -499,7 +499,7 @@ mod naming_integration_tests {
     /// Test: subscribe and unsubscribe lifecycle.
     #[tokio::test]
     async fn test_subscribe_unsubscribe_lifecycle() {
-        let mut server = create_server(ServerMode::Rnacos, random_test_port());
+        let mut server = create_server(ServerMode::default(), random_test_port());
         server.start().await.expect("server start failed");
 
         let service = create_naming_service(server.server_addr()).await;
@@ -580,7 +580,7 @@ mod naming_integration_tests {
     /// Test: register instance with custom metadata.
     #[tokio::test]
     async fn test_register_instance_with_metadata() {
-        let mut server = create_server(ServerMode::Rnacos, random_test_port());
+        let mut server = create_server(ServerMode::default(), random_test_port());
         server.start().await.expect("server start failed");
 
         let service = create_naming_service(server.server_addr()).await;
@@ -626,7 +626,7 @@ mod naming_integration_tests {
     /// Test: register instance with custom cluster.
     #[tokio::test]
     async fn test_register_instance_with_cluster() {
-        let mut server = create_server(ServerMode::Rnacos, random_test_port());
+        let mut server = create_server(ServerMode::default(), random_test_port());
         server.start().await.expect("server start failed");
 
         let service = create_naming_service(server.server_addr()).await;
@@ -674,7 +674,7 @@ mod naming_integration_tests {
     /// Test: multiple services coexist.
     #[tokio::test]
     async fn test_multiple_services() {
-        let mut server = create_server(ServerMode::Rnacos, random_test_port());
+        let mut server = create_server(ServerMode::default(), random_test_port());
         server.start().await.expect("server start failed");
 
         let service = create_naming_service(server.server_addr()).await;
@@ -754,7 +754,7 @@ mod naming_integration_tests {
     /// Test: subscribe receives correct event data.
     #[tokio::test]
     async fn test_subscribe_event_data() {
-        let mut server = create_server(ServerMode::Rnacos, random_test_port());
+        let mut server = create_server(ServerMode::default(), random_test_port());
         server.start().await.expect("server start failed");
 
         let service = create_naming_service(server.server_addr()).await;

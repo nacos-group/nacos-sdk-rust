@@ -119,7 +119,9 @@ mod config_integration_tests {
             .with_max_level(tracing::Level::DEBUG)
             .try_init();
 
-        let mut server = create_server(ServerMode::Rnacos, random_test_port());
+        let mode = ServerMode::default();
+        eprintln!("Testing with server mode: {:?}", mode);
+        let mut server = create_server(mode, random_test_port());
         server
             .start()
             .await
@@ -169,7 +171,7 @@ mod config_integration_tests {
             .with_max_level(tracing::Level::DEBUG)
             .try_init();
 
-        let mut server = create_server(ServerMode::Rnacos, random_test_port());
+        let mut server = create_server(ServerMode::default(), random_test_port());
         server
             .start()
             .await
@@ -249,7 +251,7 @@ mod config_integration_tests {
             .with_max_level(tracing::Level::DEBUG)
             .try_init();
 
-        let mut server = create_server(ServerMode::Rnacos, random_test_port());
+        let mut server = create_server(ServerMode::default(), random_test_port());
         server
             .start()
             .await
@@ -308,7 +310,7 @@ mod config_integration_tests {
             .with_max_level(tracing::Level::DEBUG)
             .try_init();
 
-        let mut server = create_server(ServerMode::Rnacos, random_test_port());
+        let mut server = create_server(ServerMode::default(), random_test_port());
         server
             .start()
             .await
@@ -390,7 +392,7 @@ mod config_integration_tests {
             .with_max_level(tracing::Level::DEBUG)
             .try_init();
 
-        let mut server = create_server(ServerMode::Rnacos, random_test_port());
+        let mut server = create_server(ServerMode::default(), random_test_port());
         server
             .start()
             .await
@@ -439,7 +441,7 @@ mod config_integration_tests {
             .with_max_level(tracing::Level::DEBUG)
             .try_init();
 
-        let mut server = create_server(ServerMode::Rnacos, random_test_port());
+        let mut server = create_server(ServerMode::default(), random_test_port());
         server
             .start()
             .await
@@ -519,7 +521,7 @@ mod config_integration_tests {
             .with_max_level(tracing::Level::DEBUG)
             .try_init();
 
-        let mut server = create_server(ServerMode::Rnacos, random_test_port());
+        let mut server = create_server(ServerMode::default(), random_test_port());
         server
             .start()
             .await
@@ -575,7 +577,7 @@ mod config_integration_tests {
             .with_max_level(tracing::Level::DEBUG)
             .try_init();
 
-        let mut server = create_server(ServerMode::Rnacos, random_test_port());
+        let mut server = create_server(ServerMode::default(), random_test_port());
         server
             .start()
             .await
@@ -623,7 +625,7 @@ mod config_integration_tests {
             .with_max_level(tracing::Level::DEBUG)
             .try_init();
 
-        let mut server = create_server(ServerMode::Rnacos, random_test_port());
+        let mut server = create_server(ServerMode::default(), random_test_port());
         server
             .start()
             .await
@@ -654,7 +656,7 @@ mod config_integration_tests {
             .with_max_level(tracing::Level::DEBUG)
             .try_init();
 
-        let mut server = create_server(ServerMode::Rnacos, random_test_port());
+        let mut server = create_server(ServerMode::default(), random_test_port());
         server
             .start()
             .await
@@ -730,7 +732,7 @@ mod config_integration_tests {
             .with_max_level(tracing::Level::DEBUG)
             .try_init();
 
-        let mut server = create_server(ServerMode::Rnacos, random_test_port());
+        let mut server = create_server(ServerMode::default(), random_test_port());
         server
             .start()
             .await
@@ -775,7 +777,7 @@ mod config_integration_tests {
             .with_max_level(tracing::Level::DEBUG)
             .try_init();
 
-        let mut server = create_server(ServerMode::Rnacos, random_test_port());
+        let mut server = create_server(ServerMode::default(), random_test_port());
         server
             .start()
             .await

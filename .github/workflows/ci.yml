@@ -37,14 +37,11 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
-      - name: Install rnacos
+      - name: Install and test with rnacos
         run: |
           cargo install rnacos
-          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
-      - name: Verify rnacos
-        run: rnacos --version
-      - name: Run integration tests
-        run: |
+          export PATH="$HOME/.cargo/bin:$PATH"
+          rnacos --version
           cargo test --test it_config --test it_naming --test it_auth --features "config,naming,auth-by-http" -- --include-ignored --test-threads=1
 
   integration-docker:
