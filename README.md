@@ -128,6 +128,28 @@ e.g.
 - env `NACOS_CLIENT_ACCESS_KEY` to set Aliyun ram access-key
 - env `NACOS_CLIENT_SECRET_KEY` to set Aliyun ram access-secret
 
+### ⚠️ 应急启动：正确使用 `load_cache_at_start`
+
+当你的应用需要 **Nacos 服务端不可用时仍能启动**（弱依赖场景），请务必设置 `load_cache_at_start(true)`：
+
+```rust
+let props = ClientProps::new()
+    .server_addr("127.0.0.1:8848")
+    .load_cache_at_start(true);  // 启用应急启动模式
+
+let config_service = ConfigServiceBuilder::new(props.clone()).build().await?;
+let naming_service = NamingServiceBuilder::new(props).build().await?;
+```
+
+**开启后的行为：**
+- `build()` 不再阻塞等待服务端健康检查，应用可应急启动
+- 配置读取、服务发现优先从磁盘缓存返回
+- 后台自动重试连接，服务端恢复后自动恢复正常
+
+**重要警告：**
+- ⚠️ `register_instance`、`publish_config` 等写操作在服务端不可用时 **仍会阻塞等待连接**（或者是"快速失败 + 后台重试"），这是正确行为——你不能在没连上服务端时写入数据
+- ⚠️ 请严肃测试你的场景，确保正确使用：读操作可依赖缓存，写操作必须有服务端连接
+
 ### AuthPlugin Features
 - > Set access-key, access-secret via Environment variables are recommended.
 - auth-by-http

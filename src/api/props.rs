@@ -28,9 +28,10 @@ pub struct ClientProps {
     client_version: String,
     /// auth context
     auth_context: HashMap<String, String>,
-    /// Maximum retry attempts during initialization phase. Defaults to 3 when None.
+    /// Maximum retry attempts during initialization phase. Defaults to 1 when None.
     /// Only applies to the connection initialization stage. After successful initialization,
     /// the client will retry indefinitely during runtime to ensure fault tolerance.
+    #[deprecated]
     max_retries: Option<u32>,
 }
 
@@ -169,6 +170,7 @@ impl ClientProps {
     }
 
     pub(crate) fn get_max_retries(&self) -> Option<u32> {
+        #[allow(deprecated)]
         self.max_retries
     }
 }
@@ -192,6 +194,7 @@ impl ClientProps {
             client_version,
             auth_context: HashMap::default(),
             grpc_port: None,
+            #[allow(deprecated)]
             max_retries: None,
         }
     }
@@ -310,9 +313,11 @@ impl ClientProps {
     /// Sets the maximum retry attempts during initialization phase.
     ///
     /// This value only applies to the connection initialization stage.
-    /// If not set, defaults to 3 retry attempts.
+    /// If not set, defaults to 1 retry attempts.
     /// After successful initialization, the client will retry indefinitely
     /// during runtime to ensure fault tolerance.
+    #[deprecated]
+    #[allow(deprecated)]
     pub fn max_retries(mut self, max_retries: u32) -> Self {
         self.max_retries = Some(max_retries);
         self
@@ -339,6 +344,7 @@ mod tests {
             labels: HashMap::new(),
             client_version: "test_version".to_string(),
             auth_context: HashMap::new(),
+            #[allow(deprecated)]
             max_retries: None,
         };
 

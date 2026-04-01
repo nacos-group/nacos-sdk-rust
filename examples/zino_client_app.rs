@@ -48,10 +48,11 @@ static LOCAL_IP: LazyLock<String> =
 static CLIENT_PROPS: LazyLock<ClientProps> = LazyLock::new(|| {
     ClientProps::new()
         .server_addr(constants::DEFAULT_SERVER_ADDR)
-        .namespace("")
+        .namespace("zino-test")
         .app_name("zino_client_app")
         .auth_username("nacos")
         .auth_password("nacos")
+        .load_cache_at_start(true)
 });
 
 static NAMING_SERVICE: OnceCell<NamingService> = OnceCell::const_new();
@@ -125,6 +126,7 @@ async fn call_greeting(req: Request) -> Result {
     let res = match call_server("/greeting").await {
         Ok(body) => {
             let mut res = Response::ok().context(&req);
+            #[allow(clippy::disallowed_methods)]
             res.set_json_data(json!({
                 "client": { "ip": *LOCAL_IP, "port": port },
                 "server_response": body,
@@ -134,6 +136,7 @@ async fn call_greeting(req: Request) -> Result {
         Err(err) => {
             tracing::error!("call greeting failed: {err}");
             let mut res = Response::service_unavailable().context(&req);
+            #[allow(clippy::disallowed_methods)]
             res.set_json_data(json!({
                 "client": { "ip": *LOCAL_IP, "port": port },
                 "error": err,
@@ -149,6 +152,7 @@ async fn call_health(req: Request) -> Result {
     let res = match call_server("/health").await {
         Ok(body) => {
             let mut res = Response::ok().context(&req);
+            #[allow(clippy::disallowed_methods)]
             res.set_json_data(json!({
                 "client": { "ip": *LOCAL_IP, "port": port },
                 "server_response": body,
@@ -158,6 +162,7 @@ async fn call_health(req: Request) -> Result {
         Err(err) => {
             tracing::error!("call health failed: {err}");
             let mut res = Response::service_unavailable().context(&req);
+            #[allow(clippy::disallowed_methods)]
             res.set_json_data(json!({
                 "client": { "ip": *LOCAL_IP, "port": port },
                 "error": err,
