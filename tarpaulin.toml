@@ -1,0 +1,3 @@
+[tarpaulin]
+exclude-files = ["examples/.*", "tests/.*"]
+engine = "Llvm"

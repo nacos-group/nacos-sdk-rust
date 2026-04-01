@@ -130,6 +130,7 @@ mod tests {
 
     #[tokio::test]
     #[ignore]
+    #[cfg(not(tarpaulin))]
     async fn test_http_login_auth_plugin() {
         crate::test_config::setup_log();
 

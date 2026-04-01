@@ -2,6 +2,7 @@ mod shared;
 
 #[cfg(feature = "config")]
 #[cfg(test)]
+#[cfg(not(tarpaulin))]
 mod config_cache_tests {
     use nacos_sdk::api::config::{ConfigService, ConfigServiceBuilder};
     use nacos_sdk::api::props::ClientProps;

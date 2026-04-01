@@ -52,7 +52,9 @@ jobs:
       - name: Generate coverage report (with integration tests)
         run: |
           export PATH="$HOME/.cargo/bin:$PATH"
-          cargo tarpaulin --lib --bins --tests --out Xml --features "config,naming,auth-by-http" -- --include-ignored --skip test_http_login_auth_plugin
+          cargo tarpaulin --lib --tests --no-fail-fast --out Xml --features "config,naming,auth-by-http" --ignored --skip-clean
+        env:
+          NACOS_SERVER: external
 
       - name: Stop rnacos server
         if: always()

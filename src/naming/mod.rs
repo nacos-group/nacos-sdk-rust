@@ -833,7 +833,7 @@ pub(crate) mod tests {
             .await;
         info!("response. {ret:?}");
 
-        let ten_millis = time::Duration::from_secs(30);
+        let ten_millis = time::Duration::from_secs(3);
         tokio::time::sleep(ten_millis).await;
 
         let ret = naming_service
@@ -845,7 +845,7 @@ pub(crate) mod tests {
             .await;
         info!("response. {ret:?}");
 
-        let ten_millis = time::Duration::from_secs(30);
+        let ten_millis = time::Duration::from_secs(1);
         tokio::time::sleep(ten_millis).await;
     }
 
@@ -879,7 +879,7 @@ pub(crate) mod tests {
             .await;
         info!("response. {ret:?}");
 
-        let ten_millis = time::Duration::from_secs(30);
+        let ten_millis = time::Duration::from_secs(3);
         tokio::time::sleep(ten_millis).await;
 
         let ret = naming_service
@@ -891,7 +891,7 @@ pub(crate) mod tests {
             .await;
         info!("response. {ret:?}");
 
-        let ten_millis = time::Duration::from_secs(30);
+        let ten_millis = time::Duration::from_secs(1);
         tokio::time::sleep(ten_millis).await;
     }
 
@@ -990,7 +990,7 @@ pub(crate) mod tests {
             .await;
         info!("response. {ret:?}");
 
-        let ten_millis = time::Duration::from_secs(10);
+        let ten_millis = time::Duration::from_secs(3);
         tokio::time::sleep(ten_millis).await;
 
         let all_instances = naming_service
@@ -1051,7 +1051,7 @@ pub(crate) mod tests {
             .await;
         info!("response. {ret:?}");
 
-        let ten_millis = time::Duration::from_secs(10);
+        let ten_millis = time::Duration::from_secs(3);
         tokio::time::sleep(ten_millis).await;
 
         let all_instances = naming_service
@@ -1113,7 +1113,7 @@ pub(crate) mod tests {
             .await;
         info!("response. {ret:?}");
 
-        let ten_millis = time::Duration::from_secs(10);
+        let ten_millis = time::Duration::from_secs(3);
         tokio::time::sleep(ten_millis).await;
 
         for _ in 0..3 {
@@ -1176,7 +1176,7 @@ pub(crate) mod tests {
             .await;
         info!("response. {ret:?}");
 
-        let ten_millis = time::Duration::from_secs(10);
+        let ten_millis = time::Duration::from_secs(3);
         tokio::time::sleep(ten_millis).await;
 
         let service_list = naming_service.get_service_list(1, 50, None).await;
@@ -1251,7 +1251,7 @@ pub(crate) mod tests {
 
         info!("response. {ret:?}");
 
-        let ten_millis = time::Duration::from_secs(30);
+        let ten_millis = time::Duration::from_secs(1);
         tokio::time::sleep(ten_millis).await;
     }
 }
