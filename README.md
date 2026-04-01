@@ -215,7 +215,20 @@ let naming_service = NamingServiceBuilder::new(props).build().await?;
 - 请 `cargo fmt --all` 格式化代码再提交
 > Run `cargo fmt --all` - this will find and fix code formatting issues.
 
-- 测试用例暂未能实现自动化，开发过程需本地启动 [nacos server](https://github.com/alibaba/nacos) `-Dnacos.standalone=true`
+- 或者开发过程需本地启动 [Nacos-Server](https://github.com/alibaba/nacos) `-Dnacos.standalone=true`
+
+- **集成测试**：使用 `rnacos` 进行本地测试，无需启动外部服务
+  ```bash
+  # 安装 rnacos（一次性）
+  cargo install rnacos
+  
+  # 运行集成测试（默认使用 rnacos）
+  cargo test --test it_config --test it_naming --test it_auth -- --include-ignored --test-threads=1
+  ```
+- **Docker Nacos**：如需测试 Java Nacos 兼容性，设置环境变量 `NACOS_SERVER=docker`
+  ```bash
+  NACOS_SERVER=docker cargo test --test it_config --test it_naming --test it_auth -- --include-ignored --test-threads=1
+  ```
 
 ### 主要依赖包
 在 nacos-sdk-rust 工程里，为主要功能的实现，将会引入以下依赖包。

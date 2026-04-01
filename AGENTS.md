@@ -28,6 +28,7 @@ This is `nacos-sdk-rust`, a Rust client library for Nacos (a dynamic service dis
 - `cargo fmt --all` - Format all code
 - `cargo fmt -- --check` - Check formatting without applying
 - `cargo clippy --all` - Run clippy on workspace
+- `cargo clippy --all-targets` - Run clippy on all-targets
 - `cargo clippy -- -W warnings` - Treat warnings as errors (CI mode)
 
 ### Running Examples
@@ -98,11 +99,28 @@ Environment variables use prefix `NACOS_CLIENT_` for common props, `NACOS_CLIENT
 
 ## Testing Notes
 
-Tests require a running Nacos server. CI workflow runs Nacos in Docker:
+## Testing
+
+### Integration Tests
+Tests use `rnacos` by default for fast local testing. Set `NACOS_SERVER=docker` to test against Java Nacos.
+
 ```bash
-# For local testing, start Nacos first
-docker run --name nacos-quick -e MODE=standalone -p 8848:8848 -p 9848:9848 -d nacos/nacos-server:latest
+# One-time setup
+cargo install rnacos
+
+# Run with rnacos (default)
+cargo test --test it_config --test it_naming --test it_auth -- --include-ignored --test-threads=1
+
+# Run with Docker Nacos v2.5.2
+NACOS_SERVER=docker cargo test --test it_config --test it_naming --test it_auth -- --include-ignored --test-threads=1
 ```
+
+### Test Files
+- `tests/it_config.rs` - Config service tests (publish, get, listen, CAS)
+- `tests/it_naming.rs` - Naming service tests (register, subscribe, query)
+- `tests/it_auth.rs` - Auth plugin tests (HTTP auth)
+- `tests/fixtures/` - Test server fixtures (rnacos, docker)
+- `tests/shared/` - Shared test utilities
 
 ## Key Implementation Files
 
