@@ -727,21 +727,14 @@ pub(crate) mod tests {
     use core::time;
     use std::collections::HashMap;
 
-    use tracing::{info, metadata::LevelFilter};
+    use tracing::info;
 
     use crate::api::{naming::NamingChangeEvent, plugin::NoopAuthPlugin};
 
     use super::*;
 
     fn tracing_log_try_init() {
-        let _ = tracing_subscriber::fmt()
-            .with_thread_names(true)
-            .with_file(true)
-            .with_level(true)
-            .with_line_number(true)
-            .with_thread_ids(true)
-            .with_max_level(LevelFilter::DEBUG)
-            .try_init();
+        crate::test_config::setup_log();
     }
 
     #[tokio::test]
