@@ -225,10 +225,16 @@ let naming_service = NamingServiceBuilder::new(props).build().await?;
   # 运行集成测试（默认使用 rnacos）
   cargo test --test it_config --test it_naming --test it_auth --features "config,naming,auth-by-http" -- --include-ignored --test-threads=1
   ```
-- **Docker Nacos**：如需测试 Java Nacos 兼容性，设置环境变量 `NACOS_SERVER=docker`
+- **Docker Nacos**：如需测试 Java Nacos 兼容性，设置环境变量 `NACOS_SERVER=docker`（会自动启动 Docker 容器）
   ```bash
   NACOS_SERVER=docker cargo test --test it_config --test it_naming --test it_auth --features "config,naming,auth-by-http" -- --include-ignored --test-threads=1
   ```
+
+### 环境变量
+- `NACOS_SERVER`: 测试服务器类型
+  - `rnacos`（默认）: 使用 rnacos，无需外部服务
+  - `docker`: 使用 Docker 启动 Nacos 容器（本地开发）
+  - `external`: 连接到已存在的 Nacos 服务（CI/CD 环境）
 
 ### 主要依赖包
 在 nacos-sdk-rust 工程里，为主要功能的实现，将会引入以下依赖包。

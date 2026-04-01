@@ -73,7 +73,7 @@ jobs:
         run: |
           cargo test --test it_config --test it_naming --test it_auth --features "config,naming,auth-by-http" -- --include-ignored --test-threads=1
         env:
-          NACOS_SERVER: docker
+          NACOS_SERVER: external
 
   build:
     name: Build

@@ -102,7 +102,7 @@ Environment variables use prefix `NACOS_CLIENT_` for common props, `NACOS_CLIENT
 ## Testing
 
 ### Integration Tests
-Tests use `rnacos` by default for fast local testing. Set `NACOS_SERVER=docker` to test against Java Nacos.
+Tests use `rnacos` by default for fast local testing.
 
 ```bash
 # One-time setup
@@ -111,9 +111,18 @@ cargo install rnacos
 # Run with rnacos (default)
 cargo test --test it_config --test it_naming --test it_auth --features "config,naming,auth-by-http" -- --include-ignored --test-threads=1
 
-# Run with Docker Nacos v2.5.2
+# Run with Docker Nacos (auto-starts container)
 NACOS_SERVER=docker cargo test --test it_config --test it_naming --test it_auth --features "config,naming,auth-by-http" -- --include-ignored --test-threads=1
+
+# Run with external Nacos server (connects to localhost:8848)
+NACOS_SERVER=external cargo test --test it_config --test it_naming --test it_auth --features "config,naming,auth-by-http" -- --include-ignored --test-threads=1
 ```
+
+### Environment Variables
+- `NACOS_SERVER`: Test server type
+  - `rnacos` (default): Use rnacos, no external service needed
+  - `docker`: Start Docker container (local development)
+  - `external`: Connect to existing Nacos server (CI/CD)
 
 ### Test Files
 - `tests/it_config.rs` - Config service tests (publish, get, listen, CAS)

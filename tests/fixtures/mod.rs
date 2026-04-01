@@ -50,7 +50,8 @@ pub enum ServerMode {
 impl Default for ServerMode {
     fn default() -> Self {
         match std::env::var("NACOS_SERVER").as_deref() {
-            Ok("docker") => ServerMode::ExternallyManaged,
+            Ok("docker") => ServerMode::Docker,
+            Ok("external") => ServerMode::ExternallyManaged,
             _ => ServerMode::Rnacos,
         }
     }
