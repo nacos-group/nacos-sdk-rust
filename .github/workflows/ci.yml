@@ -86,7 +86,18 @@ jobs:
         with:
           toolchain: stable
       - name: Wait for Nacos
-        run: sleep 30 && curl -s http://localhost:8848/nacos/v1/console/health/readiness || true
+        run: |
+          echo "Waiting for Nacos to be ready..."
+          for i in {1..30}; do
+            if curl -s http://localhost:8848/nacos/v1/console/health/readiness > /dev/null 2>&1; then
+              echo "Nacos is ready"
+              exit 0
+            fi
+            echo "Attempt $i/30: Nacos not ready yet..."
+            sleep 2
+          done
+          echo "Timeout waiting for Nacos"
+          exit 1
       - name: Run integration tests
         run: |
           cargo test --test it_config --test it_naming --test it_auth --features "config,naming,auth-by-http" -- --include-ignored
