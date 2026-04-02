@@ -1,5 +1,5 @@
 use syn::parse::Parser;
-use syn::{parse_quote, ItemStruct, Path};
+use syn::{ItemStruct, Path, parse_quote};
 
 use quote::quote;
 
