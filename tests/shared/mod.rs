@@ -1,7 +1,5 @@
 pub mod test_data;
 
-pub use test_data::*;
-
 use std::sync::Once;
 use tracing::level_filters::LevelFilter;
 

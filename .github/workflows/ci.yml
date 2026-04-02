@@ -46,7 +46,7 @@ jobs:
           echo "RNACOS_PID=$!" >> $GITHUB_ENV
           echo "Waiting for rnacos to be ready..."
           for i in {1..30}; do
-            if curl -s http://127.0.0.1:18848 > /dev/null 2>&1; then
+            if curl -s http://127.0.0.1:8848 > /dev/null 2>&1; then
               echo "rnacos is ready"
               break
             fi

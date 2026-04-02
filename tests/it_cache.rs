@@ -31,7 +31,6 @@ mod fixtures;
 mod shared;
 
 #[cfg(feature = "config")]
-#[cfg(not(tarpaulin))]
 mod cache_integration_tests {
     use crate::fixtures::{ServerMode, create_server};
     use nacos_sdk::api::config::{ConfigService, ConfigServiceBuilder};

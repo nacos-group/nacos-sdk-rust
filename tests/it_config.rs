@@ -40,7 +40,7 @@ mod shared;
 mod config_integration_tests {
     use crate::fixtures::ServerMode;
     use crate::fixtures::shared_server::{get_server_mode, get_shared_server_addr};
-    use crate::shared::{ConfigTestData, MockConfigListener};
+    use crate::shared::test_data::{ConfigTestData, MockConfigListener};
     use nacos_sdk::api::config::{ConfigService, ConfigServiceBuilder};
     use nacos_sdk::api::props::ClientProps;
     use std::collections::HashMap;

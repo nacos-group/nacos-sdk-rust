@@ -118,7 +118,6 @@ pub fn create_server(mode: ServerMode, http_port: u16) -> NacosServerEnum {
     }
 }
 
-pub const DEFAULT_RNACOS_HTTP_PORT: u16 = 18848;
 pub const DEFAULT_DOCKER_HTTP_PORT: u16 = 8848;
 pub const DEFAULT_STARTUP_TIMEOUT_SECS: u64 = 30;
 pub const HEALTH_CHECK_INTERVAL_MS: u64 = 500;

@@ -29,7 +29,11 @@ homepage = "https://nacos.io"
 description = "Nacos client in Rust."
 categories = ["network-programming", "development-tools"]
 keywords = ["microservices", "config", "naming", "service-discovery", "config-management"]
-exclude = [".github", "proto", "tests"]
+exclude = [".github", "proto", "tests", "AGENTS.md", "CLAUDE.md", "tarpaulin.toml"]
+
+[lints.rust]
+# for clippy don't warn #[cfg(not(tarpaulin))]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(tarpaulin)'] }
 
 [workspace]
 members = [

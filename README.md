@@ -225,11 +225,11 @@ let naming_service = NamingServiceBuilder::new(props).build().await?;
   ```
 - **Docker Nacos**：如需测试 Java Nacos 兼容性，设置环境变量 `NACOS_SERVER=docker`（会自动启动 Docker 容器）
   ```bash
-  NACOS_SERVER=docker cargo test --test it_config --test it_naming --test it_auth --features "config,naming,auth-by-http" -- --include-ignored
+  NACOS_SERVER=docker cargo test --test it_config --test it_naming --test it_auth --test config_cache_test --features "config,naming,auth-by-http" -- --include-ignored
   ```
 - 或者 **本地启动**：[Nacos-Server](https://github.com/alibaba/nacos) `-Dnacos.standalone=true`
   ```bash
-  NACOS_SERVER=external cargo test --test it_config --test it_naming --test it_auth --features "config,naming,auth-by-http" -- --include-ignored
+  NACOS_SERVER=external cargo test --test it_config --test it_naming --test it_auth --test config_cache_test --features "config,naming,auth-by-http" -- --include-ignored
   ```
 
 ### 主要依赖包

@@ -29,7 +29,7 @@ mod shared;
 mod naming_integration_tests {
     use crate::fixtures::ServerMode;
     use crate::fixtures::shared_server::{get_server_mode, get_shared_server_addr};
-    use crate::shared::{MockNamingListener, ServiceInstanceBuilder};
+    use crate::shared::test_data::{MockNamingListener, ServiceInstanceBuilder};
     use nacos_sdk::api::constants;
     use nacos_sdk::api::naming::{NamingService, NamingServiceBuilder};
     use nacos_sdk::api::props::ClientProps;
