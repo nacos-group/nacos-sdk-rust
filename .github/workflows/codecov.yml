@@ -36,6 +36,8 @@ jobs:
       - name: Start rnacos server
         run: |
           export PATH="$HOME/.cargo/bin:$PATH"
+          export RNACOS_HTTP_PORT=8848
+          export RNACOS_GRPC_PORT=9848
           rnacos --version
           nohup rnacos > /tmp/rnacos.log 2>&1 &
           RNACOS_PID=$!
