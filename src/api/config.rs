@@ -555,6 +555,7 @@ mod tests {
 
     #[tokio::test]
     #[ignore]
+    #[cfg(not(tarpaulin))]
     async fn test_api_config_service_publish_config_cas() {
         tracing_log_try_init();
 

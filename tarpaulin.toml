@@ -1,3 +1,6 @@
 [tarpaulin]
 exclude-files = ["examples/.*", "tests/.*"]
 engine = "Llvm"
+
+# Coverage output format
+out = ["Html", "Xml"]
