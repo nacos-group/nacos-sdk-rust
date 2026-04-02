@@ -29,7 +29,11 @@ homepage = "https://nacos.io"
 description = "Nacos client in Rust."
 categories = ["network-programming", "development-tools"]
 keywords = ["microservices", "config", "naming", "service-discovery", "config-management"]
-exclude = [".github", "proto", "tests"]
+exclude = [".github", "proto", "tests", "AGENTS.md", "CLAUDE.md", "tarpaulin.toml"]
+
+[lints.rust]
+# for clippy don't warn #[cfg(not(tarpaulin))]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(tarpaulin)'] }
 
 [workspace]
 members = [
@@ -96,6 +100,14 @@ mockall = { version = "0.14" }
 zino = { version = "0.43", features = ["axum"] }
 axum = { version = "0.8", default-features = false }
 reqwest = { version = "0.12", default-features = false }
+
+[[test]]
+name = "it_auth"
+path = "tests/it_auth.rs"
+
+[[test]]
+name = "it_cache"
+path = "tests/it_cache.rs"
 
 [[example]]
 name = "simple_app"

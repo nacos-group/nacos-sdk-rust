@@ -727,21 +727,14 @@ pub(crate) mod tests {
     use core::time;
     use std::collections::HashMap;
 
-    use tracing::{info, metadata::LevelFilter};
+    use tracing::info;
 
     use crate::api::{naming::NamingChangeEvent, plugin::NoopAuthPlugin};
 
     use super::*;
 
     fn tracing_log_try_init() {
-        let _ = tracing_subscriber::fmt()
-            .with_thread_names(true)
-            .with_file(true)
-            .with_level(true)
-            .with_line_number(true)
-            .with_thread_ids(true)
-            .with_max_level(LevelFilter::DEBUG)
-            .try_init();
+        crate::test_config::setup_log();
     }
 
     #[tokio::test]
@@ -840,7 +833,7 @@ pub(crate) mod tests {
             .await;
         info!("response. {ret:?}");
 
-        let ten_millis = time::Duration::from_secs(30);
+        let ten_millis = time::Duration::from_secs(3);
         tokio::time::sleep(ten_millis).await;
 
         let ret = naming_service
@@ -852,7 +845,7 @@ pub(crate) mod tests {
             .await;
         info!("response. {ret:?}");
 
-        let ten_millis = time::Duration::from_secs(30);
+        let ten_millis = time::Duration::from_secs(1);
         tokio::time::sleep(ten_millis).await;
     }
 
@@ -886,7 +879,7 @@ pub(crate) mod tests {
             .await;
         info!("response. {ret:?}");
 
-        let ten_millis = time::Duration::from_secs(30);
+        let ten_millis = time::Duration::from_secs(3);
         tokio::time::sleep(ten_millis).await;
 
         let ret = naming_service
@@ -898,7 +891,7 @@ pub(crate) mod tests {
             .await;
         info!("response. {ret:?}");
 
-        let ten_millis = time::Duration::from_secs(30);
+        let ten_millis = time::Duration::from_secs(1);
         tokio::time::sleep(ten_millis).await;
     }
 
@@ -997,7 +990,7 @@ pub(crate) mod tests {
             .await;
         info!("response. {ret:?}");
 
-        let ten_millis = time::Duration::from_secs(10);
+        let ten_millis = time::Duration::from_secs(3);
         tokio::time::sleep(ten_millis).await;
 
         let all_instances = naming_service
@@ -1058,7 +1051,7 @@ pub(crate) mod tests {
             .await;
         info!("response. {ret:?}");
 
-        let ten_millis = time::Duration::from_secs(10);
+        let ten_millis = time::Duration::from_secs(3);
         tokio::time::sleep(ten_millis).await;
 
         let all_instances = naming_service
@@ -1120,7 +1113,7 @@ pub(crate) mod tests {
             .await;
         info!("response. {ret:?}");
 
-        let ten_millis = time::Duration::from_secs(10);
+        let ten_millis = time::Duration::from_secs(3);
         tokio::time::sleep(ten_millis).await;
 
         for _ in 0..3 {
@@ -1183,7 +1176,7 @@ pub(crate) mod tests {
             .await;
         info!("response. {ret:?}");
 
-        let ten_millis = time::Duration::from_secs(10);
+        let ten_millis = time::Duration::from_secs(3);
         tokio::time::sleep(ten_millis).await;
 
         let service_list = naming_service.get_service_list(1, 50, None).await;
@@ -1258,7 +1251,7 @@ pub(crate) mod tests {
 
         info!("response. {ret:?}");
 
-        let ten_millis = time::Duration::from_secs(30);
+        let ten_millis = time::Duration::from_secs(1);
         tokio::time::sleep(ten_millis).await;
     }
 }

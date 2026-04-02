@@ -130,10 +130,9 @@ mod tests {
 
     #[tokio::test]
     #[ignore]
+    #[cfg(not(tarpaulin))]
     async fn test_http_login_auth_plugin() {
-        let _ = tracing_subscriber::fmt()
-            .with_max_level(tracing::Level::DEBUG)
-            .try_init();
+        crate::test_config::setup_log();
 
         let http_auth_plugin = HttpLoginAuthPlugin::default();
         let server_list = vec!["127.0.0.1:8848".to_string()];

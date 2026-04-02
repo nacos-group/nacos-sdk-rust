@@ -18,6 +18,7 @@
 // If the generated files has been changed, please commit they.
 #[test]
 #[ignore]
+#[cfg(not(tarpaulin))]
 fn build_proto() {
     tonic_prost_build::configure()
         .build_client(true)

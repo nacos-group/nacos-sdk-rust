@@ -217,14 +217,14 @@ mod test_config {
 
     pub(crate) fn setup_log() {
         LOGGER_INIT.call_once(|| {
-            tracing_subscriber::fmt()
+            let _ = tracing_subscriber::fmt()
                 .with_thread_names(true)
                 .with_file(true)
                 .with_level(true)
                 .with_line_number(true)
                 .with_thread_ids(true)
-                .with_max_level(LevelFilter::DEBUG)
-                .init()
+                .with_max_level(LevelFilter::INFO)
+                .try_init();
         });
     }
 }

@@ -21,41 +21,100 @@ jobs:
     name: Lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: cargo fmt
         run: cargo fmt --all -- --check --color ${{ env.CARGO_TERM_COLOR }}
       - name: cargo clippy
         run: cargo clippy --all-features -- -W warnings
 
-  regression-test:
+  integration-rnacos:
+    name: Integration Tests (rnacos)
     runs-on: ubuntu-latest
+    needs: [lint, build]
     steps:
-      - run: echo "Get latest nacos from docker hub"
-      - run: docker --version
-#      - run: sudo docker pull nacos/nacos-server:latest
-      - run: sudo docker run --name nacos-quick -e MODE=standalone -p 8848:8848 -p 9848:9848 -d nacos/nacos-server:v2.5.2
-      - run: sudo apt install -y protobuf-compiler libprotobuf-dev
-      - name: Check out repository code
-        uses: actions/checkout@v3
-      - run: cargo --version --verbose
-      - run: rustc --version --verbose
-      - name: format check
-        run: cargo fmt --check
-      - name: unit test
-        run: cargo test --all-targets
-      - run: cargo run --example simple_app
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+      - name: Install and start rnacos
+        run: |
+          cargo install rnacos
+          export PATH="$HOME/.cargo/bin:$PATH"
+          rnacos --version
+          nohup rnacos > /tmp/rnacos.log 2>&1 &
+          echo "RNACOS_PID=$!" >> $GITHUB_ENV
+          echo "Waiting for rnacos to be ready..."
+          for i in {1..30}; do
+            if curl -s http://127.0.0.1:8848 > /dev/null 2>&1; then
+              echo "rnacos is ready"
+              break
+            fi
+            sleep 1
+          done
+      - name: Run integration tests
+        run: |
+          cargo test --test it_config --test it_naming --test it_auth --features "config,naming,auth-by-http" -- --include-ignored
+      - name: Stop rnacos
+        if: always()
+        run: |
+          if [ -n "$RNACOS_PID" ]; then
+            kill $RNACOS_PID 2>/dev/null || true
+          fi
+
+  integration-docker:
+    name: Integration Tests (Docker Nacos v2.5.2)
+    runs-on: ubuntu-latest
+    needs: [lint, build]
+    services:
+      nacos:
+        image: nacos/nacos-server:v2.5.2
+        env:
+          MODE: standalone
+        ports:
+          - 8848:8848
+          - 9848:9848
+        options: >-
+          --health-cmd "curl -f http://localhost:8848/nacos/v1/console/health/readiness"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+      - name: Wait for Nacos
+        run: |
+          echo "Waiting for Nacos to be ready..."
+          for i in {1..30}; do
+            if curl -s http://localhost:8848/nacos/v1/console/health/readiness > /dev/null 2>&1; then
+              echo "Nacos is ready"
+              exit 0
+            fi
+            echo "Attempt $i/30: Nacos not ready yet..."
+            sleep 2
+          done
+          echo "Timeout waiting for Nacos"
+          exit 1
+      - name: Run integration tests
+        run: |
+          cargo test --test it_config --test it_naming --test it_auth --features "config,naming,auth-by-http" -- --include-ignored
+        env:
+          NACOS_SERVER: external
 
   build:
     name: Build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Build
         run: cargo build
       - name: Build examples
         run: cargo build --examples
       - name: Run Tests
-        run: cargo test --all-targets --all-features
+        run: cargo test --lib --bins --all-features
 
   feature-matrix:
     name: Feature Matrix
@@ -70,21 +129,9 @@ jobs:
           - "config,naming,auth-by-http"
           - "config,naming,auth-by-http,tls"
           - "config,naming,auth-by-aliyun"
-#          - "--all-features"
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Build with features
         run: cargo build --features "${{ matrix.features }}"
       - name: Test with features
-        run: cargo test --features "${{ matrix.features }}"
-
-#  publish:
-#    name: Publish
-#    runs-on: ubuntu-latest
-#    needs: [lint, build]
-#    if: startswith(github.ref, 'refs/tags/v')
-#
-#    steps:
-#      - uses: actions/checkout@v3
-#      - name: cargo publish
-#        run: cargo publish --token ${{ env.CARGO_TOKEN }}
+        run: cargo test --lib --bins --features "${{ matrix.features }}"
