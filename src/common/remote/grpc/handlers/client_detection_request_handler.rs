@@ -26,8 +26,10 @@ impl ServerRequestHandler for ClientDetectionRequestHandler {
         debug!("ClientDetectionRequestHandler receive a request: {request_message:?}");
         let request_id = request_message.request_id;
 
-        let mut response_message = ClientDetectionResponse::ok();
-        response_message.request_id = request_id;
+        let response_message = ClientDetectionResponse {
+            request_id,
+            ..ClientDetectionResponse::ok()
+        };
 
         let grpc_message = GrpcMessageBuilder::new(response_message).build();
         let payload = grpc_message.into_payload();
@@ -55,8 +57,10 @@ pub mod tests {
 
     #[tokio::test]
     pub async fn test_request_reply() {
-        let mut request = ClientDetectionRequest::default();
-        request.request_id = Some("test-request-id".to_string());
+        let request = ClientDetectionRequest {
+            request_id: Some("test-request-id".to_string()),
+            ..Default::default()
+        };
         let request_message = GrpcMessageBuilder::new(request).build();
         let payload = request_message
             .into_payload()

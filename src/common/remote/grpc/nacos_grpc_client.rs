@@ -406,8 +406,10 @@ pub mod tests {
 
     #[tokio::test]
     pub async fn test_send_request() {
-        let mut health_check_request = HealthCheckRequest::default();
-        health_check_request.request_id = Some("test_health_check_id".to_string());
+        let health_check_request = HealthCheckRequest {
+            request_id: Some("test_health_check_id".to_string()),
+            ..Default::default()
+        };
 
         let mut mock_send_request = MockSendRequest::new();
         mock_send_request
@@ -434,8 +436,10 @@ pub mod tests {
                     .request_id
                     .expect("Request ID should exist in the deserialized request");
 
-                let mut response = HealthCheckResponse::default();
-                response.request_id = Some(req_id);
+                let response = HealthCheckResponse {
+                    request_id: Some(req_id),
+                    ..Default::default()
+                };
 
                 let payload = GrpcMessageBuilder::new(response)
                     .build()
