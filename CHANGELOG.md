@@ -1,5 +1,22 @@
 # 变更日志 | Change log
 
+### 0.7.0
+
+- 特性：提供 gRPC TLS 支持，通过 `features = ["tls"]` 开启，支持自定义 CA 证书
+- 特性：完善应急启动模式 `load_cache_at_start(true)`，Nacos 服务端不可用时应用仍可启动，优先读取磁盘缓存
+- 增强：初始化重试优化（快失败 + 运行时无限重试）、依赖升级（tonic 0.14 / tower 0.5）、新增 zino 框架示例
+- CI：新增集成测试框架（rnacos, 39 用例）、双通道 CI（rnacos 快速验证 + docker 完整验证）、覆盖率统计升级
+- 修复：对齐 Java 客户端监听器注册键修复 #278 通知延迟、消除全部 clippy 警告、文档修复
+
+---
+
+- Feature: add gRPC TLS support via `features = ["tls"]`, with custom CA certificate support
+- Feature: emergency start mode by `load_cache_at_start(true)`, app can start even when Nacos server unavailable, reads from disk cache
+- Enhance: init retry optimization (fast-fail + infinite runtime retries), dependency upgrades (tonic 0.14 / tower 0.5), zino framework examples
+- CI: add integration test framework (rnacos, 39 tests), dual-channel CI (rnacos fast + docker full validation), coverage statistics upgrade
+- Fix: align listener registry key with Java client to fix #278 notification delay, resolve all clippy warnings, documentation fixes
+
+
 ### 0.6.0
 
 - 变更：配置与注册的客户端构建异步初始化，不在内部阻塞，毋必 build 后 await

@@ -18,7 +18,7 @@
 
 [package]
 name = "nacos-sdk"
-version = "0.6.0"
+version = "0.7.0"
 edition = "2024"
 authors = ["nacos-group", "CheirshCai <785427346@qq.com>", "onewe <2583021406@qq.com>"]
 license = "Apache-2.0"
@@ -53,7 +53,7 @@ tracing-log = ["tracing-subscriber", "tracing-appender"]
 
 [dependencies]
 arc-swap = "1.9"
-nacos-macro = { version = "0.2.0", path = "nacos-macro" }
+nacos-macro = { version = "0.3.0", path = "nacos-macro" }
 thiserror = "1.0"
 tokio = { version = "1", features = ["rt-multi-thread", "time", "net", "fs"] }
 

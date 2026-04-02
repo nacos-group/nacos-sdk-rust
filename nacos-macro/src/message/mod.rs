@@ -1,8 +1,8 @@
 #![allow(clippy::manual_unwrap_or_default)] // for #[darling(default)]
 
-use darling::ast::NestedMeta;
 use darling::FromMeta;
-use syn::{parse_macro_input, parse_quote, ItemStruct, Path};
+use darling::ast::NestedMeta;
+use syn::{ItemStruct, Path, parse_macro_input, parse_quote};
 
 use self::{request::grpc_request, response::grpc_response};
 

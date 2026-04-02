@@ -22,8 +22,7 @@ Add the dependency in `Cargo.toml`:
 
 ```toml
 [dependencies]
-# If you need sync API, maybe `futures::executor::block_on(future_fn)`
-nacos-sdk = { version = "0.6", features = ["default"] }
+nacos-sdk = { version = "0.7", features = ["default"] }
 ```
 
 ### Usage of Config
@@ -158,7 +157,7 @@ let naming_service = NamingServiceBuilder::new(props).build().await?;
     - enable auth-by-http(default is enabled)
     ```toml
     [dependencies]
-    nacos-sdk = { version = "0.4", features = ["default"] }
+    nacos-sdk = { version = "0.7", features = ["default"] }
     ```
     - Set username and password via environment variables
     ```shell
@@ -184,7 +183,7 @@ let naming_service = NamingServiceBuilder::new(props).build().await?;
     - enable auth-by-aliyun feature in toml
     ```toml
     [dependencies]
-    nacos-sdk = { version = "0.4", features = ["default", "auth-by-aliyun"] }
+    nacos-sdk = { version = "0.7", features = ["default", "auth-by-aliyun"] }
     ```
     - Set accessKey and secretKey via environment variables
     ```shell
