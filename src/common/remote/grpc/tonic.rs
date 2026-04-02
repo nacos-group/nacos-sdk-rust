@@ -664,10 +664,14 @@ pub mod tonic_unary_call_tests {
         run_test(|| async {
             let test_service = mock_unary_service_ready();
 
-            let mut request = Payload::default();
-            let mut metadata = Metadata::default();
-            metadata.r#type = "test_type".to_string();
-            request.metadata = Some(metadata);
+            let metadata = Metadata {
+                r#type: "test_type".to_string(),
+                ..Default::default()
+            };
+            let request = Payload {
+                metadata: Some(metadata),
+                ..Default::default()
+            };
 
             let (giver, mut taker) = want::new();
             let (tx, rx) = oneshot::channel::<Result<Payload, Error>>();
@@ -858,11 +862,14 @@ pub mod tonic_bi_call_tests {
     fn create_request_stream_with_type(r#type: &str) -> GrpcStream<Payload> {
         let r#type = r#type.to_string();
         let request_stream = stream::once(async move {
-            let mut payload = Payload::default();
-            let mut metadata = Metadata::default();
-            metadata.r#type = r#type;
-            payload.metadata = Some(metadata);
-            payload
+            let metadata = Metadata {
+                r#type,
+                ..Default::default()
+            };
+            Payload {
+                metadata: Some(metadata),
+                ..Default::default()
+            }
         });
         GrpcStream::new(Box::pin(request_stream))
     }

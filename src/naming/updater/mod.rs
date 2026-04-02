@@ -217,8 +217,10 @@ impl ServiceInfoUpdateTask {
                     continue;
                 }
 
-                let mut request = request.clone();
-                request.request_id = Some(generate_request_id());
+                let request = ServiceQueryRequest {
+                    request_id: Some(generate_request_id()),
+                    ..request.clone()
+                };
 
                 let ret = grpc_client
                     .send_request::<ServiceQueryRequest, QueryServiceResponse>(request)
