@@ -14,8 +14,6 @@
 // limitations under the License.
 //
 
-use tower::BoxError;
-
 /// Nacos Sdk Rust Result.
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -55,10 +53,10 @@ pub enum Error {
     TonicGrpcTransport(#[from] tonic::transport::Error),
 
     #[error("tonic grpc status error: {0}")]
-    TonicGrpcStatus(#[from] Box<tonic::Status>),
+    TonicGrpcStatus(#[from] tonic::Status),
 
     #[error("grpc request error: {0}")]
-    GrpcBufferRequest(#[from] BoxError),
+    GrpcBufferRequest(#[from] tower::BoxError),
 
     #[error("no available server")]
     NoAvailableServer,

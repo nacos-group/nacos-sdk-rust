@@ -447,7 +447,7 @@ impl Service<Payload> for UnaryCallService {
             let response = client.request(req).in_current_span().await;
             match response {
                 Ok(ret) => Ok(ret.into_inner()),
-                Err(status) => Err(TonicGrpcStatus(Box::new(status))),
+                Err(status) => Err(TonicGrpcStatus(status)),
             }
         }
         .in_current_span();
@@ -488,12 +488,12 @@ impl Service<GrpcStream<Payload>> for BiStreamingCallService {
                         .into_inner()
                         .map(|item| match item {
                             Ok(payload) => Ok(payload),
-                            Err(status) => Err(TonicGrpcStatus(Box::new(status))),
+                            Err(status) => Err(TonicGrpcStatus(status)),
                         })
                         .boxed();
                     Ok(GrpcStream::new(response))
                 }
-                Err(status) => Err(TonicGrpcStatus(Box::new(status))),
+                Err(status) => Err(TonicGrpcStatus(status)),
             }
         }
         .in_current_span();

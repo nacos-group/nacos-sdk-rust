@@ -52,9 +52,10 @@ auth-by-aliyun = ["ring", "base64", "chrono"]
 tracing-log = ["tracing-subscriber", "tracing-appender"]
 
 [dependencies]
-arc-swap = "1.9"
 nacos-macro = { version = "0.3.0", path = "nacos-macro" }
-thiserror = "1.0"
+
+arc-swap = "1.9"
+thiserror = "2"
 tokio = { version = "1", features = ["rt-multi-thread", "time", "net", "fs"] }
 
 futures = "0.3"
