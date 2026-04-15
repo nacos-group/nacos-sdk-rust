@@ -1,17 +1,14 @@
 use prost_types::Any;
 use serde::{Serialize, de::DeserializeOwned};
 use std::collections::HashMap;
-use tracing::warn;
+use std::fmt::Debug;
+use tracing::{error, warn};
 
-use crate::api::error::Error::ErrResponse;
-use crate::api::error::Error::ErrResult;
-use crate::api::error::Error::Serialization;
+use crate::api::error::Error::{ErrResponse, ErrResult, Serialization};
 use crate::api::error::Result;
 use crate::api::plugin::RequestResource;
 use crate::common::remote::grpc::message::response::ErrorResponse;
 use crate::nacos_proto::v2::{Metadata, Payload};
-use std::fmt::Debug;
-use tracing::error;
 
 /// Helper macro to convert payload body to target type with consistent error handling.
 /// Logs the payload content if conversion fails for easier debugging.
@@ -67,7 +64,6 @@ where
     }
 
     pub(crate) fn into_payload(self) -> Result<Payload> {
-        let mut payload = Payload::default();
         let meta_data = Metadata {
             r#type: T::identity().to_string(),
             client_ip: self.client_ip.to_string(),
@@ -82,8 +78,10 @@ where
             }
         };
 
-        payload.metadata = Some(meta_data);
-        payload.body = Some(body);
+        let payload = Payload {
+            metadata: Some(meta_data),
+            body: Some(body),
+        };
         Ok(payload)
     }
 
@@ -173,17 +171,16 @@ pub(crate) trait GrpcMessageData:
     fn identity<'a>() -> std::borrow::Cow<'a, str>;
 
     fn to_proto_any(&self) -> Result<Any> {
-        let mut any = Any {
-            type_url: Self::identity().to_string(),
-            ..Default::default()
-        };
         let byte_data = match serde_json::to_vec(self) {
             Ok(data) => data,
             Err(error) => {
                 return Err(Serialization(error));
             }
         };
-        any.value = byte_data;
+        let any = Any {
+            type_url: Self::identity().to_string(),
+            value: byte_data,
+        };
         Ok(any)
     }
 
