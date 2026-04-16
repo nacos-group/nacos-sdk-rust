@@ -105,6 +105,10 @@ name = "it_auth"
 path = "tests/it_auth.rs"
 
 [[test]]
+name = "it_endpoint"
+path = "tests/it_endpoint.rs"
+
+[[test]]
 name = "it_cache"
 path = "tests/it_cache.rs"
 
