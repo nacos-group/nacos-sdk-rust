@@ -9,6 +9,7 @@ use crate::common::remote::grpc::message::{
 };
 use crate::common::remote::grpc::message::{GrpcMessageData, request::NacosClientAbilities};
 use crate::common::remote::grpc::nacos_grpc_service::DynamicUnaryCallLayerWrapper;
+use crate::common::remote::server_list::{PollingServerListService, ServerListProvider};
 
 use super::handlers::client_detection_request_handler::ClientDetectionRequestHandler;
 use super::message::request::{ClientDetectionRequest, HealthCheckRequest};
@@ -16,7 +17,6 @@ use super::nacos_grpc_connection::{NacosGrpcConnection, SendRequest};
 use super::nacos_grpc_service::{
     DynamicBiStreamingCallLayer, DynamicBiStreamingCallLayerWrapper, DynamicUnaryCallLayer,
 };
-use super::server_list_service::PollingServerListService;
 use super::tonic::TonicBuilder;
 use super::{config::GrpcConfiguration, nacos_grpc_service::ServerRequestHandler};
 
@@ -73,7 +73,7 @@ pub(crate) struct NacosGrpcClientBuilder {
     client_abilities: NacosClientAbilities,
     grpc_config: GrpcConfiguration,
     server_request_handler_map: HandlerMap,
-    server_list: Vec<String>,
+    server_list_provider: Arc<dyn ServerListProvider>,
     connected_listener: Option<ConnectedListener>,
     disconnected_listener: Option<DisconnectedListener>,
     unary_call_layer: Option<DynamicUnaryCallLayer>,
@@ -86,7 +86,7 @@ pub(crate) struct NacosGrpcClientBuilder {
 
 #[allow(dead_code)]
 impl NacosGrpcClientBuilder {
-    pub(crate) fn new(server_list: Vec<String>) -> Self {
+    pub(crate) fn new(server_list_provider: Arc<dyn ServerListProvider>) -> Self {
         Self {
             app_name: "unknown".to_owned(),
             client_version: Default::default(),
@@ -95,7 +95,7 @@ impl NacosGrpcClientBuilder {
             client_abilities: Default::default(),
             grpc_config: Default::default(),
             server_request_handler_map: Default::default(),
-            server_list,
+            server_list_provider,
             connected_listener: None,
             disconnected_listener: None,
             unary_call_layer: None,
@@ -320,7 +320,8 @@ impl NacosGrpcClientBuilder {
         );
 
         let send_request = {
-            let server_list = PollingServerListService::new(self.server_list.clone());
+            let server_list =
+                PollingServerListService::from_provider(self.server_list_provider.clone()).await;
             let mut tonic_builder = TonicBuilder::new(self.grpc_config, server_list);
             if let Some(layer) = self.unary_call_layer {
                 tonic_builder = tonic_builder.unary_call_layer(layer);
@@ -375,7 +376,7 @@ impl NacosGrpcClientBuilder {
 
         init_auth_plugin(
             self.auth_plugin.clone(),
-            self.server_list.clone(),
+            self.server_list_provider.clone(),
             self.auth_context.clone(),
             id,
         )

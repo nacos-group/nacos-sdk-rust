@@ -4,6 +4,7 @@ use crate::api::props::ClientProps;
 use crate::common::cache::{Cache, CacheBuilder};
 use crate::common::remote::grpc::message::GrpcResponseMessage;
 use crate::common::remote::grpc::{NacosGrpcClient, NacosGrpcClientBuilder};
+use crate::common::remote::server_list::create_server_list_provider;
 use crate::config::cache::CacheData;
 use crate::config::handler::ConfigChangeNotifyHandler;
 use crate::config::message::request::*;
@@ -29,11 +30,7 @@ impl ConfigWorker {
         config_filters: Vec<Box<dyn ConfigFilter>>,
         client_id: String,
     ) -> crate::api::error::Result<Self> {
-        let mut cache_ns = client_props.get_namespace();
-        if cache_ns.is_empty() {
-            cache_ns = crate::api::constants::DEFAULT_NAMESPACE.to_owned();
-        }
-
+        let cache_ns = client_props.get_namespace_default_if_empty();
         // Create unified cache using the Cache framework with CacheData directly
         let unified_cache: Cache<CacheData> = CacheBuilder::config(cache_ns)
             .load_cache_at_start(client_props.get_config_load_cache_at_start())
@@ -47,7 +44,9 @@ impl ConfigWorker {
         let (notify_change_tx, notify_change_rx) = tokio::sync::mpsc::channel(16);
         let notify_change_tx_clone = notify_change_tx.clone();
 
-        let remote_client = NacosGrpcClientBuilder::new(client_props.get_server_list()?)
+        let server_list_provider = create_server_list_provider(&client_props).await?;
+
+        let remote_client = NacosGrpcClientBuilder::new(server_list_provider)
             .port(client_props.get_remote_grpc_port())
             .namespace(client_props.get_namespace())
             .app_name(client_props.get_app_name())

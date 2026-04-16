@@ -1,6 +1,9 @@
 pub mod grpc;
+pub mod server_list;
 
+use std::sync::LazyLock;
 use std::sync::atomic::{AtomicI64, Ordering};
+use std::time::Duration;
 
 // odd by client request id.
 const SEQUENCE_INITIAL_VALUE: i64 = 1;
@@ -13,4 +16,20 @@ pub(crate) fn generate_request_id() -> String {
         ATOMIC_SEQUENCE.store(SEQUENCE_INITIAL_VALUE, Ordering::SeqCst);
     }
     seq.to_string()
+}
+
+/// A shared, lazily-initialized `reqwest::Client` instance.
+///
+/// `reqwest::Client` internally manages a connection pool; reusing a single instance
+/// avoids wasted resources and improves performance.
+static HTTP_CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
+    reqwest::Client::builder()
+        .connect_timeout(Duration::from_secs(5))
+        .timeout(Duration::from_secs(10))
+        .build()
+        .expect("HTTP client initialization should succeed")
+});
+
+pub(crate) fn http_client() -> &'static reqwest::Client {
+    &HTTP_CLIENT
 }

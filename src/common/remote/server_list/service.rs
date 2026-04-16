@@ -1,57 +1,37 @@
 use std::{
     pin::Pin,
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
     task::{Context, Poll},
 };
 
-use crate::api::error::Error;
-use crate::api::error::Error::NoAvailableServer;
 use futures::Future;
 use rand::RngExt;
 use tower::Service;
 
-use super::server_address::ServerAddress;
+use super::ServerAddress;
+use super::provider::ServerListProvider;
+use crate::api::error::Error;
 
 pub(crate) struct PollingServerListService {
-    server_list: Vec<(String, u32)>,
-    index: usize,
+    provider: Arc<dyn ServerListProvider>,
+    index: AtomicUsize,
 }
 
 impl PollingServerListService {
-    pub(crate) fn new(server_list: Vec<String>) -> Self {
-        if server_list.is_empty() {
-            panic!("server list must not empty");
-        }
+    #[cfg(test)]
+    pub(crate) async fn new(server_list: Vec<String>) -> Self {
+        let provider = Arc::new(super::provider::StaticServerListProvider::new(server_list));
+        Self::from_provider(provider).await
+    }
 
-        let server_list: Vec<(String, u32)> = server_list
-            .into_iter()
-            .map(|server| server.split(':').map(|data| data.to_string()).collect())
-            .filter(|vec: &Vec<String>| {
-                if vec.len() != 2 {
-                    return false;
-                }
-                !vec.is_empty() && vec.get(1).is_some()
-            })
-            .filter_map(|vec| {
-                let address = vec.first()?.clone();
-                let port = vec.get(1)?.clone();
-
-                let port = port.parse::<u32>();
-
-                if let Ok(port) = port {
-                    return Some((address, port));
-                }
-                None
-            })
-            .collect();
-        if server_list.is_empty() {
-            panic!("all the server is illegal format!");
-        }
-
+    pub(crate) async fn from_provider(provider: Arc<dyn ServerListProvider>) -> Self {
+        let initial_list = provider.current_server_list().await;
         Self {
-            // random index for load balance the server list
-            index: rand::rng().random_range(0..server_list.len()),
-            server_list,
+            provider,
+            index: AtomicUsize::new(rand::rng().random_range(0..initial_list.len())),
         }
     }
 }
@@ -65,26 +45,24 @@ impl Service<()> for PollingServerListService {
         Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send + 'static>>;
 
     fn poll_ready(&mut self, _: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        self.index += 1;
-        if self.index >= self.server_list.len() {
-            self.index = 0;
-        }
-
         Poll::Ready(Ok(()))
     }
 
     fn call(&mut self, _: ()) -> Self::Future {
-        let server_addr = self.server_list.get(self.index);
-        let server_addr = if let Some((host, port)) = server_addr {
+        let provider = self.provider.clone();
+        let next_idx = self.index.fetch_add(1, Ordering::Relaxed);
+
+        Box::pin(async move {
+            let server_list = provider.current_server_list().await;
+            let parsed = super::parse_host_port(&server_list)?;
+            let idx = next_idx % parsed.len();
+            let (host, port) = &parsed[idx];
             let server_address = PollingServerAddress {
                 host: host.clone(),
                 port: *port,
             };
             Ok(Arc::new(server_address) as Arc<dyn ServerAddress>)
-        } else {
-            Err(NoAvailableServer)
-        };
-        Box::pin(async move { server_addr })
+        })
     }
 }
 
@@ -110,6 +88,9 @@ impl ServerAddress for PollingServerAddress {
 #[cfg(test)]
 pub mod tests {
 
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
     use futures::future::poll_fn;
     use tower::Service;
     use tracing::debug;
@@ -117,17 +98,21 @@ pub mod tests {
     use crate::test_config;
 
     use super::PollingServerListService;
+    use crate::common::remote::server_list::ServerListProvider;
 
-    #[test]
-    #[should_panic(expected = "server list must not empty")]
-    pub fn test_empty_server_list() {
-        let _ = PollingServerListService::new(Vec::default());
+    #[tokio::test]
+    #[should_panic]
+    pub async fn test_empty_server_list() {
+        let _ = PollingServerListService::new(Vec::default()).await;
     }
 
-    #[test]
-    #[should_panic(expected = "all the server is illegal format!")]
-    pub fn test_illegal_format() {
-        let _ = PollingServerListService::new(vec!["127.0.0.1:sd".to_string()]);
+    #[tokio::test]
+    pub async fn test_illegal_format() {
+        let mut service = PollingServerListService::new(vec!["127.0.0.1:sd".to_string()]).await;
+
+        let _ = poll_fn(|cx| service.poll_ready(cx)).await;
+        let result = service.call(()).await;
+        assert!(result.is_err());
     }
 
     fn setup() {
@@ -153,7 +138,8 @@ pub mod tests {
                 "127.0.0.1:8848".to_string(),
                 "127.0.0.2:8848".to_string(),
                 "127.0.0.3:8848".to_string(),
-            ]);
+            ])
+            .await;
 
             let _ = poll_fn(|cx| service.poll_ready(cx)).await;
             let server1 = service
@@ -205,5 +191,41 @@ pub mod tests {
             debug!("ip:{}, port:{}", server7.host(), server7.port());
         })
         .await;
+    }
+
+    struct RotatingProvider {
+        calls: AtomicUsize,
+    }
+
+    impl RotatingProvider {
+        fn new() -> Self {
+            Self {
+                calls: AtomicUsize::new(0),
+            }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl ServerListProvider for RotatingProvider {
+        async fn current_server_list(&self) -> Arc<Vec<String>> {
+            let calls = self.calls.fetch_add(1, Ordering::SeqCst);
+            if calls == 0 {
+                Arc::new(vec!["127.0.0.1:8848".to_string()])
+            } else {
+                Arc::new(vec!["127.0.0.2:8848".to_string()])
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn test_refresh_server_list_from_provider() {
+        let provider = std::sync::Arc::new(RotatingProvider::new());
+        let mut service = PollingServerListService::from_provider(provider).await;
+
+        let _ = poll_fn(|cx| service.poll_ready(cx)).await;
+        let server = service.call(()).await.expect("should get server");
+
+        assert_eq!(server.host(), "127.0.0.2");
+        assert_eq!(server.port(), 8848);
     }
 }

@@ -9,28 +9,20 @@ use tonic::transport::{Channel, Endpoint, Uri};
 use tower::{Service, layer::util::Stack};
 use tracing::{Instrument, Span, debug, debug_span, error};
 
-use crate::{
-    common::remote::grpc::nacos_grpc_service::DynamicBiStreamingCallLayerWrapper,
-    nacos_proto::v2::{
-        Payload, bi_request_stream_client::BiRequestStreamClient, request_client::RequestClient,
-    },
-};
-
-use super::{
-    config::GrpcConfiguration,
-    nacos_grpc_service::{Callback, NacosGrpcCall},
-};
-use super::{
-    nacos_grpc_service::{
-        BiStreamingCallIdentityLayer, DynamicBiStreamingCallLayer, DynamicBiStreamingCallService,
-        DynamicUnaryCallLayer, DynamicUnaryCallLayerWrapper, DynamicUnaryCallService, GrpcStream,
-        UnaryCallIdentityLayer,
-    },
-    server_address::ServerAddress,
+use super::config::GrpcConfiguration;
+use super::nacos_grpc_service::{
+    BiStreamingCallIdentityLayer, Callback, DynamicBiStreamingCallLayer,
+    DynamicBiStreamingCallLayerWrapper, DynamicBiStreamingCallService, DynamicUnaryCallLayer,
+    DynamicUnaryCallLayerWrapper, DynamicUnaryCallService, GrpcStream, NacosGrpcCall,
+    UnaryCallIdentityLayer,
 };
 use crate::api::error::Error;
 use crate::api::error::Error::NoAvailableServer;
 use crate::api::error::Error::TonicGrpcStatus;
+use crate::common::remote::server_list::ServerAddress;
+use crate::nacos_proto::v2::{
+    Payload, bi_request_stream_client::BiRequestStreamClient, request_client::RequestClient,
+};
 
 #[derive(Clone)]
 pub(crate) struct Tonic {
