@@ -3,6 +3,7 @@ use std::time::Duration;
 
 use arc_swap::ArcSwap;
 use tokio::time::Instant;
+use url::Url;
 
 use crate::api::error::Error;
 use crate::api::props::ClientProps;
@@ -89,17 +90,18 @@ impl ServerListProvider for EndpointServerListProvider {
 pub(crate) async fn create_server_list_provider(
     client_props: &ClientProps,
 ) -> crate::api::error::Result<Arc<dyn ServerListProvider>> {
+    // The priority of the `endpoint` is higher than `server_addr`
     if let Some(endpoint) = client_props.get_endpoint() {
         let namespace = client_props.get_namespace_default_if_empty();
         let endpoint_url = build_endpoint_url(&endpoint, &namespace);
         let initial_list = fetch_server_list(&endpoint_url).await?;
         let provider = EndpointServerListProvider::new(endpoint_url, initial_list);
-        return Ok(Arc::new(provider));
+        Ok(Arc::new(provider))
+    } else {
+        let server_addr = client_props.get_server_addr();
+        let server_list = super::parse_server_list(&server_addr)?;
+        Ok(Arc::new(StaticServerListProvider::new(server_list)))
     }
-
-    let server_addr = client_props.get_server_addr();
-    let server_list = super::parse_server_list(&server_addr)?;
-    Ok(Arc::new(StaticServerListProvider::new(server_list)))
 }
 
 async fn fetch_server_list(endpoint_url: &str) -> crate::api::error::Result<Vec<String>> {
@@ -133,47 +135,22 @@ pub(crate) fn build_endpoint_url(endpoint: &str, namespace: &str) -> String {
     const DEFAULT_ENDPOINT_URI: &str = "/nacos/serverlist";
 
     let endpoint = endpoint.trim();
-
-    if endpoint.starts_with("http://") || endpoint.starts_with("https://") {
-        return append_namespace_if_missing(endpoint, namespace);
-    }
-
-    // Bare hostname — build URL with defaults
-    let (host, explicit_port) = if let Some(colon_pos) = endpoint.find(':') {
-        let (h, p) = endpoint.split_at(colon_pos);
-        (h, Some(&p[1..]))
+    let mut url = if endpoint.starts_with("http://") || endpoint.starts_with("https://") {
+        Url::parse(endpoint).expect("endpoint URL should be valid")
     } else {
-        (endpoint, None)
+        // Bare hostname — parse host and optional port, then build URL with defaults
+        let (host, port) = super::parse_host_port(endpoint);
+        let port = port.unwrap_or(DEFAULT_ENDPOINT_PORT);
+        Url::parse(&format!("http://{}:{}{}", host, port, DEFAULT_ENDPOINT_URI))
+            .expect("constructed endpoint URL should be valid")
     };
 
-    let port = explicit_port
-        .and_then(|p| p.parse::<u16>().ok())
-        .unwrap_or(DEFAULT_ENDPOINT_PORT);
-
-    let url = format!("http://{}:{}{}", host, port, DEFAULT_ENDPOINT_URI);
-    append_namespace_if_missing(&url, namespace)
-}
-
-fn append_namespace_if_missing(url: &str, namespace: &str) -> String {
-    if namespace.trim().is_empty() {
-        return url.to_string();
+    let namespace = namespace.trim();
+    if !namespace.is_empty() && !url.query_pairs().any(|(k, _)| k == "namespace") {
+        url.query_pairs_mut().append_pair("namespace", namespace);
     }
-    let query_part = url.split('?').nth(1).unwrap_or("");
-    if query_contains_key(query_part, "namespace") {
-        return url.to_string();
-    }
-    if url.contains('?') {
-        format!("{}&namespace={}", url, namespace.trim())
-    } else {
-        format!("{}?namespace={}", url, namespace.trim())
-    }
-}
 
-fn query_contains_key(query: &str, key: &str) -> bool {
-    query
-        .split('&')
-        .filter(|part| !part.is_empty())
-        .any(|part| part.split('=').next() == Some(key))
+    url.to_string()
 }
 
 #[cfg(test)]
