@@ -167,7 +167,7 @@ impl NacosGrpcClientBuilder {
         self
     }
 
-    pub(crate) fn port(mut self, port: Option<u32>) -> Self {
+    pub(crate) fn port(mut self, port: Option<u16>) -> Self {
         self.grpc_config.port = port;
         self
     }

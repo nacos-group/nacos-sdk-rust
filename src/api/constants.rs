@@ -1,6 +1,6 @@
 pub const DEFAULT_SERVER_ADDR: &str = "127.0.0.1:8848";
 
-pub const DEFAULT_SERVER_PORT: u32 = 8848;
+pub const DEFAULT_SERVER_PORT: u16 = 8848;
 
 /// Attention! "public" is "", it is recommended to customize the namespace with clear meaning.
 pub(crate) const DEFAULT_NAMESPACE: &str = "public";

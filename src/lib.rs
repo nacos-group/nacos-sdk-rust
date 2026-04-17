@@ -121,12 +121,12 @@ pub(crate) mod properties {
             .map_or(default.as_ref().to_string(), |value| value.to_string())
     }
 
-    pub(crate) fn get_value_u32<Key>(key: Key, default: u32) -> u32
+    pub(crate) fn get_value_u16<Key>(key: Key, default: u16) -> u16
     where
         Key: AsRef<str>,
     {
         PROPERTIES.get(key.as_ref()).map_or(default, |value| {
-            value.to_string().parse::<u32>().unwrap_or(default)
+            value.to_string().parse::<u16>().unwrap_or(default)
         })
     }
 
@@ -184,7 +184,7 @@ mod tests {
 #[cfg(test)]
 mod test_props {
     use crate::api::constants::ENV_NACOS_CLIENT_NAMING_PUSH_EMPTY_PROTECTION;
-    use crate::properties::{get_value, get_value_bool, get_value_u32};
+    use crate::properties::{get_value, get_value_bool, get_value_u16};
 
     #[test]
     fn test_get_value() {
@@ -199,9 +199,9 @@ mod test_props {
     }
 
     #[test]
-    fn test_get_value_u32() {
+    fn test_get_value_u16() {
         let not_exist_key = "MUST_NOT_EXIST";
-        let v = get_value_u32(not_exist_key, 91);
+        let v = get_value_u16(not_exist_key, 91);
         assert_eq!(v, 91);
     }
 }

@@ -12,7 +12,7 @@ pub struct ClientProps {
     /// Full URL (http://...) used as-is; bare hostname gets defaults (/nacos/serverlist, port 8080).
     endpoint: Option<String>,
     /// grpc port
-    grpc_port: Option<u32>,
+    grpc_port: Option<u16>,
     /// public is "", Should define a more meaningful namespace
     namespace: String,
     /// app_name
@@ -64,7 +64,7 @@ impl ClientProps {
             .unwrap_or_else(|| self.get_server_addr())
     }
 
-    pub(crate) fn get_remote_grpc_port(&self) -> Option<u32> {
+    pub(crate) fn get_remote_grpc_port(&self) -> Option<u16> {
         self.grpc_port
     }
 
@@ -219,7 +219,7 @@ impl ClientProps {
     }
 
     /// Sets the grpc port
-    pub fn remote_grpc_port(mut self, grpc_port: u32) -> Self {
+    pub fn remote_grpc_port(mut self, grpc_port: u16) -> Self {
         self.grpc_port = Some(grpc_port);
         self
     }
