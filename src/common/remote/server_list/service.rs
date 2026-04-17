@@ -54,11 +54,11 @@ impl Service<()> for PollingServerListService {
 
         Box::pin(async move {
             let server_list = provider.current_server_list().await;
-            let parsed = super::parse_host_port(&server_list)?;
+            let parsed = super::parse_host_port_vec(&server_list)?;
             let idx = next_idx % parsed.len();
             let (host, port) = &parsed[idx];
             let server_address = PollingServerAddress {
-                host: host.clone(),
+                host: host.to_string(),
                 port: *port,
             };
             Ok(Arc::new(server_address) as Arc<dyn ServerAddress>)
@@ -68,7 +68,7 @@ impl Service<()> for PollingServerListService {
 
 struct PollingServerAddress {
     host: String,
-    port: u32,
+    port: u16,
 }
 
 impl ServerAddress for PollingServerAddress {
@@ -76,7 +76,7 @@ impl ServerAddress for PollingServerAddress {
         self.host.clone()
     }
 
-    fn port(&self) -> u32 {
+    fn port(&self) -> u16 {
         self.port
     }
 
