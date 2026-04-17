@@ -1,5 +1,17 @@
 # 变更日志 | Change log
 
+### 0.8.0
+
+- 破坏性变更：自定义 `AuthPlugin` 需要适配 `login` 方法签名（参数改为 `Arc` 包装）；`remote_grpc_port` 参数类型 `u32` → `u16`
+- 特性：新增 `endpoint` 配置，支持从远程服务端点动态获取服务器列表，`endpoint` 优先级高于 `server_addr`
+- 增强：CI 添加 sccache 编译缓存、`thiserror` 升级至 2.0、`url` crate 统一处理 endpoint URL
+
+---
+
+- Change: custom `AuthPlugin` needs to adapt `login` method signature (params wrapped in `Arc`); `remote_grpc_port` parameter type `u32` → `u16`
+- Feature: add `endpoint` for dynamic server list resolution, `endpoint` takes priority over `server_addr`
+- Chore: add sccache compilation caching for CI, upgrade `thiserror` to 2.0, unify `url` crate for endpoint URL
+
 ### 0.7.0
 
 - 特性：提供 gRPC TLS 支持，通过 `features = ["tls"]` 开启，支持自定义 CA 证书

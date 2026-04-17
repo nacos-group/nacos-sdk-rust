@@ -22,7 +22,7 @@ Add the dependency in `Cargo.toml`:
 
 ```toml
 [dependencies]
-nacos-sdk = { version = "0.7", features = ["default"] }
+nacos-sdk = { version = "0.8", features = ["default"] }
 ```
 
 ### Usage of Config
@@ -117,7 +117,7 @@ nacos-sdk = { version = "0.7", features = ["default"] }
 ```
 
 ### Props
-Props count be set by `ClientProps`, or Environment variables (Higher priority).
+Props could be set by `ClientProps`, or Environment variables (Higher priority).
 See them in `nacos_sdk::api::props::ClientProps` or `nacos_sdk::api::constants::ENV_NACOS_CLIENT_*`.
 e.g.
 - env `NACOS_CLIENT_COMMON_THREAD_CORES` to set nacos-client-thread-pool num, default 1
@@ -176,7 +176,7 @@ let naming_service = NamingServiceBuilder::new(props).build().await?;
     - enable auth-by-http(default is enabled)
     ```toml
     [dependencies]
-    nacos-sdk = { version = "0.7", features = ["default"] }
+    nacos-sdk = { version = "0.8", features = ["default"] }
     ```
     - Set username and password via environment variables
     ```shell
@@ -202,7 +202,7 @@ let naming_service = NamingServiceBuilder::new(props).build().await?;
     - enable auth-by-aliyun feature in toml
     ```toml
     [dependencies]
-    nacos-sdk = { version = "0.7", features = ["default", "auth-by-aliyun"] }
+    nacos-sdk = { version = "0.8", features = ["default", "auth-by-aliyun"] }
     ```
     - Set accessKey and secretKey via environment variables
     ```shell

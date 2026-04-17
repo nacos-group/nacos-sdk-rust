@@ -28,7 +28,7 @@
 //! Add the dependency in `Cargo.toml`:
 //! ```toml
 //! [dependencies]
-//! nacos-sdk = { version = "0.7", features = ["default"] }
+//! nacos-sdk = { version = "0.8", features = ["default"] }
 //! ```
 //!
 //! ## General Configurations and Initialization
