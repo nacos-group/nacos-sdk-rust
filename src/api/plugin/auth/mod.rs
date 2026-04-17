@@ -12,13 +12,14 @@ use std::{collections::HashMap, sync::Arc, time::Duration};
 use tracing::{Instrument, debug, debug_span, info};
 
 use crate::common::executor;
+use crate::common::remote::server_list::ServerListProvider;
 
 /// Auth plugin in Client.
 /// This api may change in the future, please forgive me if you customize the implementation.
 #[async_trait::async_trait]
 pub trait AuthPlugin: Send + Sync {
     /// Login with [`AuthContext`], Note that this method will be scheduled continuously.
-    async fn login(&self, server_list: Vec<String>, auth_context: AuthContext);
+    async fn login(&self, server_list: Arc<Vec<String>>, auth_context: Arc<AuthContext>);
 
     /// Get the [`LoginIdentityContext`].
     fn get_login_identity(&self, resource: RequestResource) -> LoginIdentityContext;
@@ -71,7 +72,7 @@ pub(crate) struct NoopAuthPlugin {
 #[async_trait::async_trait]
 impl AuthPlugin for NoopAuthPlugin {
     #[allow(unused_variables)]
-    async fn login(&self, server_list: Vec<String>, auth_context: AuthContext) {
+    async fn login(&self, server_list: Arc<Vec<String>>, auth_context: Arc<AuthContext>) {
         // noop
     }
 
@@ -81,14 +82,15 @@ impl AuthPlugin for NoopAuthPlugin {
     }
 }
 
-pub async fn init_auth_plugin(
+pub(crate) async fn init_auth_plugin(
     auth_plugin: Arc<dyn AuthPlugin>,
-    server_list: Vec<String>,
+    server_list_provider: Arc<dyn ServerListProvider>,
     auth_params: HashMap<String, String>,
     id: String,
 ) {
     info!("init auth task");
-    let auth_context = AuthContext::default().add_params(auth_params);
+    let auth_context = Arc::new(AuthContext::default().add_params(auth_params));
+    let server_list = server_list_provider.current_server_list().await;
     // First login
     auth_plugin
         .login(server_list.clone(), auth_context.clone())
@@ -101,6 +103,7 @@ pub async fn init_auth_plugin(
             // Periodic refresh
             info!("auth plugin task start.");
             loop {
+                let server_list = server_list_provider.current_server_list().await;
                 auth_plugin
                     .login(server_list.clone(), auth_context.clone())
                     .in_current_span()

@@ -30,6 +30,7 @@ use crate::common::remote::grpc::NacosGrpcClient;
 use crate::common::remote::grpc::NacosGrpcClientBuilder;
 use crate::common::remote::grpc::message::GrpcRequestMessage;
 use crate::common::remote::grpc::message::GrpcResponseMessage;
+use crate::common::remote::server_list::create_server_list_provider;
 use crate::naming::message::request::*;
 use crate::naming::message::response::*;
 
@@ -75,17 +76,11 @@ impl NacosNamingService {
         client_props: ClientProps,
         auth_plugin: Arc<dyn AuthPlugin>,
     ) -> Result<Self> {
-        let server_list = Arc::new(client_props.get_server_list()?);
+        let namespace = client_props.get_namespace_default_if_empty();
 
-        let mut namespace = client_props.get_namespace();
-        if namespace.is_empty() {
-            namespace = crate::api::constants::DEFAULT_NAMESPACE.to_owned();
-        }
-
-        // create client id
         let client_id = crate::common::util::generate_client_id(
             MODULE_NAME,
-            &client_props.get_server_addr(),
+            &client_props.get_address_identifier(),
             &namespace,
             &SEQ,
         );
@@ -112,7 +107,9 @@ impl NacosNamingService {
 
         let server_request_handler = NamingPushRequestHandler::new(emitter.clone());
 
-        let nacos_grpc_client = NacosGrpcClientBuilder::new(server_list.to_vec())
+        let server_list_provider = create_server_list_provider(&client_props).await?;
+
+        let nacos_grpc_client = NacosGrpcClientBuilder::new(server_list_provider)
             .port(client_props.get_remote_grpc_port())
             .namespace(namespace.clone())
             .client_version(client_props.get_client_version())

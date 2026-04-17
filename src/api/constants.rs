@@ -1,6 +1,6 @@
 pub const DEFAULT_SERVER_ADDR: &str = "127.0.0.1:8848";
 
-pub const DEFAULT_SERVER_PORT: u32 = 8848;
+pub const DEFAULT_SERVER_PORT: u16 = 8848;
 
 /// Attention! "public" is "", it is recommended to customize the namespace with clear meaning.
 pub(crate) const DEFAULT_NAMESPACE: &str = "public";
@@ -37,6 +37,8 @@ pub const ENV_NACOS_CLIENT_COMMON_THREAD_CORES: &str = "NACOS_CLIENT_COMMON_THRE
 pub const ENV_NACOS_CLIENT_COMMON_SERVER_ADDRESS: &str = "NACOS_CLIENT_SERVER_ADDRESS";
 
 pub const ENV_NACOS_CLIENT_COMMON_SERVER_PORT: &str = "NACOS_CLIENT_SERVER_PORT";
+
+pub const ENV_NACOS_CLIENT_COMMON_ENDPOINT: &str = "NACOS_CLIENT_ENDPOINT";
 
 pub const ENV_NACOS_CLIENT_COMMON_NAMESPACE: &str = "NACOS_CLIENT_NAMESPACE";
 

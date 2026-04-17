@@ -263,7 +263,7 @@ impl AliyunRamAuthPlugin {
 #[async_trait::async_trait]
 impl AuthPlugin for AliyunRamAuthPlugin {
     /// no need to login
-    async fn login(&self, _: Vec<String>, auth_context: AuthContext) {
+    async fn login(&self, _: Arc<Vec<String>>, auth_context: Arc<AuthContext>) {
         if *self.initialized.load().as_ref() {
             return;
         }
@@ -369,7 +369,9 @@ mod test {
         context = context.add_param(ACCESS_KEY, "test");
         context = context.add_param(ACCESS_SECRET, "test");
         context = context.add_param(SIGN_REGION_ID, "cn-hangzhou");
-        aliyun_ram_auth_plugin.login(Vec::new(), context).await;
+        aliyun_ram_auth_plugin
+            .login(Arc::new(Vec::new()), Arc::new(context))
+            .await;
         assert!(*aliyun_ram_auth_plugin.initialized.load().as_ref());
         assert_eq!(
             "test",
@@ -467,7 +469,9 @@ mod test {
         context = context.add_param(ACCESS_KEY, "test-ak");
         context = context.add_param(ACCESS_SECRET, "test-sk");
         context = context.add_param(SIGN_REGION_ID, "cn-hangzhou");
-        aliyun_ram_auth_plugin.login(Vec::new(), context).await;
+        aliyun_ram_auth_plugin
+            .login(Arc::new(Vec::new()), Arc::new(context))
+            .await;
 
         let mut resource = RequestResource::default();
         resource.request_type = "Naming".to_owned();
@@ -518,7 +522,9 @@ mod test {
         context = context.add_param(ACCESS_KEY, "test-ak");
         context = context.add_param(ACCESS_SECRET, "test-sk");
         context = context.add_param(SIGN_REGION_ID, "cn-hangzhou");
-        aliyun_ram_auth_plugin.login(Vec::new(), context).await;
+        aliyun_ram_auth_plugin
+            .login(Arc::new(Vec::new()), Arc::new(context))
+            .await;
 
         let mut resource = RequestResource::default();
         resource.request_type = "Config".to_owned();

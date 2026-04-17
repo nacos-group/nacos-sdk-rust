@@ -54,8 +54,8 @@ impl NacosConfigService {
     ) -> crate::api::error::Result<Self> {
         let client_id = crate::common::util::generate_client_id(
             MODULE_NAME,
-            &client_props.get_server_addr(),
-            &client_props.get_namespace(),
+            &client_props.get_address_identifier(),
+            &client_props.get_namespace_default_if_empty(),
             &SEQ,
         );
         let client_worker =

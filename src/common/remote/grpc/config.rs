@@ -6,7 +6,7 @@ use tonic::transport::Uri;
 #[derive(Clone)]
 pub(crate) struct GrpcConfiguration {
     pub(crate) host: String,
-    pub(crate) port: Option<u32>,
+    pub(crate) port: Option<u16>,
     pub(crate) origin: Option<Uri>,
     pub(crate) user_agent: Option<HeaderValue>,
     pub(crate) timeout: Option<Duration>,

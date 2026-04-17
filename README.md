@@ -127,6 +127,25 @@ e.g.
 - env `NACOS_CLIENT_ACCESS_KEY` to set Aliyun ram access-key
 - env `NACOS_CLIENT_SECRET_KEY` to set Aliyun ram access-secret
 
+#### 配置 server_addr 或 endpoint
+
+当你的 Nacos 服务地址可能动态变化时，可以使用 `endpoint` 配置一个服务端点来动态获取服务器列表，而无需硬编码静态地址。
+
+- **使用 `endpoint`**：配置一个 endpoint 地址，SDK 会自动从中获取最新的服务器列表（每 30 秒刷新）
+- **使用 `server_addr`**：静态地址配置（可以是多个域名），列表固定不变
+
+> 注意：`endpoint` 优先级高于 `server_addr`，设置 `endpoint` 后 `server_addr` 将被忽略。
+
+```rust
+    ClientProps::new()
+        // endpoint 支持完整 URL 或裸域名；可通过环境变量配置 NACOS_CLIENT_ENDPOINT=xxx
+        // 完整 URL: http://endpoint.example.local:8080/nacos/serverlist (直接使用)
+        // 裸域名: endpoint.example.local 或 endpoint.example.local:9090 (自动补充默认路径和端口)
+        .endpoint("http://endpoint.example.local:8080/nacos/serverlist")
+        // 或者通过环境变量配置 NACOS_CLIENT_SERVER_ADDRESS=xxx 
+        .server_addr("nacos-server.example.local:8848")
+```
+
 ### ⚠️ 应急启动：正确使用 `load_cache_at_start`
 
 当你的应用需要 **Nacos 服务端不可用时仍能启动**（弱依赖场景），请务必设置 `load_cache_at_start(true)`：

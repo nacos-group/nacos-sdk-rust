@@ -34,7 +34,7 @@ impl Default for HttpLoginAuthPlugin {
 
 #[async_trait::async_trait]
 impl AuthPlugin for HttpLoginAuthPlugin {
-    async fn login(&self, server_list: Vec<String>, auth_context: AuthContext) {
+    async fn login(&self, server_list: Arc<Vec<String>>, auth_context: Arc<AuthContext>) {
         let now_instant = Instant::now();
         if now_instant.le(self.next_login_refresh.load().deref()) {
             tracing::debug!("Http login return because now_instant lte next_login_refresh.");
@@ -70,7 +70,7 @@ impl AuthPlugin for HttpLoginAuthPlugin {
         tracing::debug!("Http login with username={username},password={password}");
 
         let login_response = {
-            let resp = reqwest::Client::new()
+            let resp = crate::common::remote::http_client()
                 .post(login_url)
                 .query(&[(USERNAME, username), (PASSWORD, password)])
                 .send()
@@ -126,6 +126,8 @@ struct HttpLoginResponse {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use crate::api::plugin::{AuthContext, AuthPlugin, HttpLoginAuthPlugin, RequestResource};
 
     #[tokio::test]
@@ -135,11 +137,13 @@ mod tests {
         crate::test_config::setup_log();
 
         let http_auth_plugin = HttpLoginAuthPlugin::default();
-        let server_list = vec!["127.0.0.1:8848".to_string()];
+        let server_list = Arc::new(vec!["127.0.0.1:8848".to_string()]);
 
-        let auth_context = AuthContext::default()
-            .add_param(crate::api::plugin::USERNAME, "nacos")
-            .add_param(crate::api::plugin::PASSWORD, "nacos");
+        let auth_context = Arc::new(
+            AuthContext::default()
+                .add_param(crate::api::plugin::USERNAME, "nacos")
+                .add_param(crate::api::plugin::PASSWORD, "nacos"),
+        );
 
         http_auth_plugin
             .login(server_list.clone(), auth_context.clone())

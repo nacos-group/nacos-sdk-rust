@@ -1,15 +1,18 @@
 use std::collections::HashMap;
 
 use crate::api::constants::*;
-use crate::properties::{get_value, get_value_bool, get_value_option, get_value_u32};
+use crate::properties::{get_value, get_value_bool, get_value_option};
 
 /// Configures settings for Client.
 #[derive(Debug, Clone)]
 pub struct ClientProps {
     /// server_addr e.g: 127.0.0.1:8848; 192.168.0.1
     server_addr: String,
+    /// endpoint for resolving server list.
+    /// Full URL (http://...) used as-is; bare hostname gets defaults (/nacos/serverlist, port 8080).
+    endpoint: Option<String>,
     /// grpc port
-    grpc_port: Option<u32>,
+    grpc_port: Option<u16>,
     /// public is "", Should define a more meaningful namespace
     namespace: String,
     /// app_name
@@ -47,8 +50,31 @@ impl ClientProps {
         }
     }
 
-    pub(crate) fn get_remote_grpc_port(&self) -> Option<u32> {
+    pub(crate) fn get_endpoint(&self) -> Option<String> {
+        if self.env_first {
+            get_value_option(ENV_NACOS_CLIENT_COMMON_ENDPOINT).or_else(|| self.endpoint.clone())
+        } else {
+            self.endpoint.clone()
+        }
+    }
+
+    /// The priority of the `endpoint` is higher than `server_addr`
+    pub(crate) fn get_address_identifier(&self) -> String {
+        self.get_endpoint()
+            .unwrap_or_else(|| self.get_server_addr())
+    }
+
+    pub(crate) fn get_remote_grpc_port(&self) -> Option<u16> {
         self.grpc_port
+    }
+
+    pub(crate) fn get_namespace_default_if_empty(&self) -> String {
+        let namespace = self.get_namespace();
+        if namespace.is_empty() {
+            DEFAULT_NAMESPACE.to_owned()
+        } else {
+            namespace
+        }
     }
 
     pub(crate) fn get_namespace(&self) -> String {
@@ -144,31 +170,6 @@ impl ClientProps {
         }
     }
 
-    pub(crate) fn get_server_list(&self) -> crate::api::error::Result<Vec<String>> {
-        let server_addr = self.get_server_addr();
-        if server_addr.trim().is_empty() {
-            return Err(crate::api::error::Error::WrongServerAddress(String::from(
-                "Server address is empty",
-            )));
-        }
-        let hosts: Vec<&str> = server_addr.trim().split(',').collect::<Vec<&str>>();
-        let mut result = vec![];
-        for host in hosts {
-            let host_port = host.split(':').collect::<Vec<&str>>();
-            if host_port.len() == 1 {
-                result.push(format!(
-                    "{}:{}",
-                    host,
-                    get_value_u32(ENV_NACOS_CLIENT_COMMON_SERVER_PORT, DEFAULT_SERVER_PORT,)
-                ));
-                continue;
-            }
-            result.push(host.to_string());
-        }
-
-        Ok(result)
-    }
-
     pub(crate) fn get_max_retries(&self) -> Option<u32> {
         #[allow(deprecated)]
         self.max_retries
@@ -184,6 +185,7 @@ impl ClientProps {
 
         ClientProps {
             server_addr: String::from(DEFAULT_SERVER_ADDR),
+            endpoint: None,
             namespace: String::from(""),
             app_name: UNKNOWN.to_string(),
             naming_push_empty_protection: true,
@@ -205,8 +207,19 @@ impl ClientProps {
         self
     }
 
+    /// Sets the endpoint used to resolve server addresses.
+    ///
+    /// Full URL (e.g. `http://addr:8080/nacos/serverlist`) is used as-is,
+    /// only appending `namespace` if missing from the query string.
+    /// Bare hostname (e.g. `addr` or `addr:9090`) gets default path
+    /// `/nacos/serverlist` and port 8080.
+    pub fn endpoint(mut self, endpoint: impl Into<String>) -> Self {
+        self.endpoint = Some(endpoint.into());
+        self
+    }
+
     /// Sets the grpc port
-    pub fn remote_grpc_port(mut self, grpc_port: u32) -> Self {
+    pub fn remote_grpc_port(mut self, grpc_port: u16) -> Self {
         self.grpc_port = Some(grpc_port);
         self
     }
@@ -330,39 +343,57 @@ mod tests {
 
     use super::*;
 
-    #[test]
-    fn test_get_server_list() {
-        let client_props = ClientProps {
-            server_addr: "127.0.0.1:8848,192.168.0.1".to_string(),
-            grpc_port: Some(8888),
-            namespace: "test_namespace".to_string(),
-            app_name: "test_app".to_string(),
-            naming_push_empty_protection: true,
-            naming_load_cache_at_start: false,
-            config_load_cache_at_start: false,
-            env_first: true,
-            labels: HashMap::new(),
-            client_version: "test_version".to_string(),
-            auth_context: HashMap::new(),
-            #[allow(deprecated)]
-            max_retries: None,
-        };
+    #[tokio::test]
+    async fn test_get_server_list() {
+        let client_props = ClientProps::new()
+            .server_addr("127.0.0.1:8848,192.168.0.1")
+            .namespace("test_namespace");
 
-        let result = client_props.get_server_list();
-        assert!(result.is_ok());
-        if let Ok(ref vec) = result {
-            assert!(vec.contains(&"127.0.0.1:8848".to_string()));
-            assert!(vec.contains(&"192.168.0.1:8848".to_string()));
-        }
-        let client_props = client_props.server_addr(String::from("     "));
-        let result1 = client_props.get_server_list();
+        let provider =
+            crate::common::remote::server_list::create_server_list_provider(&client_props)
+                .await
+                .expect("provider should be created");
+        let result = provider.current_server_list().await;
+        assert!(result.contains(&"127.0.0.1:8848".to_string()));
+        assert!(result.contains(&"192.168.0.1:8848".to_string()));
+
+        let client_props = ClientProps::new().server_addr("     ");
+        let result1 =
+            crate::common::remote::server_list::create_server_list_provider(&client_props).await;
         assert!(result1.is_err());
+        let err = match result1 {
+            Ok(_) => panic!("expected error result"),
+            Err(err) => err,
+        };
         assert_eq!(
-            format!("{}", result1.expect_err("expected error result")),
+            format!("{}", err),
             format!(
                 "{}",
                 Error::WrongServerAddress("Server address is empty".to_string())
             )
         );
+    }
+
+    #[test]
+    fn test_get_endpoint() {
+        let props = ClientProps::new().endpoint("http://127.0.0.1:8080");
+        assert_eq!(
+            props.get_endpoint().as_deref(),
+            Some("http://127.0.0.1:8080")
+        );
+    }
+
+    #[test]
+    fn test_address_identifier_prefers_endpoint() {
+        let props = ClientProps::new()
+            .server_addr("10.0.0.1:8848,10.0.0.2:8848,10.0.0.3:8848")
+            .endpoint("http://endpoint.example.com:8080/nacos/serverlist");
+        assert_eq!(
+            props.get_address_identifier(),
+            "http://endpoint.example.com:8080/nacos/serverlist"
+        );
+
+        let props = ClientProps::new().server_addr("10.0.0.1:8848");
+        assert_eq!(props.get_address_identifier(), "10.0.0.1:8848");
     }
 }

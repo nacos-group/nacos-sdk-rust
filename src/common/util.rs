@@ -15,7 +15,7 @@ pub(crate) static HOME_DIR: std::sync::LazyLock<String> = std::sync::LazyLock::n
 });
 
 /// Generates unique client ID for the given module.
-/// Format: {module_name}:{server_addr}:{namespace}:{sequence}
+/// Format: `{module_name}-_-{server_addr}-_-{namespace}-_-{sequence}`
 pub(crate) fn generate_client_id(
     module_name: &str,
     server_addr: &str,
@@ -23,7 +23,7 @@ pub(crate) fn generate_client_id(
     seq: &AtomicU64,
 ) -> String {
     format!(
-        "{module_name}:{server_addr}:{namespace}:{}",
+        "{module_name}-_-{server_addr}-_-{namespace}-_-{}",
         seq.fetch_add(1, Ordering::SeqCst)
     )
 }
@@ -89,13 +89,25 @@ mod tests {
 
         let seq = AtomicU64::new(1);
         let client_id = super::generate_client_id("config", "127.0.0.1:8848", "public", &seq);
-        assert_eq!(client_id, "config:127.0.0.1:8848:public:1");
+        assert_eq!(client_id, "config-_-127.0.0.1:8848-_-public-_-1");
 
         let client_id2 = super::generate_client_id("config", "127.0.0.1:8848", "public", &seq);
-        assert_eq!(client_id2, "config:127.0.0.1:8848:public:2");
+        assert_eq!(client_id2, "config-_-127.0.0.1:8848-_-public-_-2");
 
         let seq2 = AtomicU64::new(1);
         let client_id3 = super::generate_client_id("naming", "127.0.0.1:8848", "public", &seq2);
-        assert_eq!(client_id3, "naming:127.0.0.1:8848:public:1");
+        assert_eq!(client_id3, "naming-_-127.0.0.1:8848-_-public-_-1");
+
+        let seq3 = AtomicU64::new(1);
+        let client_id4 = super::generate_client_id(
+            "config",
+            "http://endpoint.example.com:8080/nacos/serverlist",
+            "public",
+            &seq3,
+        );
+        assert_eq!(
+            client_id4,
+            "config-_-http://endpoint.example.com:8080/nacos/serverlist-_-public-_-1"
+        );
     }
 }
