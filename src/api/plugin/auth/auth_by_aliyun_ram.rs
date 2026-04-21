@@ -404,19 +404,25 @@ mod test {
 
     #[test]
     fn test_get_resource_for_config() {
-        let mut resource = RequestResource::default();
-        resource.group = Some("test-group".to_owned());
+        let resource = RequestResource {
+            group: Some("test-group".to_owned()),
+            ..Default::default()
+        };
         let resource = AliyunRamAuthPlugin::get_resource_for_config(&resource);
         assert_eq!("test-group", resource);
 
-        let mut resource = RequestResource::default();
-        resource.namespace = Some("test-ns".to_owned());
+        let resource = RequestResource {
+            namespace: Some("test-ns".to_owned()),
+            ..Default::default()
+        };
         let resource = AliyunRamAuthPlugin::get_resource_for_config(&resource);
         assert_eq!("test-ns", resource);
 
-        let mut resource = RequestResource::default();
-        resource.namespace = Some("test-ns".to_owned());
-        resource.group = Some("test-group".to_owned());
+        let resource = RequestResource {
+            namespace: Some("test-ns".to_owned()),
+            group: Some("test-group".to_owned()),
+            ..Default::default()
+        };
         let resource = AliyunRamAuthPlugin::get_resource_for_config(&resource);
         assert_eq!("test-ns+test-group", resource);
 
@@ -427,25 +433,31 @@ mod test {
 
     #[test]
     fn test_get_grouped_service() {
-        let mut resource = RequestResource::default();
-        resource.resource = Some("test@@test".to_owned());
+        let resource = RequestResource {
+            resource: Some("test@@test".to_owned()),
+            ..Default::default()
+        };
         let grouped_service_name = AliyunRamAuthPlugin::get_grouped_service_name(&resource);
         assert_eq!(
             "test@@test",
             grouped_service_name.expect("Grouped service name should exist")
         );
 
-        let mut resource = RequestResource::default();
-        resource.resource = Some("test".to_owned());
+        let resource = RequestResource {
+            resource: Some("test".to_owned()),
+            ..Default::default()
+        };
         let grouped_service_name = AliyunRamAuthPlugin::get_grouped_service_name(&resource);
         assert_eq!(
             "test",
             grouped_service_name.expect("Grouped service name should exist")
         );
 
-        let mut resource = RequestResource::default();
-        resource.resource = Some("test".to_owned());
-        resource.group = Some("test".to_owned());
+        let resource = RequestResource {
+            resource: Some("test".to_owned()),
+            group: Some("test".to_owned()),
+            ..Default::default()
+        };
         let grouped_service_name = AliyunRamAuthPlugin::get_grouped_service_name(&resource);
         assert_eq!(
             "test@@test",
@@ -455,8 +467,10 @@ mod test {
 
     #[test]
     fn test_get_sign_data() {
-        let mut request = RequestResource::default();
-        request.resource = Some("test".to_owned());
+        let request = RequestResource {
+            resource: Some("test".to_owned()),
+            ..Default::default()
+        };
         let sign_data = AliyunRamAuthPlugin::get_sign_data(&request)
             .expect("Sign data should exist for request");
         assert!(sign_data.contains("@@test"))
@@ -473,11 +487,12 @@ mod test {
             .login(Arc::new(Vec::new()), Arc::new(context))
             .await;
 
-        let mut resource = RequestResource::default();
-        resource.request_type = "Naming".to_owned();
-        resource.namespace = Some("".to_owned());
-        resource.group = Some("test-group".to_owned());
-        resource.resource = Some("test-resource".to_owned());
+        let resource = RequestResource {
+            request_type: "Naming".to_owned(),
+            namespace: Some("".to_owned()),
+            group: Some("test-group".to_owned()),
+            resource: Some("test-resource".to_owned()),
+        };
         let identity_context = aliyun_ram_auth_plugin.get_login_identify_for_naming(resource);
         assert_eq!(4, identity_context.contexts.len());
         assert_eq!(
@@ -510,7 +525,7 @@ mod test {
                 "cn-hangzhou",
             );
         assert_eq!(
-            sign_utils::sign_with_hmac_sha1(&data, &signature_key),
+            sign_utils::sign_with_hmac_sha1(data, &signature_key),
             sign_data
         );
     }
@@ -526,11 +541,12 @@ mod test {
             .login(Arc::new(Vec::new()), Arc::new(context))
             .await;
 
-        let mut resource = RequestResource::default();
-        resource.request_type = "Config".to_owned();
-        resource.namespace = Some("".to_owned());
-        resource.group = Some("test-group".to_owned());
-        resource.resource = Some("test-resource".to_owned());
+        let resource = RequestResource {
+            request_type: "Config".to_owned(),
+            namespace: Some("".to_owned()),
+            group: Some("test-group".to_owned()),
+            resource: Some("test-resource".to_owned()),
+        };
         let identity_context = aliyun_ram_auth_plugin.get_login_identify_for_config(resource);
         assert_eq!(4, identity_context.contexts.len());
         assert_eq!(
@@ -605,10 +621,11 @@ mod test {
     }
 
     fn make_service_instance(ip: &str, port: i32) -> ServiceInstance {
-        let mut instance = ServiceInstance::default();
-        instance.ip = ip.to_string();
-        instance.port = port;
-        instance
+        ServiceInstance {
+            ip: ip.to_string(),
+            port,
+            ..Default::default()
+        }
     }
 
     #[ignore]

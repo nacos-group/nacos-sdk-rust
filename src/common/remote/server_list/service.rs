@@ -61,6 +61,7 @@ impl Service<()> for PollingServerListService {
                 host: host.to_string(),
                 port: *port,
             };
+            tracing::debug!("Polling server selected: {}:{} (index {})", host, port, idx);
             Ok(Arc::new(server_address) as Arc<dyn ServerAddress>)
         })
     }

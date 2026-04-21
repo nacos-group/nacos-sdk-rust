@@ -35,6 +35,22 @@ pub(crate) fn normalize_group_name(group_name: Option<String>) -> String {
         .unwrap_or_else(|| crate::api::constants::DEFAULT_GROUP.to_owned())
 }
 
+/// Checks whether two slices contain the same elements regardless of order.
+/// Duplicates are significant: `[a, a]` != `[a]`.
+pub(crate) fn unordered_eq<T>(a: &[T], b: &[T]) -> bool
+where
+    T: Ord,
+{
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut a_sorted: Vec<&T> = a.iter().collect();
+    let mut b_sorted: Vec<&T> = b.iter().collect();
+    a_sorted.sort();
+    b_sorted.sort();
+    a_sorted == b_sorted
+}
+
 /// Checks param_val not blank
 pub(crate) fn check_not_blank<'a>(param_val: &'a str, param_name: &'a str) -> Result<&'a str> {
     if param_val.trim().is_empty() {
@@ -49,7 +65,32 @@ pub(crate) fn check_not_blank<'a>(param_val: &'a str, param_name: &'a str) -> Re
 
 #[cfg(test)]
 mod tests {
-    use crate::common::util::check_not_blank;
+    use crate::common::util::{check_not_blank, unordered_eq};
+
+    #[test]
+    fn test_unordered_eq_same_order() {
+        assert!(unordered_eq(&["a", "b"], &["a", "b"]));
+    }
+
+    #[test]
+    fn test_unordered_eq_different_order() {
+        assert!(unordered_eq(&["b", "a"], &["a", "b"]));
+    }
+
+    #[test]
+    fn test_unordered_eq_different_length() {
+        assert!(!unordered_eq(&["a"], &["a", "b"]));
+    }
+
+    #[test]
+    fn test_unordered_eq_duplicates_significant() {
+        assert!(!unordered_eq(&["a", "a"], &["a"]));
+    }
+
+    #[test]
+    fn test_unordered_eq_empty() {
+        assert!(unordered_eq::<String>(&[], &[]));
+    }
 
     #[test]
     fn test_check_not_blank() {

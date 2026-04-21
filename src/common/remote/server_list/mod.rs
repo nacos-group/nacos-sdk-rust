@@ -35,6 +35,7 @@ pub(crate) fn parse_server_list(server_addr: &str) -> Result<Vec<String>> {
         .collect();
 
     if result.is_empty() {
+        tracing::warn!("Server address is empty after parsing: {:?}", server_addr);
         return Err(Error::WrongServerAddress("Server address is empty".into()));
     }
 
@@ -59,6 +60,10 @@ pub(crate) fn parse_host_port_vec(server_list: &[String]) -> Result<Vec<(&str, u
         })
         .collect();
     if result_list.is_empty() {
+        tracing::warn!(
+            "All server addresses have illegal format: {:?}",
+            server_list
+        );
         return Err(Error::WrongServerAddress(
             "all the server is illegal format!".into(),
         ));

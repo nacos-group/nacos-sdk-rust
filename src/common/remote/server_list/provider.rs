@@ -66,11 +66,25 @@ impl EndpointServerListProvider {
 impl ServerListProvider for EndpointServerListProvider {
     async fn current_server_list(&self) -> Arc<Vec<String>> {
         if !self.should_refresh() {
+            tracing::debug!(
+                "Server list not yet due for refresh from endpoint {}, returning cached",
+                self.endpoint_url
+            );
             return Arc::clone(&self.cached_server_list.load());
         }
 
         match fetch_server_list(&self.endpoint_url).await {
             Ok(server_list) => {
+                let cached = self.cached_server_list.load();
+                let changed = !crate::common::util::unordered_eq(&cached, &server_list);
+                if changed {
+                    tracing::info!(
+                        "Server list refreshed from endpoint {}: {:?} -> {:?}",
+                        self.endpoint_url,
+                        *cached,
+                        server_list
+                    );
+                }
                 self.cached_server_list.store(Arc::new(server_list));
             }
             Err(e) => {
@@ -95,16 +109,26 @@ pub(crate) async fn create_server_list_provider(
         let namespace = client_props.get_namespace_default_if_empty();
         let endpoint_url = build_endpoint_url(&endpoint, &namespace);
         let initial_list = fetch_server_list(&endpoint_url).await?;
+        tracing::info!(
+            "Create EndpointServerListProvider with server_list={:?}, endpoint_url={}",
+            initial_list,
+            endpoint_url
+        );
         let provider = EndpointServerListProvider::new(endpoint_url, initial_list);
         Ok(Arc::new(provider))
     } else {
         let server_addr = client_props.get_server_addr();
         let server_list = super::parse_server_list(&server_addr)?;
+        tracing::info!(
+            "Create StaticServerListProvider with server_list={:?}",
+            server_list
+        );
         Ok(Arc::new(StaticServerListProvider::new(server_list)))
     }
 }
 
 async fn fetch_server_list(endpoint_url: &str) -> crate::api::error::Result<Vec<String>> {
+    tracing::debug!("Fetching server list from {}", endpoint_url);
     let http_client = crate::common::remote::http_client();
     let response = http_client.get(endpoint_url).send().await.map_err(|err| {
         Error::WrongServerAddress(format!(
