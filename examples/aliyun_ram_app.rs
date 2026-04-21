@@ -40,9 +40,11 @@ async fn run_naming_demo() {
         .await
         .expect("Failed to build naming service with Aliyun RAM auth");
 
-    let mut instance = ServiceInstance::default();
-    instance.ip = "localhost".to_string();
-    instance.port = 8080;
+    let instance = ServiceInstance {
+        ip: "localhost".to_string(),
+        port: 8080,
+        ..Default::default()
+    };
 
     println!("Register localhost:8080 to service(name: test, group: test)");
     naming_client
