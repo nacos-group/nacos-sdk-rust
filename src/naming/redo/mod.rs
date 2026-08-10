@@ -80,7 +80,7 @@ impl RedoTaskExecutor {
     #[instrument(fields(client_id = &self.id), skip_all)]
     pub(crate) async fn on_grpc_client_reconnect(&self) {
         let map = self.map.read().await;
-        for (_, v) in map.iter() {
+        for v in map.values() {
             v.active()
         }
     }
@@ -88,7 +88,7 @@ impl RedoTaskExecutor {
     #[instrument(fields(client_id = &self.id), skip_all)]
     pub(crate) async fn on_grpc_client_disconnect(&self) {
         let map = self.map.read().await;
-        for (_, v) in map.iter() {
+        for v in map.values() {
             v.frozen()
         }
     }
