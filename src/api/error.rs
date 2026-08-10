@@ -46,6 +46,9 @@ pub enum Error {
     #[error("remote client shutdown failed: {0}")]
     ClientShutdown(String),
 
+    #[error("request timed out after {0:?}")]
+    RequestTimeout(std::time::Duration),
+
     #[error("remote client unhealthy failed: {0}")]
     ClientUnhealthy(String),
 

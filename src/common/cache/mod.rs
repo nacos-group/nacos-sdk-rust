@@ -378,13 +378,29 @@ pub mod tests {
             .await;
 
         cache.insert("key".to_string(), "value".to_string());
-        tokio::time::sleep(Duration::from_millis(250)).await;
 
         let cache_file = root.join("config").join("test-namespace").join("key");
-        let value = tokio::fs::read_to_string(&cache_file)
-            .await
-            .expect("custom cache file should be written");
+        let value = tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                if let Ok(value) = tokio::fs::read_to_string(&cache_file).await {
+                    break value;
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .expect("custom cache file should be written within timeout");
         assert_eq!(value, "\"value\"");
+
+        let reloaded: Cache<String> = CacheBuilder::config("test-namespace".to_string())
+            .load_cache_at_start(true)
+            .disk_store(Some(root.clone()))
+            .build()
+            .await;
+        let reloaded_value = reloaded
+            .get(&"key".to_string())
+            .expect("custom cache value should reload from disk");
+        assert_eq!(reloaded_value.as_str(), "value");
 
         tokio::fs::remove_dir_all(&root)
             .await

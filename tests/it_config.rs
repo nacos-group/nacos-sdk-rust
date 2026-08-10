@@ -26,6 +26,7 @@
 //! - `remove_config`
 //! - `add_listener`
 //! - `remove_listener`
+//! - `shutdown`
 //!
 //! Tests require a running Nacos server (rnacos or Docker-based).
 //!
@@ -93,6 +94,34 @@ mod config_integration_tests {
             Ok(_) => tracing::debug!("Cleanup: config removed successfully"),
             Err(e) => tracing::warn!("Cleanup: failed to remove config: {:?}", e),
         }
+    }
+
+    /// Test: shutdown is shared by clones and rejects later requests.
+    #[tokio::test]
+    #[ignore]
+    async fn test_shutdown_is_idempotent_and_shared_by_clones() {
+        crate::shared::setup_log();
+
+        let server_addr = get_shared_server_addr().await;
+        let service = create_config_service(&server_addr).await;
+        let cloned_service = service.clone();
+
+        service
+            .shutdown()
+            .await
+            .expect("first shutdown should succeed");
+        service
+            .shutdown()
+            .await
+            .expect("repeated shutdown should succeed");
+
+        let result = cloned_service
+            .get_config("after-shutdown".to_string(), "DEFAULT_GROUP".to_string())
+            .await;
+        assert!(matches!(
+            result,
+            Err(nacos_sdk::api::error::Error::ClientShutdown(_))
+        ));
     }
 
     /// Test: publish and get config.

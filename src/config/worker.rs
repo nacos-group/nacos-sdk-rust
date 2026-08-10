@@ -21,6 +21,7 @@ pub(crate) struct ConfigWorker {
     unified_cache: Arc<Cache<CacheData>>,
     config_filters: Arc<Vec<Box<dyn ConfigFilter>>>,
     background_tasks: std::sync::Mutex<Vec<tokio::task::JoinHandle<()>>>,
+    shutdown_complete: tokio::sync::Mutex<bool>,
 }
 
 impl ConfigWorker {
@@ -96,6 +97,7 @@ impl ConfigWorker {
             unified_cache,
             config_filters,
             background_tasks: std::sync::Mutex::new(vec![notify_task, listen_task]),
+            shutdown_complete: tokio::sync::Mutex::new(false),
         })
     }
 
@@ -104,6 +106,10 @@ impl ConfigWorker {
     }
 
     pub(crate) async fn shutdown(&self) -> crate::api::error::Result<()> {
+        let mut shutdown_complete = self.shutdown_complete.lock().await;
+        if *shutdown_complete {
+            return Ok(());
+        }
         self.remote_client.shutdown().await?;
         let tasks = {
             let mut tasks = self
@@ -116,6 +122,7 @@ impl ConfigWorker {
             task.abort();
             let _ = task.await;
         }
+        *shutdown_complete = true;
         Ok(())
     }
 }

@@ -1,7 +1,11 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::task::Poll;
 use std::time::Duration;
-use std::{collections::HashMap, pin::Pin, sync::Arc};
+use std::{
+    collections::HashMap,
+    pin::Pin,
+    sync::{Arc, Mutex},
+};
 
 use async_stream::stream;
 use async_trait::async_trait;
@@ -65,6 +69,7 @@ where
     max_retries: Option<u32>,
     is_initialized: bool,
     shutdown_watcher: (watch::Sender<bool>, watch::Receiver<bool>),
+    connection_tasks: Arc<Mutex<Vec<tokio::task::JoinHandle<()>>>>,
 }
 
 impl<M> NacosGrpcConnection<M>
@@ -89,6 +94,7 @@ where
     ) -> Self {
         let connection_id_watcher = watch::channel(None);
         let shutdown_watcher = watch::channel(false);
+        let connection_tasks = Arc::new(Mutex::new(Vec::new()));
 
         Self {
             id,
@@ -106,6 +112,7 @@ where
             max_retries,
             is_initialized: false,
             shutdown_watcher,
+            connection_tasks,
         }
     }
 
@@ -126,7 +133,8 @@ where
             }
             debug!("connected listener quit.");
         };
-        executor::spawn(watch_fu);
+        let task = executor::spawn(watch_fu);
+        Self::track_connection_task(&self.connection_tasks, task);
         self
     }
 
@@ -147,7 +155,8 @@ where
             }
             debug!("disconnect listener quit.");
         };
-        executor::spawn(watch_fu);
+        let task = executor::spawn(watch_fu);
+        Self::track_connection_task(&self.connection_tasks, task);
         self
     }
 
@@ -157,7 +166,14 @@ where
     ) -> FailoverConnection<NacosGrpcConnection<M>> {
         let svc_health = self.health.clone();
         let shutdown_signal = self.shutdown_watcher.0.clone();
-        FailoverConnection::new(id, self, svc_health, shutdown_signal)
+        let connection_tasks = self.connection_tasks.clone();
+        FailoverConnection::new(
+            id,
+            self,
+            svc_health,
+            shutdown_signal,
+            connection_tasks,
+        )
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -170,6 +186,7 @@ where
         handler_map: Arc<HandlerMap>,
         health: Arc<AtomicBool>,
         shutdown_rx: watch::Receiver<bool>,
+        connection_tasks: Arc<Mutex<Vec<tokio::task::JoinHandle<()>>>>,
     ) -> Result<(M::Service, String), Error> {
         // setup
         let conn_id_sender = NacosGrpcConnection::<M>::setup(
@@ -181,15 +198,19 @@ where
             labels,
             client_abilities,
             shutdown_rx,
+            connection_tasks.clone(),
         )
         .in_current_span()
         .await?;
 
         // connection health check
         for i in 0..4 {
-            let health_check = NacosGrpcConnection::<M>::connection_health_check(&mut service)
-                .in_current_span()
-                .await;
+            let health_check = NacosGrpcConnection::<M>::connection_health_check(
+                &mut service,
+                &connection_tasks,
+            )
+            .in_current_span()
+            .await;
             if health_check.is_err() {
                 sleep(Duration::from_millis(300 << i)).await;
                 continue;
@@ -198,9 +219,10 @@ where
         }
 
         // check server
-        let connection_id = NacosGrpcConnection::<M>::check_server(&mut service)
-            .in_current_span()
-            .await?;
+        let connection_id =
+            NacosGrpcConnection::<M>::check_server(&mut service, &connection_tasks)
+                .in_current_span()
+                .await?;
 
         let conn_id_send_ret = conn_id_sender.send(connection_id.clone());
         if let Err(e) = conn_id_send_ret {
@@ -225,6 +247,7 @@ where
         labels: HashMap<String, String>,
         client_abilities: NacosClientAbilities,
         shutdown_rx: watch::Receiver<bool>,
+        connection_tasks: Arc<Mutex<Vec<tokio::task::JoinHandle<()>>>>,
     ) -> Result<oneshot::Sender<String>, Error> {
         info!("setup connection");
 
@@ -279,10 +302,14 @@ where
         let (cb, rx, mut tk) =
             utils::create_grpc_callback::<Result<GrpcStream<Result<Payload, Error>>, Error>>();
         let call = NacosGrpcCall::BIRequestService((local_stream, cb));
-        executor::spawn(service.call(call).in_current_span());
+        let call = service.call(call).in_current_span();
+        let call_task = executor::spawn(async move {
+            let _ = call.await;
+        });
+        Self::track_connection_task(&connection_tasks, call_task);
 
         let (conn_id_sender, conn_id_receiver) = oneshot::channel::<String>();
-        executor::spawn(
+        let server_task = executor::spawn(
             async move {
                 tk.want();
                 let server_stream =
@@ -356,12 +383,27 @@ where
             }
             .in_current_span(),
         );
+        Self::track_connection_task(&connection_tasks, server_task);
 
         let _ = waiter.await;
         Ok(conn_id_sender)
     }
 
-    async fn connection_health_check(service: &mut M::Service) -> Result<(), Error> {
+    fn track_connection_task(
+        tasks: &Arc<Mutex<Vec<tokio::task::JoinHandle<()>>>>,
+        task: tokio::task::JoinHandle<()>,
+    ) {
+        let mut tasks = tasks
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        tasks.retain(|task| !task.is_finished());
+        tasks.push(task);
+    }
+
+    async fn connection_health_check(
+        service: &mut M::Service,
+        connection_tasks: &Arc<Mutex<Vec<tokio::task::JoinHandle<()>>>>,
+    ) -> Result<(), Error> {
         info!("connection health check");
 
         let request = utils::convert(
@@ -373,7 +415,11 @@ where
 
         let (cb, rx, mut tk) = utils::create_grpc_callback::<Result<Payload, Error>>();
         let grpc_call = NacosGrpcCall::RequestService((request, cb));
-        executor::spawn(service.call(grpc_call));
+        let call = service.call(grpc_call);
+        let task = executor::spawn(async move {
+            let _ = call.await;
+        });
+        Self::track_connection_task(connection_tasks, task);
 
         tk.want();
         let response = utils::convert(
@@ -394,7 +440,10 @@ where
         Ok(())
     }
 
-    async fn check_server(service: &mut M::Service) -> Result<String, Error> {
+    async fn check_server(
+        service: &mut M::Service,
+        connection_tasks: &Arc<Mutex<Vec<tokio::task::JoinHandle<()>>>>,
+    ) -> Result<String, Error> {
         info!("check server");
 
         let request = utils::convert(
@@ -406,7 +455,11 @@ where
 
         let (cb, rx, mut tk) = utils::create_grpc_callback::<Result<Payload, Error>>();
         let grpc_call = NacosGrpcCall::RequestService((request, cb));
-        executor::spawn(service.call(grpc_call));
+        let call = service.call(grpc_call);
+        let task = executor::spawn(async move {
+            let _ = call.await;
+        });
+        Self::track_connection_task(connection_tasks, task);
 
         tk.want();
         let response = utils::convert(
@@ -510,6 +563,7 @@ where
                                 self.handler_map.clone(),
                                 self.health.clone(),
                                 self.shutdown_watcher.1.clone(),
+                                self.connection_tasks.clone(),
                             ));
                             self.state = State::Initializing(init_future);
                             continue;
@@ -634,6 +688,7 @@ where
         } else {
             "None".to_string()
         };
+        let connection_tasks = self.connection_tasks.clone();
 
         let _span_enter = debug_span!("grpc_connection", conn_id = conn_id).entered();
 
@@ -647,7 +702,10 @@ where
                     utils::recv_response(rx.await, "sender has been drop")?
                 }
                 .in_current_span();
-                executor::spawn(call_task);
+                let task = executor::spawn(async move {
+                    let _ = call_task.await;
+                });
+                Self::track_connection_task(&connection_tasks, task);
                 ResponseFuture::new(response_fut)
             }
             _ => {
@@ -693,10 +751,12 @@ where
     S::Future: Send + 'static,
 {
     id: String,
-    inner: Buffer<Payload, S::Future>,
+    inner: Mutex<Option<Buffer<Payload, S::Future>>>,
     svc_health: Arc<AtomicBool>,
     active_health_check: Arc<AtomicBool>,
     shutdown_signal: watch::Sender<bool>,
+    background_tasks: Mutex<Vec<tokio::task::JoinHandle<()>>>,
+    connection_tasks: Arc<Mutex<Vec<tokio::task::JoinHandle<()>>>>,
 }
 
 impl<S> FailoverConnection<S>
@@ -709,14 +769,15 @@ where
         svc: S,
         svc_health: Arc<AtomicBool>,
         shutdown_signal: watch::Sender<bool>,
+        connection_tasks: Arc<Mutex<Vec<tokio::task::JoinHandle<()>>>>,
     ) -> Self {
         let (inner, work) = Buffer::pair(svc, 1024);
-        executor::spawn(work);
+        let worker_task = executor::spawn(work);
 
         let active_health_check = Arc::new(AtomicBool::new(true));
 
         // start health check task
-        executor::spawn(
+        let health_task = executor::spawn(
             FailoverConnection::<S>::health_check(
                 inner.clone(),
                 active_health_check.clone(),
@@ -727,10 +788,12 @@ where
 
         Self {
             id,
-            inner,
+            inner: Mutex::new(Some(inner)),
             svc_health,
             active_health_check,
             shutdown_signal,
+            background_tasks: Mutex::new(vec![worker_task, health_task]),
+            connection_tasks,
         }
     }
 
@@ -796,6 +859,20 @@ where
 {
     fn drop(&mut self) {
         self.active_health_check.store(false, Ordering::Release);
+        let _ = self.shutdown_signal.send(true);
+        if let Ok(inner) = self.inner.get_mut() {
+            inner.take();
+        }
+        if let Ok(tasks) = self.background_tasks.get_mut() {
+            for task in tasks.drain(..) {
+                task.abort();
+            }
+        }
+        if let Ok(mut tasks) = self.connection_tasks.lock() {
+            for task in tasks.drain(..) {
+                task.abort();
+            }
+        }
     }
 }
 
@@ -821,7 +898,13 @@ where
                 "transport has been shut down".to_string(),
             ));
         }
-        let mut svc = self.inner.clone();
+        let mut svc = self
+            .inner
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .as_ref()
+            .cloned()
+            .ok_or_else(|| Error::ClientShutdown("transport has been shut down".to_string()))?;
         let _ = future::poll_fn(|cx| svc.poll_ready(cx))
             .in_current_span()
             .await?;
@@ -836,6 +919,37 @@ where
         self.active_health_check.store(false, Ordering::Release);
         self.svc_health.store(false, Ordering::Release);
         let _ = self.shutdown_signal.send(true);
+
+        self.inner
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take();
+        let tasks = {
+            let mut tasks = self
+                .background_tasks
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            std::mem::take(&mut *tasks)
+        };
+        for task in &tasks {
+            task.abort();
+        }
+        for task in tasks {
+            let _ = task.await;
+        }
+        let connection_tasks = {
+            let mut tasks = self
+                .connection_tasks
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            std::mem::take(&mut *tasks)
+        };
+        for task in &connection_tasks {
+            task.abort();
+        }
+        for task in connection_tasks {
+            let _ = task.await;
+        }
         Ok(())
     }
 }
@@ -883,5 +997,74 @@ pub mod nacos_grpc_connection_tests {
             fn call(&mut self, request: ()) -> <Self as Service<()>>::Future;
 
         }
+    }
+
+    struct DroppingService {
+        dropped: Arc<AtomicBool>,
+    }
+
+    struct DropFlag(Arc<AtomicBool>);
+
+    impl Drop for DropFlag {
+        fn drop(&mut self) {
+            self.0.store(true, Ordering::Release);
+        }
+    }
+
+    impl Drop for DroppingService {
+        fn drop(&mut self) {
+            self.dropped.store(true, Ordering::Release);
+        }
+    }
+
+    impl Service<Payload> for DroppingService {
+        type Response = Payload;
+        type Error = Error;
+        type Future = ResponseFuture;
+
+        fn poll_ready(&mut self, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+            Poll::Ready(Ok(()))
+        }
+
+        fn call(&mut self, _request: Payload) -> Self::Future {
+            ResponseFuture::new(futures::future::pending())
+        }
+    }
+
+    #[tokio::test]
+    async fn test_shutdown_drops_transport_worker_and_rejects_requests() {
+        let dropped = Arc::new(AtomicBool::new(false));
+        let connection_task_dropped = Arc::new(AtomicBool::new(false));
+        let (shutdown_tx, shutdown_rx) = watch::channel(false);
+        let task_guard = DropFlag(connection_task_dropped.clone());
+        let connection_task = executor::spawn(async move {
+            let _task_guard = task_guard;
+            futures::future::pending::<()>().await;
+        });
+        let connection_tasks = Arc::new(Mutex::new(vec![connection_task]));
+        let connection = FailoverConnection::new(
+            "test-client".to_string(),
+            DroppingService {
+                dropped: dropped.clone(),
+            },
+            Arc::new(AtomicBool::new(true)),
+            shutdown_tx,
+            connection_tasks,
+        );
+
+        connection
+            .shutdown()
+            .await
+            .expect("shutdown should succeed");
+        connection
+            .shutdown()
+            .await
+            .expect("repeated shutdown should succeed");
+
+        assert!(dropped.load(Ordering::Acquire));
+        assert!(connection_task_dropped.load(Ordering::Acquire));
+        assert!(*shutdown_rx.borrow());
+        let result = connection.send_request(Payload::default()).await;
+        assert!(matches!(result, Err(Error::ClientShutdown(_))));
     }
 }

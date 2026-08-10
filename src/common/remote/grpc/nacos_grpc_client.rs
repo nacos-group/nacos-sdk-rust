@@ -33,7 +33,23 @@ pub(crate) struct NacosGrpcClient {
     app_name: String,
     send_request: Arc<dyn SendRequest + Send + Sync + 'static>,
     auth_plugin: Arc<dyn AuthPlugin>,
+    request_timeout: Option<Duration>,
     shutdown: AtomicBool,
+}
+
+async fn send_request_with_timeout(
+    send_request: &(dyn SendRequest + Send + Sync + 'static),
+    request: crate::nacos_proto::v2::Payload,
+    request_timeout: Option<Duration>,
+) -> Result<crate::nacos_proto::v2::Payload, Error> {
+    let request = send_request.send_request(request).in_current_span();
+    if let Some(timeout) = request_timeout {
+        tokio::time::timeout(timeout, request)
+            .await
+            .map_err(|_| Error::RequestTimeout(timeout))?
+    } else {
+        request.await
+    }
 }
 
 impl NacosGrpcClient {
@@ -64,11 +80,12 @@ impl NacosGrpcClient {
             .build();
         let grpc_request = grpc_request.into_payload()?;
 
-        let grpc_response = self
-            .send_request
-            .send_request(grpc_request)
-            .in_current_span()
-            .await?;
+        let grpc_response = send_request_with_timeout(
+            self.send_request.as_ref(),
+            grpc_request,
+            self.request_timeout,
+        )
+        .await?;
 
         let grpc_response = GrpcMessage::<Response>::from_payload(grpc_response)?;
         Ok(grpc_response.into_body())
@@ -354,6 +371,7 @@ impl NacosGrpcClientBuilder {
             Arc::new(ClientDetectionRequestHandler),
         );
 
+        let request_timeout = self.grpc_config.timeout;
         let send_request = {
             let server_list =
                 PollingServerListService::from_provider(self.server_list_provider.clone()).await;
@@ -393,7 +411,13 @@ impl NacosGrpcClientBuilder {
         let health_check_request = GrpcMessageBuilder::new(HealthCheckRequest::default())
             .build()
             .into_payload()?;
-        match send_request.send_request(health_check_request).await {
+        match send_request_with_timeout(
+            send_request.as_ref(),
+            health_check_request,
+            request_timeout,
+        )
+        .await
+        {
             Ok(_) => {
                 tracing::info!("health check passed, connected to Nacos server");
             }
@@ -424,6 +448,7 @@ impl NacosGrpcClientBuilder {
             app_name,
             send_request,
             auth_plugin,
+            request_timeout,
             shutdown: AtomicBool::new(false),
         })
     }
@@ -489,6 +514,7 @@ pub mod tests {
             app_name: "test_app".to_string(),
             send_request: Arc::new(mock_send_request),
             auth_plugin: Arc::new(NoopAuthPlugin::default()),
+            request_timeout: None,
             shutdown: AtomicBool::new(false),
         };
 
@@ -517,6 +543,7 @@ pub mod tests {
             app_name: "test_app".to_string(),
             send_request: Arc::new(mock_send_request),
             auth_plugin: Arc::new(NoopAuthPlugin::default()),
+            request_timeout: None,
             shutdown: AtomicBool::new(false),
         };
 
@@ -533,5 +560,39 @@ pub mod tests {
             .send_request::<HealthCheckRequest, HealthCheckResponse>(HealthCheckRequest::default())
             .await;
         assert!(matches!(result, Err(Error::ClientShutdown(_))));
+    }
+
+    struct PendingSendRequest;
+
+    #[async_trait::async_trait]
+    impl SendRequest for PendingSendRequest {
+        async fn send_request(
+            &self,
+            _request: crate::nacos_proto::v2::Payload,
+        ) -> Result<crate::nacos_proto::v2::Payload, Error> {
+            futures::future::pending().await
+        }
+
+        async fn shutdown(&self) -> Result<(), Error> {
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn test_request_timeout_covers_waiting_for_transport() {
+        let timeout = Duration::from_millis(20);
+        let client = NacosGrpcClient {
+            app_name: "test_app".to_string(),
+            send_request: Arc::new(PendingSendRequest),
+            auth_plugin: Arc::new(NoopAuthPlugin::default()),
+            request_timeout: Some(timeout),
+            shutdown: AtomicBool::new(false),
+        };
+
+        let result = client
+            .send_request::<HealthCheckRequest, HealthCheckResponse>(HealthCheckRequest::default())
+            .await;
+
+        assert!(matches!(result, Err(Error::RequestTimeout(value)) if value == timeout));
     }
 }
