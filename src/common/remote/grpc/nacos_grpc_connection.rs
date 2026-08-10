@@ -167,13 +167,7 @@ where
         let svc_health = self.health.clone();
         let shutdown_signal = self.shutdown_watcher.0.clone();
         let connection_tasks = self.connection_tasks.clone();
-        FailoverConnection::new(
-            id,
-            self,
-            svc_health,
-            shutdown_signal,
-            connection_tasks,
-        )
+        FailoverConnection::new(id, self, svc_health, shutdown_signal, connection_tasks)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -205,12 +199,10 @@ where
 
         // connection health check
         for i in 0..4 {
-            let health_check = NacosGrpcConnection::<M>::connection_health_check(
-                &mut service,
-                &connection_tasks,
-            )
-            .in_current_span()
-            .await;
+            let health_check =
+                NacosGrpcConnection::<M>::connection_health_check(&mut service, &connection_tasks)
+                    .in_current_span()
+                    .await;
             if health_check.is_err() {
                 sleep(Duration::from_millis(300 << i)).await;
                 continue;
@@ -219,10 +211,9 @@ where
         }
 
         // check server
-        let connection_id =
-            NacosGrpcConnection::<M>::check_server(&mut service, &connection_tasks)
-                .in_current_span()
-                .await?;
+        let connection_id = NacosGrpcConnection::<M>::check_server(&mut service, &connection_tasks)
+            .in_current_span()
+            .await?;
 
         let conn_id_send_ret = conn_id_sender.send(connection_id.clone());
         if let Err(e) = conn_id_send_ret {
