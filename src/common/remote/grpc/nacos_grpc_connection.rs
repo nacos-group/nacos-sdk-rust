@@ -502,13 +502,15 @@ where
         let _span_enter =
             debug_span!(parent: None, "grpc_connection", id = self.id.clone()).entered();
 
-        if *self.shutdown_watcher.1.borrow() {
-            return Poll::Ready(Err(Error::ClientShutdown(
-                "transport has been shut down".to_string(),
-            )));
-        }
-
         loop {
+            // State transitions can complete synchronously in one poll. Re-check here so a
+            // concurrent shutdown cannot advance a reconnect into initialization.
+            if *self.shutdown_watcher.1.borrow() {
+                return Poll::Ready(Err(Error::ClientShutdown(
+                    "transport has been shut down".to_string(),
+                )));
+            }
+
             if !self.is_initialized {
                 let max_retries = self.max_retries.unwrap_or(1);
                 if self.retry_count >= max_retries {
@@ -1020,6 +1022,44 @@ pub mod nacos_grpc_connection_tests {
         fn call(&mut self, _request: Payload) -> Self::Future {
             ResponseFuture::new(futures::future::pending())
         }
+    }
+
+    #[test]
+    fn test_poll_ready_rechecks_shutdown_after_state_transition() {
+        let shutdown_sender = Arc::new(Mutex::new(None::<watch::Sender<bool>>));
+        let shutdown_sender_for_make = shutdown_sender.clone();
+        let mut builder = MockTonicBuilder::new();
+        builder.expect_call().once().returning(move |_| {
+            shutdown_sender_for_make
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .as_ref()
+                .expect("shutdown sender should be initialized")
+                .send(true)
+                .expect("shutdown signal should be delivered");
+            Box::pin(future::pending())
+        });
+
+        let mut connection = NacosGrpcConnection::new(
+            "test-client".to_string(),
+            builder,
+            HashMap::new(),
+            "test-version".to_string(),
+            String::new(),
+            HashMap::new(),
+            NacosClientAbilities::default(),
+            Some(1),
+        );
+        *shutdown_sender
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) =
+            Some(connection.shutdown_watcher.0.clone());
+
+        let waker = futures::task::noop_waker();
+        let mut context = Context::from_waker(&waker);
+        let result = connection.poll_ready(&mut context);
+
+        assert!(matches!(result, Poll::Ready(Err(Error::ClientShutdown(_)))));
     }
 
     #[tokio::test]

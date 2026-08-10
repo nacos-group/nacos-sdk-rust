@@ -411,13 +411,10 @@ impl NacosGrpcClientBuilder {
         let health_check_request = GrpcMessageBuilder::new(HealthCheckRequest::default())
             .build()
             .into_payload()?;
-        match send_request_with_timeout(
-            send_request.as_ref(),
-            health_check_request,
-            request_timeout,
-        )
-        .await
-        {
+        // This call also waits for connection initialization and retry backoff. Do not wrap the
+        // whole operation in the public request timeout; connect timeout still applies to each
+        // underlying connection attempt.
+        match send_request.send_request(health_check_request).await {
             Ok(_) => {
                 tracing::info!("health check passed, connected to Nacos server");
             }
