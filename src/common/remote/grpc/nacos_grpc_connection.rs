@@ -64,6 +64,7 @@ where
     ),
     max_retries: Option<u32>,
     is_initialized: bool,
+    shutdown_watcher: (watch::Sender<bool>, watch::Receiver<bool>),
 }
 
 impl<M> NacosGrpcConnection<M>
@@ -87,6 +88,7 @@ where
         max_retries: Option<u32>,
     ) -> Self {
         let connection_id_watcher = watch::channel(None);
+        let shutdown_watcher = watch::channel(false);
 
         Self {
             id,
@@ -103,6 +105,7 @@ where
             connection_id_watcher,
             max_retries,
             is_initialized: false,
+            shutdown_watcher,
         }
     }
 
@@ -153,9 +156,11 @@ where
         id: String,
     ) -> FailoverConnection<NacosGrpcConnection<M>> {
         let svc_health = self.health.clone();
-        FailoverConnection::new(id, self, svc_health)
+        let shutdown_signal = self.shutdown_watcher.0.clone();
+        FailoverConnection::new(id, self, svc_health, shutdown_signal)
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn init_connection(
         mut service: M::Service,
         client_version: String,
@@ -164,6 +169,7 @@ where
         client_abilities: NacosClientAbilities,
         handler_map: Arc<HandlerMap>,
         health: Arc<AtomicBool>,
+        shutdown_rx: watch::Receiver<bool>,
     ) -> Result<(M::Service, String), Error> {
         // setup
         let conn_id_sender = NacosGrpcConnection::<M>::setup(
@@ -174,6 +180,7 @@ where
             namespace,
             labels,
             client_abilities,
+            shutdown_rx,
         )
         .in_current_span()
         .await?;
@@ -208,6 +215,7 @@ where
         Ok((service, connection_id))
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn setup(
         server_stream_handlers: Arc<HandlerMap>,
         service: &mut M::Service,
@@ -216,6 +224,7 @@ where
         namespace: String,
         labels: HashMap<String, String>,
         client_abilities: NacosClientAbilities,
+        shutdown_rx: watch::Receiver<bool>,
     ) -> Result<oneshot::Sender<String>, Error> {
         info!("setup connection");
 
@@ -230,6 +239,8 @@ where
         let (local_sender, mut local_receiver) = mpsc::channel::<Payload>(1024);
         let local_sender = Arc::new(local_sender);
         let local_sender_clone = local_sender.clone();
+        let mut local_shutdown_rx = shutdown_rx.clone();
+        let mut server_shutdown_rx = shutdown_rx;
 
         let payload = utils::convert(
             GrpcMessageBuilder::new(setup_request)
@@ -249,9 +260,18 @@ where
             // notify
             let _ = notifier.send(());
             debug!("open local stream.");
-            while let Some(request) = local_receiver.recv().await {
-                debug!("local stream send message to server");
-                yield request
+            loop {
+                let shutdown = local_shutdown_rx.changed();
+                let request = local_receiver.recv();
+                futures::pin_mut!(shutdown, request);
+                match futures::future::select(shutdown, request).await {
+                    futures::future::Either::Left(_) => break,
+                    futures::future::Either::Right((request, _)) => {
+                        let Some(request) = request else { break };
+                        debug!("local stream send message to server");
+                        yield request;
+                    }
+                }
             }
             warn!("local stream closed!");
         }));
@@ -292,7 +312,15 @@ where
                 let span = debug_span!("bi_stream", conn_id = conn_id);
                 async {
                     let mut server_stream = Box::pin(server_stream);
-                    while let Some(Ok(response)) = server_stream.next().await {
+                    loop {
+                        let shutdown = server_shutdown_rx.changed();
+                        let response = server_stream.next();
+                        futures::pin_mut!(shutdown, response);
+                        let response = match futures::future::select(shutdown, response).await {
+                            futures::future::Either::Left(_) => break,
+                            futures::future::Either::Right((response, _)) => response,
+                        };
+                        let Some(Ok(response)) = response else { break };
                         debug!("server stream receive message from server");
                         let Some(handler_key) = response
                             .metadata
@@ -430,6 +458,12 @@ where
         let _span_enter =
             debug_span!(parent: None, "grpc_connection", id = self.id.clone()).entered();
 
+        if *self.shutdown_watcher.1.borrow() {
+            return Poll::Ready(Err(Error::ClientShutdown(
+                "transport has been shut down".to_string(),
+            )));
+        }
+
         loop {
             if !self.is_initialized {
                 let max_retries = self.max_retries.unwrap_or(1);
@@ -475,6 +509,7 @@ where
                                 self.client_abilities.clone(),
                                 self.handler_map.clone(),
                                 self.health.clone(),
+                                self.shutdown_watcher.1.clone(),
                             ));
                             self.state = State::Initializing(init_future);
                             continue;
@@ -586,6 +621,14 @@ where
     }
 
     fn call(&mut self, req: Payload) -> Self::Future {
+        if *self.shutdown_watcher.1.borrow() {
+            return ResponseFuture::new(async {
+                Err(Error::ClientShutdown(
+                    "transport has been shut down".to_string(),
+                ))
+            });
+        }
+
         let conn_id = if let Some(ref conn_id) = self.connection_id {
             conn_id.clone()
         } else {
@@ -653,6 +696,7 @@ where
     inner: Buffer<Payload, S::Future>,
     svc_health: Arc<AtomicBool>,
     active_health_check: Arc<AtomicBool>,
+    shutdown_signal: watch::Sender<bool>,
 }
 
 impl<S> FailoverConnection<S>
@@ -660,7 +704,12 @@ where
     S: Service<Payload, Error = Error, Response = Payload> + Send + 'static,
     S::Future: Send + 'static,
 {
-    pub(crate) fn new(id: String, svc: S, svc_health: Arc<AtomicBool>) -> Self {
+    pub(crate) fn new(
+        id: String,
+        svc: S,
+        svc_health: Arc<AtomicBool>,
+        shutdown_signal: watch::Sender<bool>,
+    ) -> Self {
         let (inner, work) = Buffer::pair(svc, 1024);
         executor::spawn(work);
 
@@ -681,6 +730,7 @@ where
             inner,
             svc_health,
             active_health_check,
+            shutdown_signal,
         }
     }
 
@@ -754,6 +804,8 @@ where
 #[async_trait]
 pub(crate) trait SendRequest: Send {
     async fn send_request(&self, request: Payload) -> Result<Payload, Error>;
+
+    async fn shutdown(&self) -> Result<(), Error>;
 }
 
 #[async_trait]
@@ -764,12 +816,27 @@ where
 {
     #[instrument(fields(id = self.id), skip_all)]
     async fn send_request(&self, request: Payload) -> Result<Payload, Error> {
+        if *self.shutdown_signal.borrow() {
+            return Err(Error::ClientShutdown(
+                "transport has been shut down".to_string(),
+            ));
+        }
         let mut svc = self.inner.clone();
         let _ = future::poll_fn(|cx| svc.poll_ready(cx))
             .in_current_span()
             .await?;
         let ret = svc.call(request).in_current_span().await;
         ret.map_err(GrpcBufferRequest)
+    }
+
+    async fn shutdown(&self) -> Result<(), Error> {
+        if *self.shutdown_signal.borrow() {
+            return Ok(());
+        }
+        self.active_health_check.store(false, Ordering::Release);
+        self.svc_health.store(false, Ordering::Release);
+        let _ = self.shutdown_signal.send(true);
+        Ok(())
     }
 }
 

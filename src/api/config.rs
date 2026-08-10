@@ -140,6 +140,13 @@ impl ConfigService {
         crate::common::util::check_not_blank(&group, "group")?;
         self.inner.remove_listener(data_id, group, listener).await
     }
+
+    /// Stops this client's listeners, background tasks and transport connection.
+    ///
+    /// Calling `shutdown` more than once is safe. Disk caches are preserved.
+    pub async fn shutdown(&self) -> error::Result<()> {
+        self.inner.shutdown().await
+    }
 }
 
 /// The ConfigChangeListener receive notify of [`ConfigResponse`].

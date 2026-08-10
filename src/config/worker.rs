@@ -15,12 +15,12 @@ use std::sync::Arc;
 
 use tracing::{Instrument, instrument};
 
-#[derive(Clone)]
 pub(crate) struct ConfigWorker {
     pub(crate) client_props: ClientProps,
     remote_client: Arc<NacosGrpcClient>,
     unified_cache: Arc<Cache<CacheData>>,
     config_filters: Arc<Vec<Box<dyn ConfigFilter>>>,
+    background_tasks: std::sync::Mutex<Vec<tokio::task::JoinHandle<()>>>,
 }
 
 impl ConfigWorker {
@@ -34,7 +34,7 @@ impl ConfigWorker {
         // Create unified cache using the Cache framework with CacheData directly
         let unified_cache: Cache<CacheData> = CacheBuilder::config(cache_ns)
             .load_cache_at_start(client_props.get_config_load_cache_at_start())
-            .disk_store()
+            .disk_store(client_props.get_cache_dir())
             .build()
             .await;
         let unified_cache = Arc::new(unified_cache);
@@ -69,6 +69,8 @@ impl ConfigWorker {
             ))
             .auth_plugin(auth_plugin)
             .auth_context(client_props.get_auth_context())
+            .request_timeout(client_props.get_request_timeout())
+            .optional_connect_timeout(client_props.get_connect_timeout())
             .max_retries(client_props.get_max_retries())
             .emergency_start(client_props.get_config_load_cache_at_start())
             .build(client_id)
@@ -76,13 +78,13 @@ impl ConfigWorker {
 
         let remote_client = Arc::new(remote_client);
         // todo Event/Subscriber instead of mpsc Sender/Receiver
-        crate::common::executor::spawn(Self::notify_change_to_cache_data(
+        let notify_task = crate::common::executor::spawn(Self::notify_change_to_cache_data(
             Arc::clone(&remote_client),
             Arc::clone(&unified_cache),
             notify_change_rx,
         ));
 
-        crate::common::executor::spawn(Self::list_ensure_cache_data_newest(
+        let listen_task = crate::common::executor::spawn(Self::list_ensure_cache_data_newest(
             Arc::clone(&remote_client),
             Arc::clone(&unified_cache),
             notify_change_tx_clone,
@@ -93,7 +95,28 @@ impl ConfigWorker {
             remote_client,
             unified_cache,
             config_filters,
+            background_tasks: std::sync::Mutex::new(vec![notify_task, listen_task]),
         })
+    }
+
+    pub(crate) fn is_shutdown(&self) -> bool {
+        self.remote_client.is_shutdown()
+    }
+
+    pub(crate) async fn shutdown(&self) -> crate::api::error::Result<()> {
+        self.remote_client.shutdown().await?;
+        let tasks = {
+            let mut tasks = self
+                .background_tasks
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            std::mem::take(&mut *tasks)
+        };
+        for task in tasks {
+            task.abort();
+            let _ = task.await;
+        }
+        Ok(())
     }
 }
 

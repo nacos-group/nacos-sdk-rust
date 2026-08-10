@@ -1,4 +1,11 @@
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{
+    collections::HashMap,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+    time::Duration,
+};
 use tower::layer::util::Stack;
 use tracing::{Instrument, instrument};
 
@@ -26,6 +33,7 @@ pub(crate) struct NacosGrpcClient {
     app_name: String,
     send_request: Arc<dyn SendRequest + Send + Sync + 'static>,
     auth_plugin: Arc<dyn AuthPlugin>,
+    shutdown: AtomicBool,
 }
 
 impl NacosGrpcClient {
@@ -38,6 +46,12 @@ impl NacosGrpcClient {
         Request: GrpcRequestMessage + 'static,
         Response: GrpcResponseMessage + 'static,
     {
+        if self.shutdown.load(Ordering::Acquire) {
+            return Err(Error::ClientShutdown(
+                "requests are not accepted after shutdown".to_string(),
+            ));
+        }
+
         let mut request_headers = request.take_headers();
         if let Some(resource) = request.request_resource() {
             let auth_context = self.auth_plugin.get_login_identity(resource);
@@ -58,6 +72,17 @@ impl NacosGrpcClient {
 
         let grpc_response = GrpcMessage::<Response>::from_payload(grpc_response)?;
         Ok(grpc_response.into_body())
+    }
+
+    pub(crate) fn is_shutdown(&self) -> bool {
+        self.shutdown.load(Ordering::Acquire)
+    }
+
+    pub(crate) async fn shutdown(&self) -> Result<(), Error> {
+        if self.shutdown.swap(true, Ordering::AcqRel) {
+            return Ok(());
+        }
+        self.send_request.shutdown().await
     }
 }
 
@@ -187,6 +212,11 @@ impl NacosGrpcClientBuilder {
         self
     }
 
+    pub(crate) fn request_timeout(mut self, timeout: Option<Duration>) -> Self {
+        self.grpc_config.timeout = timeout;
+        self
+    }
+
     pub(crate) fn concurrency_limit(mut self, concurrency_limit: usize) -> Self {
         self.grpc_config.concurrency_limit = Some(concurrency_limit);
         self
@@ -234,6 +264,11 @@ impl NacosGrpcClientBuilder {
 
     pub(crate) fn connect_timeout(mut self, connect_timeout: Duration) -> Self {
         self.grpc_config.connect_timeout = Some(connect_timeout);
+        self
+    }
+
+    pub(crate) fn optional_connect_timeout(mut self, connect_timeout: Option<Duration>) -> Self {
+        self.grpc_config.connect_timeout = connect_timeout;
         self
     }
 
@@ -389,6 +424,7 @@ impl NacosGrpcClientBuilder {
             app_name,
             send_request,
             auth_plugin,
+            shutdown: AtomicBool::new(false),
         })
     }
 }
@@ -453,6 +489,7 @@ pub mod tests {
             app_name: "test_app".to_string(),
             send_request: Arc::new(mock_send_request),
             auth_plugin: Arc::new(NoopAuthPlugin::default()),
+            shutdown: AtomicBool::new(false),
         };
 
         let response = nacos_grpc_client
@@ -466,5 +503,35 @@ pub mod tests {
                 .request_id
                 .expect("Response request ID should exist")
         );
+    }
+
+    #[tokio::test]
+    async fn test_shutdown_is_idempotent_and_rejects_requests() {
+        let mut mock_send_request = MockSendRequest::new();
+        mock_send_request
+            .expect_shutdown()
+            .times(1)
+            .returning(|| Ok(()));
+
+        let nacos_grpc_client = NacosGrpcClient {
+            app_name: "test_app".to_string(),
+            send_request: Arc::new(mock_send_request),
+            auth_plugin: Arc::new(NoopAuthPlugin::default()),
+            shutdown: AtomicBool::new(false),
+        };
+
+        nacos_grpc_client
+            .shutdown()
+            .await
+            .expect("first shutdown should succeed");
+        nacos_grpc_client
+            .shutdown()
+            .await
+            .expect("second shutdown should succeed");
+
+        let result = nacos_grpc_client
+            .send_request::<HealthCheckRequest, HealthCheckResponse>(HealthCheckRequest::default())
+            .await;
+        assert!(matches!(result, Err(Error::ClientShutdown(_))));
     }
 }

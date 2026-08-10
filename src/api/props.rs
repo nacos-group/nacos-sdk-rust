@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, path::PathBuf, time::Duration};
 
 use crate::api::constants::*;
 use crate::properties::{get_value, get_value_bool, get_value_option};
@@ -23,6 +23,12 @@ pub struct ClientProps {
     naming_load_cache_at_start: bool,
     /// config load_cache_at_start, default false
     config_load_cache_at_start: bool,
+    /// Optional timeout for individual SDK requests.
+    request_timeout: Option<Duration>,
+    /// Optional timeout for establishing a gRPC connection.
+    connect_timeout: Option<Duration>,
+    /// Optional root directory for on-disk caches.
+    cache_dir: Option<PathBuf>,
     /// env_first when get props, default true
     env_first: bool,
     /// metadata
@@ -126,6 +132,18 @@ impl ClientProps {
         }
     }
 
+    pub(crate) fn get_request_timeout(&self) -> Option<Duration> {
+        self.request_timeout
+    }
+
+    pub(crate) fn get_connect_timeout(&self) -> Option<Duration> {
+        self.connect_timeout
+    }
+
+    pub(crate) fn get_cache_dir(&self) -> Option<PathBuf> {
+        self.cache_dir.clone()
+    }
+
     pub(crate) fn get_labels(&self) -> HashMap<String, String> {
         let mut labels = self.labels.clone();
         labels.insert(KEY_LABEL_APP_NAME.to_string(), self.get_app_name());
@@ -191,6 +209,9 @@ impl ClientProps {
             naming_push_empty_protection: true,
             naming_load_cache_at_start: false,
             config_load_cache_at_start: false,
+            request_timeout: None,
+            connect_timeout: None,
+            cache_dir: None,
             env_first: true,
             labels: HashMap::default(),
             client_version,
@@ -258,6 +279,30 @@ impl ClientProps {
     pub fn load_cache_at_start(mut self, load_cache_at_start: bool) -> Self {
         self.naming_load_cache_at_start = load_cache_at_start;
         self.config_load_cache_at_start = load_cache_at_start;
+        self
+    }
+
+    /// Sets the timeout for a single SDK request.
+    ///
+    /// Requests have no SDK-level timeout unless this is configured.
+    pub fn request_timeout(mut self, request_timeout: Duration) -> Self {
+        self.request_timeout = Some(request_timeout);
+        self
+    }
+
+    /// Sets the timeout for establishing a gRPC connection.
+    ///
+    /// Connection attempts have no SDK-level timeout unless this is configured.
+    pub fn connect_timeout(mut self, connect_timeout: Duration) -> Self {
+        self.connect_timeout = Some(connect_timeout);
+        self
+    }
+
+    /// Sets the root directory used for on-disk caches.
+    ///
+    /// The module and namespace directories are appended to this path.
+    pub fn cache_dir(mut self, cache_dir: impl Into<PathBuf>) -> Self {
+        self.cache_dir = Some(cache_dir.into());
         self
     }
 
@@ -342,6 +387,19 @@ mod tests {
     use crate::api::error::Error;
 
     use super::*;
+
+    #[test]
+    fn test_optional_client_controls() {
+        let cache_dir = std::env::temp_dir().join("nacos-sdk-cache");
+        let props = ClientProps::new()
+            .request_timeout(Duration::from_secs(2))
+            .connect_timeout(Duration::from_secs(4))
+            .cache_dir(cache_dir.clone());
+
+        assert_eq!(props.get_request_timeout(), Some(Duration::from_secs(2)));
+        assert_eq!(props.get_connect_timeout(), Some(Duration::from_secs(4)));
+        assert_eq!(props.get_cache_dir(), Some(cache_dir));
+    }
 
     #[tokio::test]
     async fn test_get_server_list() {
