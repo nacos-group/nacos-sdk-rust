@@ -76,7 +76,7 @@ impl ServiceInstance {
     }
 
     pub fn ip_and_port(&self) -> String {
-        format!("{}:{}", &self.ip, self.port)
+        format!("{}:{}", self.ip, self.port)
     }
 
     pub fn is_same_instance(&self, other: &ServiceInstance) -> bool {

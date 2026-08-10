@@ -45,7 +45,11 @@ members = [
 default = ["config", "naming", "auth-by-http"]
 config = []
 naming = []
-tls = ["reqwest/default-tls", "tonic/transport", "tonic/tls-ring", "tonic/tls-native-roots"]
+tls = [
+    "reqwest/default-tls",
+    "tonic/tls-ring",
+    "tonic/tls-native-roots",
+]
 auth-by-http = []
 auth-by-aliyun = ["ring", "base64", "chrono"]
 # only need this if you don't customize tracing-subscriber
@@ -58,7 +62,7 @@ arc-swap = "1.9"
 thiserror = "2"
 tokio = { version = "1", features = ["rt-multi-thread", "time", "net", "fs"] }
 
-futures = "0.3"
+futures = { version = "0.3", default-features = false, features = ["async-await", "std"] }
 futures-util = "0.3"
 async-trait = "0.1"
 async-stream = "0.3"
@@ -79,13 +83,13 @@ url = "2"
 # only for aliyun-ram-auth
 ring = { version = "0.17", default-features = false, optional = true }
 base64 = { version = "0.22", default-features = false, optional = true }
-chrono = { version = "0.4", features = ["now"] ,optional = true }
+chrono = { version = "0.4", default-features = false, features = ["now"], optional = true }
 
 prost = "0.14"
 prost-types = "0.14"
-tonic = "0.14"
+tonic = { version = "0.14", default-features = false, features = ["channel", "codegen"] }
 tonic-prost = "0.14"
-tower = { version = "0.5", features = ["filter", "log"] }
+tower = { version = "0.5", features = ["buffer", "util"] }
 
 want = "0.3"
 dashmap = "6.1"
