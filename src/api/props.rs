@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, path::PathBuf};
 
 use crate::api::constants::*;
 use crate::properties::{get_value, get_value_bool, get_value_option};
@@ -23,6 +23,8 @@ pub struct ClientProps {
     naming_load_cache_at_start: bool,
     /// config load_cache_at_start, default false
     config_load_cache_at_start: bool,
+    /// Optional root directory for on-disk caches.
+    cache_dir: Option<PathBuf>,
     /// env_first when get props, default true
     env_first: bool,
     /// metadata
@@ -126,6 +128,10 @@ impl ClientProps {
         }
     }
 
+    pub(crate) fn get_cache_dir(&self) -> Option<PathBuf> {
+        self.cache_dir.clone()
+    }
+
     pub(crate) fn get_labels(&self) -> HashMap<String, String> {
         let mut labels = self.labels.clone();
         labels.insert(KEY_LABEL_APP_NAME.to_string(), self.get_app_name());
@@ -191,6 +197,7 @@ impl ClientProps {
             naming_push_empty_protection: true,
             naming_load_cache_at_start: false,
             config_load_cache_at_start: false,
+            cache_dir: None,
             env_first: true,
             labels: HashMap::default(),
             client_version,
@@ -258,6 +265,14 @@ impl ClientProps {
     pub fn load_cache_at_start(mut self, load_cache_at_start: bool) -> Self {
         self.naming_load_cache_at_start = load_cache_at_start;
         self.config_load_cache_at_start = load_cache_at_start;
+        self
+    }
+
+    /// Sets the root directory used for on-disk caches.
+    ///
+    /// The module and namespace directories are appended to this path.
+    pub fn cache_dir(mut self, cache_dir: impl Into<PathBuf>) -> Self {
+        self.cache_dir = Some(cache_dir.into());
         self
     }
 

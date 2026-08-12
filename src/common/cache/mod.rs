@@ -218,11 +218,10 @@ where
         }
     }
 
-    pub(crate) fn disk_store(self) -> Self {
-        let user_home = std::path::PathBuf::from(crate::common::util::HOME_DIR.to_owned());
-
-        let mut disk_path = user_home;
-        disk_path.push("nacos");
+    pub(crate) fn disk_store(self, cache_dir: Option<std::path::PathBuf>) -> Self {
+        let mut disk_path = cache_dir.unwrap_or_else(|| {
+            std::path::PathBuf::from(crate::common::util::HOME_DIR.to_owned()).join("nacos")
+        });
         disk_path.push(self.module.clone());
         disk_path.push(self.namespace.clone());
 
@@ -271,7 +270,7 @@ pub mod tests {
 
         let cache: Cache<String> = CacheBuilder::naming("test-naming".to_string())
             .load_cache_at_start(true)
-            .disk_store()
+            .disk_store(None)
             .build()
             .await;
         let key = String::from("key");
@@ -354,7 +353,7 @@ pub mod tests {
 
         let cache: Cache<String> = CacheBuilder::naming("test-naming".to_string())
             .load_cache_at_start(true)
-            .disk_store()
+            .disk_store(None)
             .build()
             .await;
 
@@ -367,5 +366,34 @@ pub mod tests {
         tokio::fs::remove_file(&disk_path)
             .await
             .expect("Failed to remove test cache file");
+    }
+
+    #[tokio::test]
+    async fn test_custom_cache_dir() {
+        let root =
+            std::env::temp_dir().join(format!("nacos-sdk-custom-cache-{}", rand::random::<u64>()));
+        let cache: Cache<String> = CacheBuilder::config("test-namespace".to_string())
+            .disk_store(Some(root.clone()))
+            .build()
+            .await;
+
+        cache.insert("key".to_string(), "value".to_string());
+
+        let cache_file = root.join("config").join("test-namespace").join("key");
+        let value = tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                if let Ok(value) = tokio::fs::read_to_string(&cache_file).await {
+                    break value;
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .expect("custom cache file should be written within timeout");
+        assert_eq!(value, "\"value\"");
+
+        tokio::fs::remove_dir_all(root)
+            .await
+            .expect("custom cache directory should be removable");
     }
 }
