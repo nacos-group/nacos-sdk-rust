@@ -34,7 +34,7 @@ impl ConfigWorker {
         // Create unified cache using the Cache framework with CacheData directly
         let unified_cache: Cache<CacheData> = CacheBuilder::config(cache_ns)
             .load_cache_at_start(client_props.get_config_load_cache_at_start())
-            .disk_store()
+            .disk_store(client_props.get_cache_dir())
             .build()
             .await;
         let unified_cache = Arc::new(unified_cache);
