@@ -129,7 +129,14 @@ impl ClientProps {
     }
 
     pub(crate) fn get_cache_dir(&self) -> Option<PathBuf> {
-        self.cache_dir.clone()
+        if self.env_first {
+            get_value_option(ENV_NACOS_CLIENT_CACHE_DIR)
+                .filter(|cache_dir| !cache_dir.trim().is_empty())
+                .map(PathBuf::from)
+                .or_else(|| self.cache_dir.clone())
+        } else {
+            self.cache_dir.clone()
+        }
     }
 
     pub(crate) fn get_labels(&self) -> HashMap<String, String> {
@@ -271,6 +278,7 @@ impl ClientProps {
     /// Sets the root directory used for on-disk caches.
     ///
     /// The module and namespace directories are appended to this path.
+    /// When `env_first` is enabled, `NACOS_CLIENT_CACHE_DIR` takes precedence.
     pub fn cache_dir(mut self, cache_dir: impl Into<PathBuf>) -> Self {
         self.cache_dir = Some(cache_dir.into());
         self
@@ -410,5 +418,31 @@ mod tests {
 
         let props = ClientProps::new().server_addr("10.0.0.1:8848");
         assert_eq!(props.get_address_identifier(), "10.0.0.1:8848");
+    }
+
+    #[test]
+    fn test_get_cache_dir_from_env() {
+        const CHILD_ENV: &str = "NACOS_CLIENT_CACHE_DIR_TEST_CHILD";
+
+        if std::env::var_os(CHILD_ENV).is_none() {
+            let status = std::process::Command::new(
+                std::env::current_exe().expect("current test executable should be available"),
+            )
+            .args(["--exact", "api::props::tests::test_get_cache_dir_from_env"])
+            .env(CHILD_ENV, "1")
+            .env(ENV_NACOS_CLIENT_CACHE_DIR, "env-cache")
+            .status()
+            .expect("cache directory environment test should run");
+            assert!(status.success());
+            return;
+        }
+
+        let props = ClientProps::new().cache_dir("builder-cache");
+        assert_eq!(props.get_cache_dir(), Some(PathBuf::from("env-cache")));
+
+        let props = ClientProps::new()
+            .cache_dir("builder-cache")
+            .env_first(false);
+        assert_eq!(props.get_cache_dir(), Some(PathBuf::from("builder-cache")));
     }
 }
