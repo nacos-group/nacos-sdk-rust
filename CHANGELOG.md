@@ -5,6 +5,11 @@
 - 特性：缓存目录支持环境变量配置和自定义设置
 - 增强：依赖特性最小化、服务器列表日志和 clippy 修复
 
+---
+
+- Feature: cache directory supports environment variable configuration and custom settings
+- Chore: minimize dependency features, server list logging & clippy fixes
+
 ### 0.8.0
 
 - 破坏性变更：自定义 `AuthPlugin` 需要适配 `login` 方法签名（参数改为 `Arc` 包装）；`remote_grpc_port` 参数类型 `u32` → `u16`
