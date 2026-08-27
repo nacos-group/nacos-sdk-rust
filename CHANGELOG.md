@@ -1,5 +1,15 @@
 # 变更日志 | Change log
 
+### 0.8.2
+
+- 修复：健康检查请求添加超时，避免半死连接上挂起 (#306)
+- 修复：修正 http2 keepalive 超时设置并默认开启 http2 keepalive (#307)
+
+---
+
+- Fix: add timeout to health check request, avoid hang on half-dead connection (#306)
+- Fix: correct http2 keepalive timeout setter and enable http2 keepalive by default (#307)
+
 ### 0.8.1
 
 - 特性：缓存目录支持环境变量配置和自定义设置
