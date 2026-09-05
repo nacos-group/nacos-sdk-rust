@@ -108,12 +108,16 @@ impl ConfigWorker {
         let group_key = util::group_key(&data_id, &group, &namespace);
 
         // Try to get config from cache first (if cache exists and content is complete)
-        if let Some(cache_ref) = self.unified_cache.get(&group_key) {
-            // Check if cache has complete content (not empty and has md5)
-            if !cache_ref.content.is_empty() && !cache_ref.md5.is_empty() {
-                tracing::info!("get_config from cache, group_key={}", group_key);
-                return Ok(cache_ref.get_config_resp_after_filter().await);
+        let cached_snapshot = self.unified_cache.get(&group_key).and_then(|r| {
+            if !r.content.is_empty() && !r.md5.is_empty() {
+                Some(r.resp_snapshot())
+            } else {
+                None
             }
+        });
+        if let Some(snapshot) = cached_snapshot {
+            tracing::info!("get_config from cache, group_key={}", group_key);
+            return Ok(CacheData::filtered_response(snapshot).await);
         }
 
         // Cache miss or incomplete content, fetch from server
@@ -403,7 +407,9 @@ impl ConfigWorker {
         }
     }
 
-    async fn fill_data_and_notify(cache_data: &mut CacheData, config_resp: ConfigQueryResponse) {
+    /// Synchronously fill fields from the response; returns whether listeners should
+    /// be notified (the first fill during initialization does not notify).
+    fn fill_data(cache_data: &mut CacheData, config_resp: ConfigQueryResponse) -> bool {
         cache_data.content_type = config_resp
             .content_type
             .expect("Config content_type missing in response");
@@ -414,10 +420,17 @@ impl ConfigWorker {
         // Compatibility None < 2.1.0
         cache_data.encrypted_data_key = config_resp.encrypted_data_key.unwrap_or_default();
         cache_data.last_modified = config_resp.last_modified;
-        tracing::info!("fill_data_and_notify, cache_data={}", cache_data);
+        tracing::info!("fill_data, cache_data={}", cache_data);
         if cache_data.initializing {
             cache_data.initializing = false;
+            false
         } else {
+            true
+        }
+    }
+
+    async fn fill_data_and_notify(cache_data: &mut CacheData, config_resp: ConfigQueryResponse) {
+        if Self::fill_data(cache_data, config_resp) {
             // check md5 and then notify
             cache_data.notify_listener().await;
         }
@@ -439,23 +452,46 @@ impl ConfigWorker {
                     break;
                 }
                 Some(group_key) => {
-                    if let Some(mut cache_ref_mut) = unified_cache.get_mut(&group_key) {
-                        // get the newest config to notify
-                        let config_resp = Self::get_config_inner_async(
-                            remote_client.clone(),
-                            cache_ref_mut.data_id.clone(),
-                            cache_ref_mut.group.clone(),
-                            cache_ref_mut.namespace.clone(),
-                        )
-                        .in_current_span()
-                        .await;
-                        match config_resp {
-                            Ok(config_resp) => {
-                                Self::fill_data_and_notify(&mut cache_ref_mut, config_resp).await;
+                    // A DashMap guard must never live across an .await: the suspended
+                    // future would hold the shard lock indefinitely and freeze the
+                    // single-worker SDK runtime.
+                    let snapshot = unified_cache
+                        .get(&group_key)
+                        .map(|r| (r.data_id.clone(), r.group.clone(), r.namespace.clone()));
+                    let Some((data_id, group, namespace)) = snapshot else {
+                        continue;
+                    };
+
+                    let config_resp = Self::get_config_inner_async(
+                        remote_client.clone(),
+                        data_id,
+                        group,
+                        namespace,
+                    )
+                    .in_current_span()
+                    .await;
+
+                    match config_resp {
+                        Ok(config_resp) => {
+                            let should_notify = match unified_cache.get_mut(&group_key) {
+                                Some(mut cache_ref_mut) => {
+                                    Self::fill_data(&mut cache_ref_mut, config_resp)
+                                }
+                                None => false,
+                            };
+                            if should_notify {
+                                let snapshot =
+                                    unified_cache.get(&group_key).map(|r| r.resp_snapshot());
+                                if let Some(snapshot) = snapshot {
+                                    let resp = CacheData::filtered_response(snapshot).await;
+                                    if let Some(cache_ref) = unified_cache.get(&group_key) {
+                                        cache_ref.dispatch_notify(resp);
+                                    }
+                                }
                             }
-                            Err(e) => {
-                                tracing::error!("get_config_inner_async, config_resp err={e:?}");
-                            }
+                        }
+                        Err(e) => {
+                            tracing::error!("get_config_inner_async, config_resp err={e:?}");
                         }
                     }
                 }
