@@ -1,5 +1,13 @@
 # 变更日志 | Change log
 
+### 0.8.3
+
+- 修复：修复配置变更通知流程中跨 await 持有 DashMap guard 的问题 (#310)
+
+---
+
+- Fix: avoid holding DashMap guard across await in notify flow (#310)
+
 ### 0.8.2
 
 - 修复：健康检查请求添加超时，避免半死连接上挂起 (#306)
