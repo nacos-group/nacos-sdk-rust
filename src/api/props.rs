@@ -26,7 +26,7 @@ pub struct ClientProps {
     /// Optional root directory for on-disk caches.
     cache_dir: Option<PathBuf>,
     /// Disable config and naming snapshot writes, default false.
-    disable_local_cache: bool,
+    disable_cache_writes: bool,
     /// env_first when get props, default true
     env_first: bool,
     /// metadata
@@ -141,14 +141,14 @@ impl ClientProps {
         }
     }
 
-    pub(crate) fn get_disable_local_cache(&self) -> bool {
+    pub(crate) fn get_disable_cache_writes(&self) -> bool {
         if self.env_first {
             get_value_bool(
-                ENV_NACOS_CLIENT_DISABLE_LOCAL_CACHE,
-                self.disable_local_cache,
+                ENV_NACOS_CLIENT_DISABLE_CACHE_WRITES,
+                self.disable_cache_writes,
             )
         } else {
-            self.disable_local_cache
+            self.disable_cache_writes
         }
     }
 
@@ -218,7 +218,7 @@ impl ClientProps {
             naming_load_cache_at_start: false,
             config_load_cache_at_start: false,
             cache_dir: None,
-            disable_local_cache: false,
+            disable_cache_writes: false,
             env_first: true,
             labels: HashMap::default(),
             client_version,
@@ -300,10 +300,10 @@ impl ClientProps {
 
     /// Disable config and naming snapshot writes when set to true. Defaults to false.
     ///
-    /// Cache loading, directory creation, and in-memory updates remain unchanged.
-    /// When `env_first` is enabled, `NACOS_CLIENT_DISABLE_LOCAL_CACHE` takes precedence.
-    pub fn disable_local_cache(mut self, disable_local_cache: bool) -> Self {
-        self.disable_local_cache = disable_local_cache;
+    /// Cache loading, directory creation, cache removal, and in-memory updates remain unchanged.
+    /// When `env_first` is enabled, `NACOS_CLIENT_DISABLE_CACHE_WRITES` takes precedence.
+    pub fn disable_cache_writes(mut self, disable_cache_writes: bool) -> Self {
+        self.disable_cache_writes = disable_cache_writes;
         self
     }
 
@@ -444,8 +444,8 @@ mod tests {
     }
 
     #[test]
-    fn test_disable_local_cache_environment_priority() {
-        const CHILD_ENV: &str = "NACOS_DISABLE_LOCAL_CACHE_TEST_CHILD";
+    fn test_disable_cache_writes_environment_priority() {
+        const CHILD_ENV: &str = "NACOS_DISABLE_CACHE_WRITES_TEST_CHILD";
 
         let Ok(value) = std::env::var(CHILD_ENV) else {
             for value in ["true", "false"] {
@@ -454,10 +454,10 @@ mod tests {
                 )
                 .args([
                     "--exact",
-                    "api::props::tests::test_disable_local_cache_environment_priority",
+                    "api::props::tests::test_disable_cache_writes_environment_priority",
                 ])
                 .env(CHILD_ENV, value)
-                .env(ENV_NACOS_CLIENT_DISABLE_LOCAL_CACHE, value)
+                .env(ENV_NACOS_CLIENT_DISABLE_CACHE_WRITES, value)
                 .status()
                 .expect("cache environment test should run");
                 assert!(status.success());
@@ -466,13 +466,13 @@ mod tests {
         };
 
         let disabled = value == "true";
-        let props = ClientProps::new().disable_local_cache(!disabled);
-        assert_eq!(props.get_disable_local_cache(), disabled);
-        assert_eq!(props.env_first(false).get_disable_local_cache(), !disabled);
+        let props = ClientProps::new().disable_cache_writes(!disabled);
+        assert_eq!(props.get_disable_cache_writes(), disabled);
+        assert_eq!(props.env_first(false).get_disable_cache_writes(), !disabled);
         assert!(
             !ClientProps::new()
                 .env_first(false)
-                .get_disable_local_cache()
+                .get_disable_cache_writes()
         );
     }
 

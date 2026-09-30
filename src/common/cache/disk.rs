@@ -13,11 +13,11 @@ use super::Store;
 
 pub(crate) struct DiskStore {
     disk_path: PathBuf,
-    disable_local_cache: bool,
+    disable_cache_writes: bool,
 }
 
 impl DiskStore {
-    pub(crate) fn new(disk_path: PathBuf, disable_local_cache: bool) -> Self {
+    pub(crate) fn new(disk_path: PathBuf, disable_cache_writes: bool) -> Self {
         info!(path = %disk_path.display(), "Creating DiskStore");
 
         let path_buf = disk_path.clone();
@@ -25,7 +25,7 @@ impl DiskStore {
 
         Self {
             disk_path,
-            disable_local_cache,
+            disable_cache_writes,
         }
     }
 
@@ -177,7 +177,7 @@ where
 
     #[instrument(fields(key = key), skip_all)]
     async fn save(&self, key: &str, value: Vec<u8>) {
-        if self.disable_local_cache {
+        if self.disable_cache_writes {
             return;
         }
 
@@ -275,7 +275,7 @@ mod tests {
             .expect("test cache directory should be created");
         let mut store = DiskStore {
             disk_path: path.clone(),
-            disable_local_cache: false,
+            disable_cache_writes: false,
         };
         <DiskStore as Store<String>>::save(&store, "snapshot", br#""original""#.to_vec()).await;
         assert_eq!(
@@ -285,7 +285,7 @@ mod tests {
             br#""original""#,
         );
 
-        store.disable_local_cache = true;
+        store.disable_cache_writes = true;
         for key in ["snapshot", "new"] {
             <DiskStore as Store<String>>::save(&store, key, br#""changed""#.to_vec()).await;
             assert!(!path.join(key).with_extension("tmp").exists());

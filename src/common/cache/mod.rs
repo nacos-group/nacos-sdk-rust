@@ -221,7 +221,7 @@ where
     pub(crate) fn disk_store(
         self,
         cache_dir: Option<std::path::PathBuf>,
-        disable_local_cache: bool,
+        disable_cache_writes: bool,
     ) -> Self {
         let mut disk_path = cache_dir.unwrap_or_else(|| {
             std::path::PathBuf::from(crate::common::util::HOME_DIR.to_owned()).join("nacos")
@@ -229,7 +229,7 @@ where
         disk_path.push(self.module.clone());
         disk_path.push(self.namespace.clone());
 
-        let disk_store = Arc::new(DiskStore::new(disk_path, disable_local_cache));
+        let disk_store = Arc::new(DiskStore::new(disk_path, disable_cache_writes));
 
         Self {
             store: Some(disk_store),
