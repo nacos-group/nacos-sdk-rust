@@ -25,6 +25,8 @@ pub struct ClientProps {
     config_load_cache_at_start: bool,
     /// Optional root directory for on-disk caches.
     cache_dir: Option<PathBuf>,
+    /// Disable config and naming snapshot writes, default false.
+    disable_local_cache: bool,
     /// env_first when get props, default true
     env_first: bool,
     /// metadata
@@ -139,6 +141,17 @@ impl ClientProps {
         }
     }
 
+    pub(crate) fn get_disable_local_cache(&self) -> bool {
+        if self.env_first {
+            get_value_bool(
+                ENV_NACOS_CLIENT_DISABLE_LOCAL_CACHE,
+                self.disable_local_cache,
+            )
+        } else {
+            self.disable_local_cache
+        }
+    }
+
     pub(crate) fn get_labels(&self) -> HashMap<String, String> {
         let mut labels = self.labels.clone();
         labels.insert(KEY_LABEL_APP_NAME.to_string(), self.get_app_name());
@@ -205,6 +218,7 @@ impl ClientProps {
             naming_load_cache_at_start: false,
             config_load_cache_at_start: false,
             cache_dir: None,
+            disable_local_cache: false,
             env_first: true,
             labels: HashMap::default(),
             client_version,
@@ -281,6 +295,15 @@ impl ClientProps {
     /// When `env_first` is enabled, `NACOS_CLIENT_CACHE_DIR` takes precedence.
     pub fn cache_dir(mut self, cache_dir: impl Into<PathBuf>) -> Self {
         self.cache_dir = Some(cache_dir.into());
+        self
+    }
+
+    /// Disable config and naming snapshot writes when set to true. Defaults to false.
+    ///
+    /// Cache loading, directory creation, and in-memory updates remain unchanged.
+    /// When `env_first` is enabled, `NACOS_CLIENT_DISABLE_LOCAL_CACHE` takes precedence.
+    pub fn disable_local_cache(mut self, disable_local_cache: bool) -> Self {
+        self.disable_local_cache = disable_local_cache;
         self
     }
 
@@ -418,6 +441,39 @@ mod tests {
 
         let props = ClientProps::new().server_addr("10.0.0.1:8848");
         assert_eq!(props.get_address_identifier(), "10.0.0.1:8848");
+    }
+
+    #[test]
+    fn test_disable_local_cache_environment_priority() {
+        const CHILD_ENV: &str = "NACOS_DISABLE_LOCAL_CACHE_TEST_CHILD";
+
+        let Ok(value) = std::env::var(CHILD_ENV) else {
+            for value in ["true", "false"] {
+                let status = std::process::Command::new(
+                    std::env::current_exe().expect("current test executable should be available"),
+                )
+                .args([
+                    "--exact",
+                    "api::props::tests::test_disable_local_cache_environment_priority",
+                ])
+                .env(CHILD_ENV, value)
+                .env(ENV_NACOS_CLIENT_DISABLE_LOCAL_CACHE, value)
+                .status()
+                .expect("cache environment test should run");
+                assert!(status.success());
+            }
+            return;
+        };
+
+        let disabled = value == "true";
+        let props = ClientProps::new().disable_local_cache(!disabled);
+        assert_eq!(props.get_disable_local_cache(), disabled);
+        assert_eq!(props.env_first(false).get_disable_local_cache(), !disabled);
+        assert!(
+            !ClientProps::new()
+                .env_first(false)
+                .get_disable_local_cache()
+        );
     }
 
     #[test]

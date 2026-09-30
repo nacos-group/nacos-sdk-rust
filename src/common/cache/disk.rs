@@ -13,16 +13,20 @@ use super::Store;
 
 pub(crate) struct DiskStore {
     disk_path: PathBuf,
+    disable_local_cache: bool,
 }
 
 impl DiskStore {
-    pub(crate) fn new(disk_path: PathBuf) -> Self {
+    pub(crate) fn new(disk_path: PathBuf, disable_local_cache: bool) -> Self {
         info!(path = %disk_path.display(), "Creating DiskStore");
 
         let path_buf = disk_path.clone();
         crate::common::executor::spawn(async { tokio::fs::create_dir_all(path_buf).await });
 
-        Self { disk_path }
+        Self {
+            disk_path,
+            disable_local_cache,
+        }
     }
 
     async fn try_save(
@@ -173,6 +177,10 @@ where
 
     #[instrument(fields(key = key), skip_all)]
     async fn save(&self, key: &str, value: Vec<u8>) {
+        if self.disable_local_cache {
+            return;
+        }
+
         const MAX_RETRIES: u32 = 3;
         const RETRY_DELAY_MS: u64 = 100;
 
@@ -251,5 +259,45 @@ where
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{DiskStore, Store};
+
+    #[tokio::test]
+    async fn disabled_cache_preserves_snapshots_without_writing() {
+        let path =
+            std::env::temp_dir().join(format!("nacos-sdk-disabled-disk-{}", rand::random::<u64>()));
+        tokio::fs::create_dir_all(&path)
+            .await
+            .expect("test cache directory should be created");
+        let mut store = DiskStore {
+            disk_path: path.clone(),
+            disable_local_cache: false,
+        };
+        <DiskStore as Store<String>>::save(&store, "snapshot", br#""original""#.to_vec()).await;
+        assert_eq!(
+            tokio::fs::read(path.join("snapshot"))
+                .await
+                .expect("enabled cache should write"),
+            br#""original""#,
+        );
+
+        store.disable_local_cache = true;
+        for key in ["snapshot", "new"] {
+            <DiskStore as Store<String>>::save(&store, key, br#""changed""#.to_vec()).await;
+            assert!(!path.join(key).with_extension("tmp").exists());
+        }
+        assert!(!path.join("new").exists());
+        let loaded = <DiskStore as Store<String>>::load(&store).await;
+        assert_eq!(loaded.get("snapshot").map(String::as_str), Some("original"));
+
+        <DiskStore as Store<String>>::remove(&store, "snapshot").await;
+        assert!(!path.join("snapshot").exists());
+        tokio::fs::remove_dir_all(path)
+            .await
+            .expect("test cache directory should be removed");
     }
 }

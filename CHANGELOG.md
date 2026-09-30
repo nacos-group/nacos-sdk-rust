@@ -1,5 +1,13 @@
 # 变更日志 | Change log
 
+### Unreleased
+
+- 特性：增加 `ClientProps::disable_local_cache` 与 `NACOS_CLIENT_DISABLE_LOCAL_CACHE`，禁止配置与服务发现快照写入磁盘，保留缓存读取和内存更新。
+
+---
+
+- Feature: add `ClientProps::disable_local_cache` and `NACOS_CLIENT_DISABLE_LOCAL_CACHE` to disable config and naming snapshot writes while preserving cache reads and in-memory updates.
+
 ### 0.8.3
 
 - 修复：修复配置变更通知流程中跨 await 持有 DashMap guard 的问题 (#310)
