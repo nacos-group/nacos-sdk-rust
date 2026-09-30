@@ -47,6 +47,9 @@ pub const ENV_NACOS_CLIENT_COMMON_APP_NAME: &str = "NACOS_CLIENT_APP_NAME";
 /// env `NACOS_CLIENT_CACHE_DIR` to set the root directory for on-disk caches
 pub const ENV_NACOS_CLIENT_CACHE_DIR: &str = "NACOS_CLIENT_CACHE_DIR";
 
+/// env `NACOS_CLIENT_DISABLE_CACHE_WRITES` disables config and naming snapshot writes, default false.
+pub const ENV_NACOS_CLIENT_DISABLE_CACHE_WRITES: &str = "NACOS_CLIENT_DISABLE_CACHE_WRITES";
+
 pub const ENV_NACOS_CLIENT_AUTH_USERNAME: &str = "NACOS_CLIENT_USERNAME";
 
 pub const ENV_NACOS_CLIENT_AUTH_PASSWORD: &str = "NACOS_CLIENT_PASSWORD";

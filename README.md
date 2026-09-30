@@ -126,6 +126,19 @@ e.g.
 - env `NACOS_CLIENT_PASSWORD` to set http auth password
 - env `NACOS_CLIENT_ACCESS_KEY` to set Aliyun ram access-key
 - env `NACOS_CLIENT_SECRET_KEY` to set Aliyun ram access-secret
+- env `NACOS_CLIENT_DISABLE_CACHE_WRITES` to disable config and naming snapshot writes, default false
+
+#### Disable cache writes
+
+Set `disable_cache_writes(true)` to stop writing config and naming snapshots to disk:
+
+```rust
+let props = ClientProps::new().disable_cache_writes(true);
+```
+
+The option defaults to `false`. It preserves in-memory updates and listener notifications. Existing cache loading, directory creation, and cache removal remain unchanged; use `load_cache_at_start` to control startup reads independently.
+
+`NACOS_CLIENT_DISABLE_CACHE_WRITES=true` enables the same option. Environment values take precedence unless `env_first(false)` is set.
 
 #### 配置 server_addr 或 endpoint
 

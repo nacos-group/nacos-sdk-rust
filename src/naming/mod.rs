@@ -93,7 +93,10 @@ impl NacosNamingService {
         // create naming cache
         let naming_cache: Cache<ServiceInfo> = CacheBuilder::naming(namespace.clone())
             .load_cache_at_start(client_props.get_naming_load_cache_at_start())
-            .disk_store(client_props.get_cache_dir())
+            .disk_store(
+                client_props.get_cache_dir(),
+                client_props.get_disable_cache_writes(),
+            )
             .build()
             .await;
         let naming_cache = Arc::new(naming_cache);

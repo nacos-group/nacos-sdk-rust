@@ -218,14 +218,18 @@ where
         }
     }
 
-    pub(crate) fn disk_store(self, cache_dir: Option<std::path::PathBuf>) -> Self {
+    pub(crate) fn disk_store(
+        self,
+        cache_dir: Option<std::path::PathBuf>,
+        disable_cache_writes: bool,
+    ) -> Self {
         let mut disk_path = cache_dir.unwrap_or_else(|| {
             std::path::PathBuf::from(crate::common::util::HOME_DIR.to_owned()).join("nacos")
         });
         disk_path.push(self.module.clone());
         disk_path.push(self.namespace.clone());
 
-        let disk_store = Arc::new(DiskStore::new(disk_path));
+        let disk_store = Arc::new(DiskStore::new(disk_path, disable_cache_writes));
 
         Self {
             store: Some(disk_store),
@@ -270,7 +274,7 @@ pub mod tests {
 
         let cache: Cache<String> = CacheBuilder::naming("test-naming".to_string())
             .load_cache_at_start(true)
-            .disk_store(None)
+            .disk_store(None, false)
             .build()
             .await;
         let key = String::from("key");
@@ -353,7 +357,7 @@ pub mod tests {
 
         let cache: Cache<String> = CacheBuilder::naming("test-naming".to_string())
             .load_cache_at_start(true)
-            .disk_store(None)
+            .disk_store(None, false)
             .build()
             .await;
 
@@ -373,7 +377,7 @@ pub mod tests {
         let root =
             std::env::temp_dir().join(format!("nacos-sdk-custom-cache-{}", rand::random::<u64>()));
         let cache: Cache<String> = CacheBuilder::config("test-namespace".to_string())
-            .disk_store(Some(root.clone()))
+            .disk_store(Some(root.clone()), false)
             .build()
             .await;
 
@@ -395,5 +399,81 @@ pub mod tests {
         tokio::fs::remove_dir_all(root)
             .await
             .expect("custom cache directory should be removable");
+    }
+    #[tokio::test]
+    async fn disabled_writes_preserve_loading_and_memory_updates() {
+        let root = std::env::temp_dir().join(format!(
+            "nacos-sdk-disabled-cache-{}",
+            rand::random::<u64>()
+        ));
+        for (module, builder) in [
+            (
+                "config",
+                CacheBuilder::<String>::config("namespace".to_string()),
+            ),
+            (
+                "naming",
+                CacheBuilder::<String>::naming("namespace".to_string()),
+            ),
+        ] {
+            let directory = root.join(module).join("namespace");
+            tokio::fs::create_dir_all(&directory)
+                .await
+                .expect("test cache directory should be created");
+            tokio::fs::write(directory.join("snapshot"), br#""original""#)
+                .await
+                .expect("snapshot fixture should be written");
+            let cache: Cache<String> = builder
+                .load_cache_at_start(true)
+                .disk_store(Some(root.clone()), true)
+                .build()
+                .await;
+            let snapshot = "snapshot".to_string();
+            assert_eq!(
+                cache
+                    .get(&snapshot)
+                    .expect("existing snapshot should load")
+                    .as_str(),
+                "original",
+            );
+            cache.insert("new".to_string(), "inserted".to_string());
+            *cache
+                .get_mut(&snapshot)
+                .expect("loaded snapshot should be mutable") = "updated".to_string();
+            assert_eq!(
+                cache
+                    .get(&snapshot)
+                    .expect("memory update should remain")
+                    .as_str(),
+                "updated"
+            );
+            assert_eq!(
+                cache
+                    .get(&"new".to_string())
+                    .expect("memory insert should remain")
+                    .as_str(),
+                "inserted"
+            );
+
+            // Await saves directly because cache updates schedule persistence asynchronously.
+            let store = cache
+                .store
+                .as_ref()
+                .expect("disk store should remain available");
+            for key in ["snapshot", "new"] {
+                store.save(key, br#""changed""#.to_vec()).await;
+                assert!(!directory.join(key).with_extension("tmp").exists());
+            }
+            assert!(!directory.join("new").exists());
+            assert_eq!(
+                tokio::fs::read(directory.join("snapshot"))
+                    .await
+                    .expect("snapshot should remain"),
+                br#""original""#,
+            );
+        }
+        tokio::fs::remove_dir_all(root)
+            .await
+            .expect("test cache directory should be removed");
     }
 }
