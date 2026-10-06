@@ -2,7 +2,7 @@
 
 ### Unreleased
 
-- 特性：支持关闭磁盘缓存而仅使用内存缓存；新增 `CacheKind` 枚举，支持通过 `ClientProps::cache_kind(CacheKind::None)` 或环境变量 `NACOS_CLIENT_CACHE_KIND=none` 达成目的
+- 特性：支持关闭磁盘缓存而仅使用内存缓存；新增 `CacheKind` 枚举，通过设置 `ClientProps::cache_kind(CacheKind::None)` 或环境变量 `NACOS_CLIENT_CACHE_KIND=none`
 
 ---
 

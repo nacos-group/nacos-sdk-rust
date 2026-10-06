@@ -148,7 +148,10 @@ impl ClientProps {
         {
             return match CacheKind::from_str(&value) {
                 Ok(cache_kind) => cache_kind,
-                Err(_) => self.cache_kind,
+                Err(e) => {
+                    tracing::warn!(value = %value, error = %e, "Invalid cache kind from env, fallback to ClientProps");
+                    self.cache_kind
+                }
             };
         }
         self.cache_kind
