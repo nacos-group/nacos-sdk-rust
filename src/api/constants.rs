@@ -47,6 +47,11 @@ pub const ENV_NACOS_CLIENT_COMMON_APP_NAME: &str = "NACOS_CLIENT_APP_NAME";
 /// env `NACOS_CLIENT_CACHE_DIR` to set the root directory for on-disk caches
 pub const ENV_NACOS_CLIENT_CACHE_DIR: &str = "NACOS_CLIENT_CACHE_DIR";
 
+/// env `NACOS_CLIENT_CACHE_KIND` to set the cache kind, default `disk-store`.
+/// Accepts `disk-store`(alias `disk`/`disk-store`/`diskstore`) and
+/// `none`(alias `none`/`disabled`/`memory`).
+pub const ENV_NACOS_CLIENT_CACHE_KIND: &str = "NACOS_CLIENT_CACHE_KIND";
+
 pub const ENV_NACOS_CLIENT_AUTH_USERNAME: &str = "NACOS_CLIENT_USERNAME";
 
 pub const ENV_NACOS_CLIENT_AUTH_PASSWORD: &str = "NACOS_CLIENT_PASSWORD";
