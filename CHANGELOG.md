@@ -1,5 +1,13 @@
 # 变更日志 | Change log
 
+### Unreleased
+
+- 特性：支持关闭磁盘缓存而仅使用内存缓存；新增 `CacheKind` 枚举，支持通过 `ClientProps::cache_kind(CacheKind::None)` 或环境变量 `NACOS_CLIENT_CACHE_KIND=none` 达成目的
+
+---
+
+- Feature: Support disabling disk store and only using memory cache. add `CacheKind` enum, allow disabling the disk store via `ClientProps::cache_kind(CacheKind::None)` or env `NACOS_CLIENT_CACHE_KIND=none` for memory-only cache
+
 ### 0.8.3
 
 - 修复：修复配置变更通知流程中跨 await 持有 DashMap guard 的问题 (#310)
@@ -316,4 +324,3 @@
 
 - The module of Config basically available
 - Welcome more contributions, fixes and standardized APIs
-

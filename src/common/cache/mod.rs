@@ -1,5 +1,5 @@
 use core::ops::{Deref, DerefMut};
-use std::{borrow::Cow, collections::HashMap, marker::PhantomData, sync::Arc};
+use std::{collections::HashMap, marker::PhantomData, sync::Arc};
 
 use async_trait::async_trait;
 use dashmap::{
@@ -8,6 +8,7 @@ use dashmap::{
 };
 use tracing::{Instrument, info};
 
+use crate::api::props::CacheKind;
 use crate::common::cache::disk::DiskStore;
 
 use super::executor;
@@ -218,7 +219,22 @@ where
         }
     }
 
-    pub(crate) fn disk_store(self, cache_dir: Option<std::path::PathBuf>) -> Self {
+    pub(crate) fn store(
+        self,
+        cache_kind: CacheKind,
+        cache_dir: Option<std::path::PathBuf>,
+    ) -> Self {
+        if !cache_kind.is_disk_store() {
+            info!(
+                cache_kind = cache_kind.name(),
+                "Cache store disabled, using memory-only cache"
+            );
+            return Self {
+                store: None,
+                ..self
+            };
+        }
+
         let mut disk_path = cache_dir.unwrap_or_else(|| {
             std::path::PathBuf::from(crate::common::util::HOME_DIR.to_owned()).join("nacos")
         });
@@ -241,7 +257,11 @@ where
 // Store trait with separate constraints for load and save operations
 #[async_trait]
 trait Store<V>: Send + Sync {
-    fn name(&self) -> Cow<'_, str>;
+    fn name(&self) -> &str {
+        self.kind().name()
+    }
+
+    fn kind(&self) -> CacheKind;
 
     async fn load(&self) -> HashMap<String, V>
     where
@@ -256,7 +276,7 @@ trait Store<V>: Send + Sync {
 pub mod tests {
     use std::time::Duration;
 
-    use crate::{common::cache::Cache, test_config};
+    use crate::{api::props::CacheKind, common::cache::Cache, test_config};
 
     use super::CacheBuilder;
 
@@ -270,7 +290,7 @@ pub mod tests {
 
         let cache: Cache<String> = CacheBuilder::naming("test-naming".to_string())
             .load_cache_at_start(true)
-            .disk_store(None)
+            .store(CacheKind::DiskStore, None)
             .build()
             .await;
         let key = String::from("key");
@@ -353,7 +373,7 @@ pub mod tests {
 
         let cache: Cache<String> = CacheBuilder::naming("test-naming".to_string())
             .load_cache_at_start(true)
-            .disk_store(None)
+            .store(CacheKind::DiskStore, None)
             .build()
             .await;
 
@@ -373,7 +393,7 @@ pub mod tests {
         let root =
             std::env::temp_dir().join(format!("nacos-sdk-custom-cache-{}", rand::random::<u64>()));
         let cache: Cache<String> = CacheBuilder::config("test-namespace".to_string())
-            .disk_store(Some(root.clone()))
+            .store(CacheKind::DiskStore, Some(root.clone()))
             .build()
             .await;
 
@@ -395,5 +415,62 @@ pub mod tests {
         tokio::fs::remove_dir_all(root)
             .await
             .expect("custom cache directory should be removable");
+    }
+
+    #[tokio::test]
+    async fn test_memory_only_cache_skips_disk() {
+        let root =
+            std::env::temp_dir().join(format!("nacos-sdk-memory-cache-{}", rand::random::<u64>()));
+
+        let cache: Cache<String> = CacheBuilder::config("test-namespace".to_string())
+            .load_cache_at_start(true)
+            .store(CacheKind::None, Some(root.clone()))
+            .build()
+            .await;
+
+        assert!(
+            !root.exists(),
+            "memory-only cache should not create the cache dir"
+        );
+
+        cache.insert("key".to_string(), "value".to_string());
+        {
+            let mut value = cache
+                .get_mut(&"key".to_string())
+                .expect("Mutable value should be present in cache");
+            *value = String::from("modified");
+        }
+        let removed = cache
+            .remove(&"key".to_string())
+            .expect("Removed value should be present");
+        assert_eq!(removed, "modified");
+
+        // wait for any potential async store write
+        tokio::time::sleep(Duration::from_millis(222)).await;
+
+        assert!(
+            cache.get(&"key".to_string()).is_none(),
+            "cache should be memory-only"
+        );
+        assert!(
+            !root.exists(),
+            "memory-only cache should not write anything to disk, actual: {:?}",
+            root.display()
+        );
+
+        // nothing persisted, so a rebuilt memory-only cache starts empty
+        let cache: Cache<String> = CacheBuilder::config("test-namespace".to_string())
+            .load_cache_at_start(true)
+            .store(CacheKind::None, Some(root.clone()))
+            .build()
+            .await;
+        assert!(
+            cache.get(&"key".to_string()).is_none(),
+            "memory-only cache should not load anything from disk"
+        );
+        assert!(!root.exists());
+
+        // cleanup in case of an unexpected leftover
+        let _ = tokio::fs::remove_dir_all(&root).await;
     }
 }
