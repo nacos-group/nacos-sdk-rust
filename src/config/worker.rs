@@ -31,10 +31,19 @@ impl ConfigWorker {
         client_id: String,
     ) -> crate::api::error::Result<Self> {
         let cache_ns = client_props.get_namespace_default_if_empty();
+        let cache_kind = client_props.get_cache_kind();
+        let config_load_cache_at_start = client_props.get_config_load_cache_at_start();
+        if !cache_kind.is_disk_store() && config_load_cache_at_start {
+            tracing::warn!(
+                cache_kind = cache_kind.name(),
+                "config_load_cache_at_start is set but cache is memory-only, \
+                 nothing will be loaded at startup"
+            );
+        }
         // Create unified cache using the Cache framework with CacheData directly
         let unified_cache: Cache<CacheData> = CacheBuilder::config(cache_ns)
-            .load_cache_at_start(client_props.get_config_load_cache_at_start())
-            .disk_store(client_props.get_cache_dir())
+            .load_cache_at_start(config_load_cache_at_start)
+            .store(cache_kind, client_props.get_cache_dir())
             .build()
             .await;
         let unified_cache = Arc::new(unified_cache);

@@ -34,7 +34,7 @@ mod shared;
 mod cache_integration_tests {
     use crate::fixtures::{ServerMode, create_server};
     use nacos_sdk::api::config::{ConfigService, ConfigServiceBuilder};
-    use nacos_sdk::api::props::ClientProps;
+    use nacos_sdk::api::props::{CacheKind, ClientProps};
     use std::path::PathBuf;
     use std::time::Duration;
 
@@ -479,6 +479,175 @@ mod cache_integration_tests {
 
             remove_cache_file(data_id, &test_group, &namespace);
         }
+
+        server
+            .stop()
+            .await
+            .expect("Server should stop successfully");
+    }
+
+    /// Test: `CacheKind::None` keeps the cache in memory only.
+    ///
+    /// This test verifies that:
+    /// - A service built with `cache_kind(CacheKind::None)` writes nothing to disk,
+    ///   even after listening (the path that populates the unified cache)
+    /// - A service built with `CacheKind::DiskStore` writes the cache file for the
+    ///   same flow, proving the assertions above are not vacuous
+    #[tokio::test]
+    #[ignore] // Requires running Nacos server: cargo test --test it_cache -- --ignored
+    async fn test_disabled_cache_kind_does_not_write_disk() {
+        use crate::shared::test_data::MockConfigListener;
+        use std::sync::Arc;
+
+        crate::shared::setup_log();
+
+        let mut server = create_server(ServerMode::default(), random_test_port());
+        server
+            .start()
+            .await
+            .expect("Server should start successfully");
+
+        let namespace = "public".to_string();
+        let test_group = "TEST_GROUP".to_string();
+        let test_data_id = format!("no-disk-cache-test-{}", rand::random::<u32>());
+        let test_content = "content that must not be persisted".to_string();
+        let cache_key = format!("{test_data_id}+_+{test_group}+_+{namespace}");
+
+        // Publish the config first, so add_listener caches real content.
+        {
+            let seed_props = ClientProps::new()
+                .server_addr(server.server_addr().to_string())
+                .namespace(namespace.clone());
+            let seed_service = ConfigServiceBuilder::new(seed_props)
+                .build()
+                .await
+                .expect("ConfigServiceBuilder should build successfully");
+            assert!(
+                seed_service
+                    .publish_config(
+                        test_data_id.clone(),
+                        test_group.clone(),
+                        test_content.clone(),
+                        Some("text".to_string()),
+                    )
+                    .await
+                    .expect("publish_config should succeed"),
+                "publish_config should return true"
+            );
+            tokio::time::sleep(Duration::from_millis(500)).await;
+        }
+
+        // Case 1: CacheKind::None, listening must not touch the disk.
+        let root =
+            std::env::temp_dir().join(format!("nacos-sdk-no-disk-{}", rand::random::<u64>()));
+        let cache_dir = root.join("config").join(&namespace);
+
+        let disabled_props = ClientProps::new()
+            .server_addr(server.server_addr().to_string())
+            .namespace(namespace.clone())
+            .cache_dir(root.clone())
+            .cache_kind(CacheKind::None)
+            .load_cache_at_start(true);
+
+        let disabled_service = ConfigServiceBuilder::new(disabled_props)
+            .build()
+            .await
+            .expect("ConfigServiceBuilder should build successfully");
+
+        let listener = Arc::new(MockConfigListener::new());
+        disabled_service
+            .add_listener(test_data_id.clone(), test_group.clone(), listener.clone())
+            .await
+            .expect("add_listener should succeed");
+
+        let resp = disabled_service
+            .get_config(test_data_id.clone(), test_group.clone())
+            .await
+            .expect("get_config should succeed");
+        assert_eq!(resp.content(), &test_content);
+
+        // wait for any potential async cache write
+        tokio::time::sleep(Duration::from_millis(1000)).await;
+
+        assert!(
+            !cache_dir.exists(),
+            "CacheKind::None should not create the cache dir, actual: {:?}",
+            cache_dir.display()
+        );
+        assert!(
+            !cache_dir.join(&cache_key).exists(),
+            "CacheKind::None should not write the cache file"
+        );
+
+        let _ = tokio::fs::remove_dir_all(&root).await;
+
+        // Case 2: same flow with CacheKind::DiskStore does write to disk.
+        let disk_root =
+            std::env::temp_dir().join(format!("nacos-sdk-disk-{}", rand::random::<u64>()));
+        let disk_cache_dir = disk_root.join("config").join(&namespace);
+
+        let disk_props = ClientProps::new()
+            .server_addr(server.server_addr().to_string())
+            .namespace(namespace.clone())
+            .cache_dir(disk_root.clone())
+            .cache_kind(CacheKind::DiskStore)
+            .load_cache_at_start(true);
+
+        let disk_service = ConfigServiceBuilder::new(disk_props)
+            .build()
+            .await
+            .expect("ConfigServiceBuilder should build successfully");
+
+        let disk_listener = Arc::new(MockConfigListener::new());
+        disk_service
+            .add_listener(
+                test_data_id.clone(),
+                test_group.clone(),
+                disk_listener.clone(),
+            )
+            .await
+            .expect("add_listener should succeed");
+
+        let cache_file = disk_cache_dir.join(&cache_key);
+        tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                if cache_file.exists() {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+        })
+        .await
+        .expect("CacheKind::DiskStore should write the cache file within timeout");
+
+        // A service with load_cache_at_start(true) loads it back from disk.
+        let reload_props = ClientProps::new()
+            .server_addr(server.server_addr().to_string())
+            .namespace(namespace.clone())
+            .cache_dir(disk_root.clone())
+            .cache_kind(CacheKind::DiskStore)
+            .load_cache_at_start(true);
+        let reload_service = ConfigServiceBuilder::new(reload_props)
+            .build()
+            .await
+            .expect("ConfigServiceBuilder should build successfully");
+        assert!(
+            !reload_service
+                .get_config(test_data_id.clone(), test_group.clone())
+                .await
+                .expect("get_config should succeed")
+                .content()
+                .is_empty(),
+            "config reloaded from disk should have content"
+        );
+
+        reload_service
+            .remove_config(test_data_id.clone(), test_group.clone())
+            .await
+            .expect("remove_config should succeed");
+        drop(reload_service);
+
+        let _ = tokio::fs::remove_dir_all(&disk_root).await;
 
         server
             .stop()

@@ -16,7 +16,7 @@
 use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
 
-use tracing::{debug, info, instrument};
+use tracing::{debug, info, instrument, warn};
 
 use crate::api::error::Error::ErrResult;
 use crate::api::error::Result;
@@ -91,9 +91,18 @@ impl NacosNamingService {
         let redo_task_executor_on_disconnected = redo_task_executor.clone();
 
         // create naming cache
+        let cache_kind = client_props.get_cache_kind();
+        let naming_load_cache_at_start = client_props.get_naming_load_cache_at_start();
+        if !cache_kind.is_disk_store() && naming_load_cache_at_start {
+            warn!(
+                cache_kind = cache_kind.name(),
+                "naming_load_cache_at_start is set but cache is memory-only, \
+                 nothing will be loaded at startup"
+            );
+        }
         let naming_cache: Cache<ServiceInfo> = CacheBuilder::naming(namespace.clone())
-            .load_cache_at_start(client_props.get_naming_load_cache_at_start())
-            .disk_store(client_props.get_cache_dir())
+            .load_cache_at_start(naming_load_cache_at_start)
+            .store(cache_kind, client_props.get_cache_dir())
             .build()
             .await;
         let naming_cache = Arc::new(naming_cache);

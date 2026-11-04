@@ -1,4 +1,4 @@
-use std::{borrow::Cow, collections::HashMap, path::PathBuf};
+use std::{collections::HashMap, path::PathBuf};
 
 use async_trait::async_trait;
 use serde::de;
@@ -10,6 +10,7 @@ use tokio::{
 use tracing::{debug, error, info, instrument, warn};
 
 use super::Store;
+use crate::api::props::CacheKind;
 
 pub(crate) struct DiskStore {
     disk_path: PathBuf,
@@ -79,8 +80,8 @@ impl<V> Store<V> for DiskStore
 where
     V: de::DeserializeOwned + Send,
 {
-    fn name(&self) -> Cow<'_, str> {
-        Cow::from("disk-store")
+    fn kind(&self) -> CacheKind {
+        CacheKind::DiskStore
     }
 
     async fn load(&self) -> HashMap<String, V>

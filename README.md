@@ -126,6 +126,8 @@ e.g.
 - env `NACOS_CLIENT_PASSWORD` to set http auth password
 - env `NACOS_CLIENT_ACCESS_KEY` to set Aliyun ram access-key
 - env `NACOS_CLIENT_SECRET_KEY` to set Aliyun ram access-secret
+- env `NACOS_CLIENT_CACHE_DIR` to set the root directory for on-disk caches, default `$HOME/nacos`
+- env `NACOS_CLIENT_CACHE_KIND` to set the cache kind, default `disk-store`
 
 #### 配置 server_addr 或 endpoint
 
@@ -167,6 +169,14 @@ let naming_service = NamingServiceBuilder::new(props).build().await?;
 **重要警告：**
 - ⚠️ `register_instance`、`publish_config` 等写操作在服务端不可用时 **仍会阻塞等待连接**（或者是"快速失败 + 后台重试"），这是正确行为——你不能在没连上服务端时写入数据
 - ⚠️ 请严肃测试你的场景，确保正确使用：读操作可依赖缓存，写操作必须有服务端连接
+
+### 关闭磁盘缓存（纯内存缓存）
+
+默认情况下缓存会落盘（`$HOME/nacos/{config,naming}/{namespace}`），用于上面的应急启动场景。
+如果不希望写任何磁盘文件（例如只读文件系统、无状态 Serverless、或容器中不希望残留文件），
+可以通过 `CacheKind::None` 关闭磁盘缓存，配置与注册数据仅保存在内存中。
+
+> ⚠️ 注意：关闭磁盘缓存后 `load_cache_at_start(true)` 将没有数据可加载，应急启动模式不可用。
 
 ### AuthPlugin Features
 - > Set access-key, access-secret via Environment variables are recommended.
