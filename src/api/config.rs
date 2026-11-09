@@ -32,9 +32,11 @@ impl ConfigService {
     /// Attention to [`error::Error::ConfigNotFound`], [`error::Error::ConfigQueryConflict`]
     pub async fn get_config(
         &self,
-        data_id: String,
-        group: String,
+        data_id: impl Into<String>,
+        group: impl Into<String>,
     ) -> error::Result<ConfigResponse> {
+        let data_id: String = data_id.into();
+        let group: String = group.into();
         crate::common::util::check_not_blank(&data_id, "data_id")?;
         crate::common::util::check_not_blank(&group, "group")?;
         self.inner.get_config(data_id, group).await
@@ -43,11 +45,14 @@ impl ConfigService {
     /// Publish config, return true/false.
     pub async fn publish_config(
         &self,
-        data_id: String,
-        group: String,
-        content: String,
+        data_id: impl Into<String>,
+        group: impl Into<String>,
+        content: impl Into<String>,
         content_type: Option<String>,
     ) -> error::Result<bool> {
+        let data_id: String = data_id.into();
+        let group: String = group.into();
+        let content: String = content.into();
         crate::common::util::check_not_blank(&data_id, "data_id")?;
         crate::common::util::check_not_blank(&group, "group")?;
         crate::common::util::check_not_blank(&content, "content")?;
@@ -59,12 +64,16 @@ impl ConfigService {
     /// Cas publish config with cas_md5 (prev content's md5), return true/false.
     pub async fn publish_config_cas(
         &self,
-        data_id: String,
-        group: String,
-        content: String,
+        data_id: impl Into<String>,
+        group: impl Into<String>,
+        content: impl Into<String>,
         content_type: Option<String>,
-        cas_md5: String,
+        cas_md5: impl Into<String>,
     ) -> error::Result<bool> {
+        let data_id: String = data_id.into();
+        let group: String = group.into();
+        let content: String = content.into();
+        let cas_md5: String = cas_md5.into();
         crate::common::util::check_not_blank(&data_id, "data_id")?;
         crate::common::util::check_not_blank(&group, "group")?;
         crate::common::util::check_not_blank(&content, "content")?;
@@ -77,12 +86,16 @@ impl ConfigService {
     /// Beta publish config, return true/false.
     pub async fn publish_config_beta(
         &self,
-        data_id: String,
-        group: String,
-        content: String,
+        data_id: impl Into<String>,
+        group: impl Into<String>,
+        content: impl Into<String>,
         content_type: Option<String>,
-        beta_ips: String,
+        beta_ips: impl Into<String>,
     ) -> error::Result<bool> {
+        let data_id: String = data_id.into();
+        let group: String = group.into();
+        let content: String = content.into();
+        let beta_ips: String = beta_ips.into();
         crate::common::util::check_not_blank(&data_id, "data_id")?;
         crate::common::util::check_not_blank(&group, "group")?;
         crate::common::util::check_not_blank(&content, "content")?;
@@ -95,13 +108,16 @@ impl ConfigService {
     /// Publish config with params (see keys [`constants::*`]), return true/false.
     pub async fn publish_config_param(
         &self,
-        data_id: String,
-        group: String,
-        content: String,
+        data_id: impl Into<String>,
+        group: impl Into<String>,
+        content: impl Into<String>,
         content_type: Option<String>,
         cas_md5: Option<String>,
         params: HashMap<String, String>,
     ) -> error::Result<bool> {
+        let data_id: String = data_id.into();
+        let group: String = group.into();
+        let content: String = content.into();
         crate::common::util::check_not_blank(&data_id, "data_id")?;
         crate::common::util::check_not_blank(&group, "group")?;
         crate::common::util::check_not_blank(&content, "content")?;
@@ -111,7 +127,13 @@ impl ConfigService {
     }
 
     /// Remove config, return true/false.
-    pub async fn remove_config(&self, data_id: String, group: String) -> error::Result<bool> {
+    pub async fn remove_config(
+        &self,
+        data_id: impl Into<String>,
+        group: impl Into<String>,
+    ) -> error::Result<bool> {
+        let data_id: String = data_id.into();
+        let group: String = group.into();
         crate::common::util::check_not_blank(&data_id, "data_id")?;
         crate::common::util::check_not_blank(&group, "group")?;
         self.inner.remove_config(data_id, group).await
@@ -120,10 +142,12 @@ impl ConfigService {
     /// Listen the config change.
     pub async fn add_listener(
         &self,
-        data_id: String,
-        group: String,
+        data_id: impl Into<String>,
+        group: impl Into<String>,
         listener: Arc<dyn ConfigChangeListener>,
     ) -> error::Result<()> {
+        let data_id: String = data_id.into();
+        let group: String = group.into();
         crate::common::util::check_not_blank(&data_id, "data_id")?;
         crate::common::util::check_not_blank(&group, "group")?;
         self.inner.add_listener(data_id, group, listener).await
@@ -132,10 +156,12 @@ impl ConfigService {
     /// Remove a Listener.
     pub async fn remove_listener(
         &self,
-        data_id: String,
-        group: String,
+        data_id: impl Into<String>,
+        group: impl Into<String>,
         listener: Arc<dyn ConfigChangeListener>,
     ) -> error::Result<()> {
+        let data_id: String = data_id.into();
+        let group: String = group.into();
         crate::common::util::check_not_blank(&data_id, "data_id")?;
         crate::common::util::check_not_blank(&group, "group")?;
         self.inner.remove_listener(data_id, group, listener).await
@@ -189,39 +215,39 @@ impl std::fmt::Display for ConfigResponse {
 
 impl ConfigResponse {
     pub fn new(
-        data_id: String,
-        group: String,
-        namespace: String,
-        content: String,
-        content_type: String,
-        md5: String,
+        data_id: impl Into<String>,
+        group: impl Into<String>,
+        namespace: impl Into<String>,
+        content: impl Into<String>,
+        content_type: impl Into<String>,
+        md5: impl Into<String>,
     ) -> Self {
         ConfigResponse {
-            data_id,
-            group,
-            namespace,
-            content,
-            content_type,
-            md5,
+            data_id: data_id.into(),
+            group: group.into(),
+            namespace: namespace.into(),
+            content: content.into(),
+            content_type: content_type.into(),
+            md5: md5.into(),
         }
     }
 
-    pub fn namespace(&self) -> &String {
+    pub fn namespace(&self) -> &str {
         &self.namespace
     }
-    pub fn data_id(&self) -> &String {
+    pub fn data_id(&self) -> &str {
         &self.data_id
     }
-    pub fn group(&self) -> &String {
+    pub fn group(&self) -> &str {
         &self.group
     }
-    pub fn content(&self) -> &String {
+    pub fn content(&self) -> &str {
         &self.content
     }
-    pub fn content_type(&self) -> &String {
+    pub fn content_type(&self) -> &str {
         &self.content_type
     }
-    pub fn md5(&self) -> &String {
+    pub fn md5(&self) -> &str {
         &self.md5
     }
 }
@@ -358,6 +384,23 @@ mod tests {
     use std::collections::HashMap;
     use std::time::Duration;
     use tokio::time::sleep;
+
+    #[test]
+    fn test_config_response_accessors_accept_str() {
+        let resp = ConfigResponse::new("data-id", "group", "namespace", "content", "text", "md5");
+        let data_id: &str = resp.data_id();
+        let group: &str = resp.group();
+        let namespace: &str = resp.namespace();
+        let content: &str = resp.content();
+        let content_type: &str = resp.content_type();
+        let md5: &str = resp.md5();
+        assert_eq!(data_id, "data-id");
+        assert_eq!(group, "group");
+        assert_eq!(namespace, "namespace");
+        assert_eq!(content, "content");
+        assert_eq!(content_type, "text");
+        assert_eq!(md5, "md5");
+    }
 
     struct TestConfigChangeListener;
 
@@ -624,7 +667,7 @@ mod tests {
             .get_config(data_id.clone(), group.clone())
             .await
             .expect("ConfigServiceBuilder should build successfully in tests");
-        assert_ne!(content_cas_md5_not_right, config_resp.content().as_str());
-        assert_eq!(content_cas_md5.as_str(), config_resp.content().as_str());
+        assert_ne!(content_cas_md5_not_right, config_resp.content());
+        assert_eq!(content_cas_md5.as_str(), config_resp.content());
     }
 }

@@ -35,8 +35,8 @@ pub struct ServiceInstance {
 }
 
 impl ServiceInstance {
-    pub fn instance_id(&self) -> Option<&String> {
-        self.instance_id.as_ref()
+    pub fn instance_id(&self) -> Option<&str> {
+        self.instance_id.as_deref()
     }
 
     pub fn ip(&self) -> &str {
@@ -63,12 +63,12 @@ impl ServiceInstance {
         self.ephemeral
     }
 
-    pub fn cluster_name(&self) -> Option<&String> {
-        self.cluster_name.as_ref()
+    pub fn cluster_name(&self) -> Option<&str> {
+        self.cluster_name.as_deref()
     }
 
-    pub fn service_name(&self) -> Option<&String> {
-        self.service_name.as_ref()
+    pub fn service_name(&self) -> Option<&str> {
+        self.service_name.as_deref()
     }
 
     pub fn metadata(&self) -> &HashMap<String, String> {
@@ -155,10 +155,11 @@ pub struct NamingService {
 impl NamingService {
     pub async fn register_instance(
         &self,
-        service_name: String,
+        service_name: impl Into<String>,
         group_name: Option<String>,
         service_instance: ServiceInstance,
     ) -> Result<()> {
+        let service_name: String = service_name.into();
         crate::common::util::check_not_blank(&service_name, "service_name")?;
         self.inner
             .register_instance(service_name, group_name, service_instance)
@@ -167,10 +168,11 @@ impl NamingService {
 
     pub async fn deregister_instance(
         &self,
-        service_name: String,
+        service_name: impl Into<String>,
         group_name: Option<String>,
         service_instance: ServiceInstance,
     ) -> Result<()> {
+        let service_name: String = service_name.into();
         crate::common::util::check_not_blank(&service_name, "service_name")?;
         self.inner
             .deregister_instance(service_name, group_name, service_instance)
@@ -179,10 +181,11 @@ impl NamingService {
 
     pub async fn batch_register_instance(
         &self,
-        service_name: String,
+        service_name: impl Into<String>,
         group_name: Option<String>,
         service_instances: Vec<ServiceInstance>,
     ) -> Result<()> {
+        let service_name: String = service_name.into();
         crate::common::util::check_not_blank(&service_name, "service_name")?;
         self.inner
             .batch_register_instance(service_name, group_name, service_instances)
@@ -191,11 +194,12 @@ impl NamingService {
 
     pub async fn get_all_instances(
         &self,
-        service_name: String,
+        service_name: impl Into<String>,
         group_name: Option<String>,
         clusters: Vec<String>,
         subscribe: bool,
     ) -> Result<Vec<ServiceInstance>> {
+        let service_name: String = service_name.into();
         crate::common::util::check_not_blank(&service_name, "service_name")?;
         self.inner
             .get_all_instances(service_name, group_name, clusters, subscribe)
@@ -204,12 +208,13 @@ impl NamingService {
 
     pub async fn select_instances(
         &self,
-        service_name: String,
+        service_name: impl Into<String>,
         group_name: Option<String>,
         clusters: Vec<String>,
         subscribe: bool,
         healthy: bool,
     ) -> Result<Vec<ServiceInstance>> {
+        let service_name: String = service_name.into();
         crate::common::util::check_not_blank(&service_name, "service_name")?;
         self.inner
             .select_instances(service_name, group_name, clusters, subscribe, healthy)
@@ -218,11 +223,12 @@ impl NamingService {
 
     pub async fn select_one_healthy_instance(
         &self,
-        service_name: String,
+        service_name: impl Into<String>,
         group_name: Option<String>,
         clusters: Vec<String>,
         subscribe: bool,
     ) -> Result<ServiceInstance> {
+        let service_name: String = service_name.into();
         crate::common::util::check_not_blank(&service_name, "service_name")?;
         self.inner
             .select_one_healthy_instance(service_name, group_name, clusters, subscribe)
@@ -242,11 +248,12 @@ impl NamingService {
 
     pub async fn subscribe(
         &self,
-        service_name: String,
+        service_name: impl Into<String>,
         group_name: Option<String>,
         clusters: Vec<String>,
         event_listener: Arc<dyn NamingEventListener>,
     ) -> Result<()> {
+        let service_name: String = service_name.into();
         crate::common::util::check_not_blank(&service_name, "service_name")?;
         self.inner
             .subscribe(service_name, group_name, clusters, event_listener)
@@ -255,11 +262,12 @@ impl NamingService {
 
     pub async fn unsubscribe(
         &self,
-        service_name: String,
+        service_name: impl Into<String>,
         group_name: Option<String>,
         clusters: Vec<String>,
         event_listener: Arc<dyn NamingEventListener>,
     ) -> Result<()> {
+        let service_name: String = service_name.into();
         crate::common::util::check_not_blank(&service_name, "service_name")?;
         self.inner
             .unsubscribe(service_name, group_name, clusters, event_listener)
@@ -340,5 +348,26 @@ impl Default for NamingServiceBuilder {
             client_props: ClientProps::new(),
             auth_plugin: None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ServiceInstance;
+
+    #[test]
+    fn test_service_instance_accessors_return_str() {
+        let instance = ServiceInstance {
+            instance_id: Some("id".to_string()),
+            cluster_name: Some("cluster".to_string()),
+            service_name: Some("service".to_string()),
+            ..Default::default()
+        };
+        let instance_id: Option<&str> = instance.instance_id();
+        let cluster_name: Option<&str> = instance.cluster_name();
+        let service_name: Option<&str> = instance.service_name();
+        assert_eq!(instance_id, Some("id"));
+        assert_eq!(cluster_name, Some("cluster"));
+        assert_eq!(service_name, Some("service"));
     }
 }
