@@ -1,12 +1,12 @@
 # 变更日志 | Change log
 
-### Unreleased
+### 0.8.4
 
-- 特性：支持关闭磁盘缓存而仅使用内存缓存；新增 `CacheKind` 枚举，通过设置 `ClientProps::cache_kind(CacheKind::None)` 或环境变量 `NACOS_CLIENT_CACHE_KIND=none`
+- 特性：支持关闭磁盘缓存而仅使用内存缓存；新增 `CacheKind` 枚举，通过设置 `ClientProps::cache_kind(CacheKind::None)` 或环境变量 `NACOS_CLIENT_CACHE_KIND=none` (#313)
 
 ---
 
-- Feature: Support disabling disk store and only using memory cache. add `CacheKind` enum, allow disabling the disk store via `ClientProps::cache_kind(CacheKind::None)` or env `NACOS_CLIENT_CACHE_KIND=none` for memory-only cache
+- Feature: Support disabling disk store and only using memory cache. add `CacheKind` enum, allow disabling the disk store via `ClientProps::cache_kind(CacheKind::None)` or env `NACOS_CLIENT_CACHE_KIND=none` for memory-only cache (#313)
 
 ### 0.8.3
 
