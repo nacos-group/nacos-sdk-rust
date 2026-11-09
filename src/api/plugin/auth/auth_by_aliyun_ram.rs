@@ -598,7 +598,7 @@ mod test {
                     .instances
                     .as_ref()
                     .expect("Event instances should exist")
-                    .clone(),
+                    .to_vec(),
             ));
         }
     }

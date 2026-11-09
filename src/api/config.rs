@@ -177,17 +177,17 @@ pub trait ConfigChangeListener: Send + Sync {
 #[derive(Debug, Clone)]
 pub struct ConfigResponse {
     /// Namespace/Tenant
-    namespace: String,
+    namespace: Arc<String>,
     /// DataId
-    data_id: String,
+    data_id: Arc<String>,
     /// Group
-    group: String,
+    group: Arc<String>,
     /// Content
-    content: String,
+    content: Arc<String>,
     /// Content's Type; e.g. json,properties,xml,html,text,yaml
-    content_type: String,
+    content_type: Arc<String>,
     /// Content's md5
-    md5: String,
+    md5: Arc<String>,
 }
 
 impl std::fmt::Display for ConfigResponse {
@@ -223,12 +223,35 @@ impl ConfigResponse {
         md5: impl Into<String>,
     ) -> Self {
         ConfigResponse {
-            data_id: data_id.into(),
-            group: group.into(),
-            namespace: namespace.into(),
-            content: content.into(),
-            content_type: content_type.into(),
-            md5: md5.into(),
+            data_id: Arc::new(data_id.into()),
+            group: Arc::new(group.into()),
+            namespace: Arc::new(namespace.into()),
+            content: Arc::new(content.into()),
+            content_type: Arc::new(content_type.into()),
+            md5: Arc::new(md5.into()),
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn shares_content_with(&self, other: &Arc<String>) -> bool {
+        Arc::ptr_eq(&self.content, other)
+    }
+
+    pub(crate) fn from_shared(
+        data_id: Arc<String>,
+        group: Arc<String>,
+        namespace: Arc<String>,
+        content: Arc<String>,
+        content_type: Arc<String>,
+        md5: Arc<String>,
+    ) -> Self {
+        ConfigResponse {
+            data_id,
+            group,
+            namespace,
+            content,
+            content_type,
+            md5,
         }
     }
 
@@ -400,6 +423,22 @@ mod tests {
         assert_eq!(content, "content");
         assert_eq!(content_type, "text");
         assert_eq!(md5, "md5");
+    }
+
+    #[test]
+    fn test_config_response_display_truncation() {
+        let content_30 = "a".repeat(30);
+        let resp = ConfigResponse::new("d", "g", "n", content_30.clone(), "text", "m");
+        assert_eq!(
+            format!("{resp}"),
+            format!("ConfigResponse(namespace=n,data_id=d,group=g,md5=m,content={content_30})")
+        );
+
+        let resp = ConfigResponse::new("d", "g", "n", "a".repeat(31), "text", "m");
+        assert!(format!("{resp}").ends_with(&format!("content={}...)", "a".repeat(30))));
+
+        let resp = ConfigResponse::new("d", "g", "n", "配".repeat(31), "text", "m");
+        assert!(format!("{resp}").ends_with(&format!("content={}...)", "配".repeat(30))));
     }
 
     struct TestConfigChangeListener;

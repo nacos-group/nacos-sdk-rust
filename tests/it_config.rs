@@ -132,6 +132,56 @@ mod config_integration_tests {
         cleanup_config(&service, test_data.data_id.clone(), test_data.group.clone()).await;
     }
 
+    /// Test: a fetched ConfigResponse is an immutable snapshot.
+    ///
+    /// A later publish must not mutate a response that was already returned.
+    #[tokio::test]
+    #[ignore]
+    async fn test_config_response_is_immutable_snapshot() {
+        crate::shared::setup_log();
+
+        let server_addr = get_shared_server_addr().await;
+        let service = create_config_service(&server_addr).await;
+        let test_data = ConfigTestData::random();
+
+        let first_content = format!("{}-first", test_data.content);
+        publish_config(
+            &service,
+            test_data.data_id.clone(),
+            test_data.group.clone(),
+            first_content.clone(),
+            Some(test_data.content_type.clone()),
+        )
+        .await;
+
+        let first_response = service
+            .get_config(test_data.data_id.clone(), test_data.group.clone())
+            .await
+            .expect("get_config should succeed for the first publish");
+        assert_eq!(first_response.content(), first_content);
+
+        let second_content = format!("{}-second", test_data.content);
+        publish_config(
+            &service,
+            test_data.data_id.clone(),
+            test_data.group.clone(),
+            second_content.clone(),
+            Some(test_data.content_type.clone()),
+        )
+        .await;
+
+        let second_response = service
+            .get_config(test_data.data_id.clone(), test_data.group.clone())
+            .await
+            .expect("get_config should succeed for the second publish");
+        assert_eq!(second_response.content(), second_content);
+        assert_ne!(first_response.md5(), second_response.md5());
+        assert_eq!(first_response.content(), first_content);
+        assert_eq!(first_response.data_id(), &test_data.data_id);
+
+        cleanup_config(&service, test_data.data_id.clone(), test_data.group.clone()).await;
+    }
+
     /// Test: remove config.
     ///
     /// Verifies:

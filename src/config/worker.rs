@@ -117,16 +117,16 @@ impl ConfigWorker {
         let group_key = util::group_key(&data_id, &group, &namespace);
 
         // Try to get config from cache first (if cache exists and content is complete)
-        let cached_snapshot = self.unified_cache.get(&group_key).and_then(|r| {
+        let cached_source = self.unified_cache.get(&group_key).and_then(|r| {
             if !r.content.is_empty() && !r.md5.is_empty() {
-                Some(r.resp_snapshot())
+                Some(r.resp_source())
             } else {
                 None
             }
         });
-        if let Some(snapshot) = cached_snapshot {
+        if let Some(source) = cached_source {
             tracing::info!("get_config from cache, group_key={}", group_key);
-            return Ok(CacheData::filtered_response(snapshot).await);
+            return Ok(source.into_response().await);
         }
 
         // Cache miss or incomplete content, fetch from server
@@ -304,9 +304,9 @@ impl ConfigWorker {
             // listen immediately upon initialization
             let config_resp = Self::get_config_inner_async(
                 self.remote_client.clone(),
-                cache_data.data_id.clone(),
-                cache_data.group.clone(),
-                cache_data.namespace.clone(),
+                cache_data.data_id.to_string(),
+                cache_data.group.to_string(),
+                cache_data.namespace.to_string(),
             )
             .in_current_span()
             .await;
@@ -320,10 +320,10 @@ impl ConfigWorker {
             }
             let req = ConfigBatchListenRequest::new(true).add_config_listen_context(
                 ConfigListenContext::new(
-                    cache_data.data_id.clone(),
-                    cache_data.group.clone(),
-                    cache_data.namespace.clone(),
-                    cache_data.md5.clone(),
+                    cache_data.data_id.to_string(),
+                    cache_data.group.to_string(),
+                    cache_data.namespace.to_string(),
+                    cache_data.md5.to_string(),
                 ),
             );
             let remote_client_clone = self.remote_client.clone();
@@ -381,10 +381,10 @@ impl ConfigWorker {
                 // Use foreach to iterate over all cached configs
                 unified_cache.for_each(|_key, c| {
                     listen_context_vec.push(ConfigListenContext::new(
-                        c.data_id.clone(),
-                        c.group.clone(),
-                        c.namespace.clone(),
-                        c.md5.clone(),
+                        c.data_id.to_string(),
+                        c.group.to_string(),
+                        c.namespace.to_string(),
+                        c.md5.to_string(),
                     ));
                 });
             }
@@ -419,15 +419,20 @@ impl ConfigWorker {
     /// Synchronously fill fields from the response; returns whether listeners should
     /// be notified (the first fill during initialization does not notify).
     fn fill_data(cache_data: &mut CacheData, config_resp: ConfigQueryResponse) -> bool {
-        cache_data.content_type = config_resp
-            .content_type
-            .expect("Config content_type missing in response");
-        cache_data.content = config_resp
-            .content
-            .expect("Config content missing in response");
-        cache_data.md5 = config_resp.md5.expect("Config md5 missing in response");
+        cache_data.content_type = Arc::new(
+            config_resp
+                .content_type
+                .expect("Config content_type missing in response"),
+        );
+        cache_data.content = Arc::new(
+            config_resp
+                .content
+                .expect("Config content missing in response"),
+        );
+        cache_data.md5 = Arc::new(config_resp.md5.expect("Config md5 missing in response"));
         // Compatibility None < 2.1.0
-        cache_data.encrypted_data_key = config_resp.encrypted_data_key.unwrap_or_default();
+        cache_data.encrypted_data_key =
+            Arc::new(config_resp.encrypted_data_key.unwrap_or_default());
         cache_data.last_modified = config_resp.last_modified;
         tracing::info!("fill_data, cache_data={}", cache_data);
         if cache_data.initializing {
@@ -464,9 +469,13 @@ impl ConfigWorker {
                     // A DashMap guard must never live across an .await: the suspended
                     // future would hold the shard lock indefinitely and freeze the
                     // single-worker SDK runtime.
-                    let snapshot = unified_cache
-                        .get(&group_key)
-                        .map(|r| (r.data_id.clone(), r.group.clone(), r.namespace.clone()));
+                    let snapshot = unified_cache.get(&group_key).map(|r| {
+                        (
+                            r.data_id.to_string(),
+                            r.group.to_string(),
+                            r.namespace.to_string(),
+                        )
+                    });
                     let Some((data_id, group, namespace)) = snapshot else {
                         continue;
                     };
@@ -489,10 +498,9 @@ impl ConfigWorker {
                                 None => false,
                             };
                             if should_notify {
-                                let snapshot =
-                                    unified_cache.get(&group_key).map(|r| r.resp_snapshot());
-                                if let Some(snapshot) = snapshot {
-                                    let resp = CacheData::filtered_response(snapshot).await;
+                                let source = unified_cache.get(&group_key).map(|r| r.resp_source());
+                                if let Some(source) = source {
+                                    let resp = source.into_response().await;
                                     if let Some(cache_ref) = unified_cache.get(&group_key) {
                                         cache_ref.dispatch_notify(resp);
                                     }

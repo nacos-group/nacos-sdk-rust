@@ -225,20 +225,24 @@ impl ServiceInfoEmitter {
             return false;
         }
 
-        let old_hosts = old_service.hosts.as_ref();
-        let new_hosts = new_service.hosts.as_ref();
-
-        if new_hosts.is_none() && old_hosts.is_none() {
+        if new_service.hosts.is_none() && old_service.hosts.is_none() {
             return false;
         }
-        if new_hosts.is_none() || old_hosts.is_none() {
+        if new_service.hosts.is_none() || old_service.hosts.is_none() {
             return true;
         }
         // Calculate and log differences
-        let diff = ServiceInfoDiff::calculate(
-            old_service.hosts.as_deref().unwrap_or(&[]),
-            new_service.hosts.as_deref().unwrap_or(&[]),
-        );
+        let old_hosts = old_service
+            .hosts
+            .as_deref()
+            .map(Vec::as_slice)
+            .unwrap_or_default();
+        let new_hosts = new_service
+            .hosts
+            .as_deref()
+            .map(Vec::as_slice)
+            .unwrap_or_default();
+        let diff = ServiceInfoDiff::calculate(old_hosts, new_hosts);
 
         diff.log_changes(&key);
 
