@@ -28,18 +28,18 @@ pub struct ConfigReq {
 
 impl ConfigReq {
     pub fn new(
-        data_id: String,
-        group: String,
-        namespace: String,
-        content: String,
-        encrypted_data_key: String,
+        data_id: impl Into<String>,
+        group: impl Into<String>,
+        namespace: impl Into<String>,
+        content: impl Into<String>,
+        encrypted_data_key: impl Into<String>,
     ) -> Self {
         ConfigReq {
-            data_id,
-            group,
-            namespace,
-            content,
-            encrypted_data_key,
+            data_id: data_id.into(),
+            group: group.into(),
+            namespace: namespace.into(),
+            content: content.into(),
+            encrypted_data_key: encrypted_data_key.into(),
         }
     }
 }
@@ -60,18 +60,18 @@ pub struct ConfigResp {
 
 impl ConfigResp {
     pub fn new(
-        data_id: String,
-        group: String,
-        namespace: String,
-        content: String,
-        encrypted_data_key: String,
+        data_id: impl Into<String>,
+        group: impl Into<String>,
+        namespace: impl Into<String>,
+        content: impl Into<String>,
+        encrypted_data_key: impl Into<String>,
     ) -> Self {
         ConfigResp {
-            data_id,
-            group,
-            namespace,
-            content,
-            encrypted_data_key,
+            data_id: data_id.into(),
+            group: group.into(),
+            namespace: namespace.into(),
+            content: content.into(),
+            encrypted_data_key: encrypted_data_key.into(),
         }
     }
 }

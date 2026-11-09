@@ -1,5 +1,15 @@
 # 变更日志 | Change log
 
+### Unreleased
+
+- 破坏性变更：API 入口的必填字符串参数统一改为 `impl Into<String>`（如 `data_id`、`group`、`content`、`cas_md5`、`beta_ips`、`service_name`）；`ConfigResponse` 与 `ServiceInstance` 的 getter 改为返回 `&str` / `Option<&str>`
+- 增强：上述入口可直接传入 `&str` / `&String`，无需手动 `to_string()`
+
+---
+
+- Change: required string parameters of API entries now accept `impl Into<String>` (e.g. `data_id`, `group`, `content`, `cas_md5`, `beta_ips`, `service_name`); `ConfigResponse` and `ServiceInstance` getters now return `&str` / `Option<&str>`
+- Enhance: those entries accept `&str` / `&String` directly, no manual `to_string()`
+
 ### 0.8.4
 
 - 特性：支持关闭磁盘缓存而仅使用内存缓存；新增 `CacheKind` 枚举，通过设置 `ClientProps::cache_kind(CacheKind::None)` 或环境变量 `NACOS_CLIENT_CACHE_KIND=none` (#313)

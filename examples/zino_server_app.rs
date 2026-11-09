@@ -153,7 +153,7 @@ async fn greeting(req: Request) -> Result {
         .get_config(CONFIG_DATA_ID.to_string(), CONFIG_GROUP.to_string())
         .await
     {
-        Ok(resp) => resp.content().clone(),
+        Ok(resp) => resp.content().to_owned(),
         Err(err) => {
             tracing::warn!("Failed to get config from Nacos: {:?}", err);
             "Hello from Zino+Nacos!".to_string()

@@ -206,7 +206,7 @@ mod config_integration_tests {
             .get_config(test_data.data_id.clone(), test_data.group.clone())
             .await
             .expect("get_config should succeed");
-        let original_md5 = config_resp.md5().clone();
+        let original_md5 = config_resp.md5().to_owned();
 
         let new_content = format!("cas-updated-{}", test_data.content);
         let cas_result = service
@@ -613,7 +613,7 @@ mod config_integration_tests {
             .get_config(test_data.data_id.clone(), test_data.group.clone())
             .await
             .expect("get_config should succeed");
-        let md5 = config_resp.md5().clone();
+        let md5 = config_resp.md5().to_owned();
 
         let new_content = format!("cas-param-updated-{}", test_data.content);
         let mut params = HashMap::new();
