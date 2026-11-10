@@ -45,12 +45,13 @@ impl RedoTaskExecutor {
                 loop {
                     interval.tick().await;
 
-                    let map = map.read().await;
-                    let active_tasks: Vec<Arc<dyn RedoTask>> = map
-                        .iter()
-                        .filter(|(_, v)| v.is_active())
-                        .map(|(_, v)| v.clone())
-                        .collect();
+                    let active_tasks: Vec<Arc<dyn RedoTask>> = {
+                        let map = map.read().await;
+                        map.values()
+                            .filter(|task| task.is_active())
+                            .cloned()
+                            .collect()
+                    };
                     if !active_tasks.is_empty() {
                         debug!("automatic request task triggered!");
                     }
@@ -168,5 +169,68 @@ impl RedoTask for NamingRedoTask {
                 }),
             )
             .await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tokio::sync::{Mutex, oneshot};
+
+    struct BlockingRedoTask {
+        started: Mutex<Option<oneshot::Sender<()>>>,
+        release: Mutex<Option<oneshot::Receiver<()>>>,
+    }
+
+    #[async_trait]
+    impl RedoTask for BlockingRedoTask {
+        fn task_key(&self) -> String {
+            "blocking".to_string()
+        }
+
+        fn frozen(&self) {}
+
+        fn active(&self) {}
+
+        fn is_active(&self) -> bool {
+            true
+        }
+
+        async fn run(&self) {
+            let started = { self.started.lock().await.take() };
+            if let Some(tx) = started {
+                let _ = tx.send(());
+            }
+            let release = { self.release.lock().await.take() };
+            if let Some(rx) = release {
+                let _ = rx.await;
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn remove_task_does_not_wait_for_running_task() {
+        let executor = RedoTaskExecutor::new("test".to_string());
+        let (started_tx, started_rx) = oneshot::channel();
+        let (release_tx, release_rx) = oneshot::channel();
+
+        executor
+            .add_task(Arc::new(BlockingRedoTask {
+                started: Mutex::new(Some(started_tx)),
+                release: Mutex::new(Some(release_rx)),
+            }))
+            .await;
+
+        tokio::time::timeout(Duration::from_secs(10), started_rx)
+            .await
+            .expect("redo task should be scheduled within 10s")
+            .expect("redo task should signal start");
+
+        let removed =
+            tokio::time::timeout(Duration::from_millis(500), executor.remove_task("blocking"))
+                .await;
+        let _ = release_tx.send(());
+
+        removed.expect("remove_task must not wait for a running redo task");
     }
 }

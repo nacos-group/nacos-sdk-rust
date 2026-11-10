@@ -7,6 +7,9 @@
 - 增强：上述入口可直接传入 `&str` / `&String`，无需手动 `to_string()`
 - 破坏性变更：`AuthPlugin::get_login_identity` 改为返回 `Arc<LoginIdentityContext>`，HTTP token 认证直接共享已登录身份，不再克隆整份身份 map（header 条目仍会复制进每次请求；该 trait 文档已声明后续可能变更）
 - 修复：`ConfigFilter` 改由 worker 在出口统一应用，不再随每条缓存数据保存；从磁盘恢复的配置缓存（`config_load_cache_at_start`）也会继续经过 filter（如解密）
+- 修复：naming redo 调度不再在自动重试请求执行期间持有读锁，重试进行中注册/注销不再被阻塞
+- 修复：配置响应缺少 content/content_type/md5 字段时，拉取路径返回错误、推送路径告警并跳过通知，不再 panic 导致通知任务退出
+- 性能：服务实例变更日志仅在日志启用时才序列化实例数据
 - 性能：未配置 `ConfigFilter` 时 config 缓存命中不再复制配置内容，naming 缓存命中的实例列表改为共享，选择单个实例时只克隆最终选中的实例
 
 ---
@@ -16,6 +19,9 @@
 - Enhance: those entries accept `&str` / `&String` directly, no manual `to_string()`
 - Change: `AuthPlugin::get_login_identity` now returns `Arc<LoginIdentityContext>`, so HTTP token auth shares the logged-in identity instead of cloning the whole identity map (entries are still copied into each request; the trait is documented as subject to change)
 - Fix: `ConfigFilter` is now applied by the worker at the response exits instead of being stored with each cache entry; config cache entries restored from disk (`config_load_cache_at_start`) still run filters such as decryption
+- Fix: the naming redo scheduler no longer holds a read lock while automatic retry requests run, so registrations and deregistrations are not blocked during a retry
+- Fix: config responses missing content/content_type/md5 now make the fetch path return an error and the push path warn and skip notification, instead of panicking and killing the notify task
+- Performance: service-instance diff logs serialize instance data only when logging is enabled
 - Performance: without a configured `ConfigFilter`, config cache hits no longer copy the config content; naming cache hits share the instance list, and single-instance selection clones only the chosen instance
 
 ### 0.8.4
