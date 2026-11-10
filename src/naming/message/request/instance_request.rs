@@ -1,6 +1,7 @@
 use nacos_macro::request;
 
-use crate::{common::remote::generate_request_id, naming::ServiceInstance};
+use super::RequestType;
+use crate::{api::naming::ServiceInstance, common::remote::generate_request_id};
 
 #[request(identity = "InstanceRequest", module = "naming")]
 pub(crate) struct InstanceRequest {
@@ -56,30 +57,6 @@ impl InstanceRequest {
             service_name,
             group_name,
             ..Default::default()
-        }
-    }
-}
-
-pub(crate) enum RequestType {
-    Register,
-    Deregister,
-}
-
-impl RequestType {
-    pub(crate) fn request_code(&self) -> String {
-        match self {
-            RequestType::Register => "registerInstance".to_string(),
-            RequestType::Deregister => "deregisterInstance".to_string(),
-        }
-    }
-}
-
-impl From<&str> for RequestType {
-    fn from(code: &str) -> Self {
-        match code {
-            "registerInstance" => RequestType::Register,
-            "deregisterInstance" => RequestType::Deregister,
-            _ => RequestType::Register,
         }
     }
 }
