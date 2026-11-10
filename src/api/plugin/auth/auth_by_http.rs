@@ -112,8 +112,8 @@ impl AuthPlugin for HttpLoginAuthPlugin {
         }
     }
 
-    fn get_login_identity(&self, _: RequestResource) -> LoginIdentityContext {
-        self.login_identity.load().deref().deref().to_owned()
+    fn get_login_identity(&self, _: RequestResource) -> Arc<LoginIdentityContext> {
+        self.login_identity.load_full()
     }
 }
 
@@ -128,7 +128,23 @@ struct HttpLoginResponse {
 mod tests {
     use std::sync::Arc;
 
-    use crate::api::plugin::{AuthContext, AuthPlugin, HttpLoginAuthPlugin, RequestResource};
+    use crate::api::plugin::{
+        ACCESS_TOKEN, AuthContext, AuthPlugin, HttpLoginAuthPlugin, LoginIdentityContext,
+        RequestResource,
+    };
+
+    #[test]
+    fn test_get_login_identity_shares_stored_context() {
+        let http_auth_plugin = HttpLoginAuthPlugin::default();
+        let stored = Arc::new(LoginIdentityContext::default().add_context(ACCESS_TOKEN, "token"));
+        http_auth_plugin.login_identity.store(stored.clone());
+
+        let first = http_auth_plugin.get_login_identity(RequestResource::default());
+        let second = http_auth_plugin.get_login_identity(RequestResource::default());
+
+        assert!(Arc::ptr_eq(&first, &stored));
+        assert!(Arc::ptr_eq(&first, &second));
+    }
 
     #[tokio::test]
     #[ignore]
