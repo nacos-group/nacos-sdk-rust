@@ -33,7 +33,7 @@ impl Tonic {
         let url_authority = if let Some(port) = grpc_config.port {
             format!("{}:{}", grpc_config.host, port)
         } else {
-            grpc_config.host
+            grpc_config.host.clone()
         };
 
         let scheme = if cfg!(feature = "tls") {
@@ -50,40 +50,7 @@ impl Tonic {
             .expect("Endpoint URI construction should not fail with valid inputs");
 
         debug!("create new endpoint :{}", endpoint_uri);
-        let mut endpoint = Endpoint::from(endpoint_uri.clone());
-
-        if let Some(timeout) = grpc_config.timeout {
-            endpoint = endpoint.timeout(timeout);
-        }
-
-        if let Some(http2_keep_alive_interval) = grpc_config.http2_keep_alive_interval {
-            endpoint = endpoint.http2_keep_alive_interval(http2_keep_alive_interval);
-        }
-
-        if let Some(http2_keep_alive_timeout) = grpc_config.http2_keep_alive_timeout {
-            endpoint = endpoint.keep_alive_timeout(http2_keep_alive_timeout);
-        }
-
-        #[cfg(feature = "tls")]
-        {
-            use tonic::transport::{Certificate, ClientTlsConfig};
-
-            let mut tls_config = ClientTlsConfig::new();
-            if let Ok(ca_cert_path) =
-                std::env::var(crate::api::constants::ENV_NACOS_CLIENT_TLS_CA_CERT)
-            {
-                let ca_cert_pem = std::fs::read_to_string(&ca_cert_path).unwrap_or_else(|e| {
-                    panic!(
-                        "Failed to read TLS CA certificate file '{}': {}",
-                        ca_cert_path, e
-                    )
-                });
-                tls_config = tls_config.ca_certificate(Certificate::from_pem(ca_cert_pem));
-            }
-            endpoint = endpoint
-                .tls_config(tls_config)
-                .expect("Failed to configure TLS on gRPC endpoint");
-        }
+        let endpoint = build_endpoint(&grpc_config, endpoint_uri.clone());
 
         let channel = endpoint.connect_lazy();
 
@@ -99,6 +66,52 @@ impl Tonic {
             server_address,
         }
     }
+}
+
+/// Builds the tonic endpoint from the gRPC configuration.
+///
+/// Split out from [`Tonic::new`] so the transport settings it applies can be
+/// asserted directly.
+fn build_endpoint(grpc_config: &GrpcConfiguration, endpoint_uri: Uri) -> Endpoint {
+    let mut endpoint = Endpoint::from(endpoint_uri);
+
+    if let Some(timeout) = grpc_config.timeout {
+        endpoint = endpoint.timeout(timeout);
+    }
+
+    if let Some(http2_keep_alive_interval) = grpc_config.http2_keep_alive_interval {
+        endpoint = endpoint.http2_keep_alive_interval(http2_keep_alive_interval);
+    }
+
+    if let Some(http2_keep_alive_timeout) = grpc_config.http2_keep_alive_timeout {
+        endpoint = endpoint.keep_alive_timeout(http2_keep_alive_timeout);
+    }
+
+    // tonic defaults tcp_nodelay to true; the client keeps Nagle's algorithm
+    // enabled, so it must be set explicitly.
+    endpoint = endpoint.tcp_nodelay(grpc_config.tcp_nodelay);
+
+    #[cfg(feature = "tls")]
+    {
+        use tonic::transport::{Certificate, ClientTlsConfig};
+
+        let mut tls_config = ClientTlsConfig::new();
+        if let Ok(ca_cert_path) = std::env::var(crate::api::constants::ENV_NACOS_CLIENT_TLS_CA_CERT)
+        {
+            let ca_cert_pem = std::fs::read_to_string(&ca_cert_path).unwrap_or_else(|e| {
+                panic!(
+                    "Failed to read TLS CA certificate file '{}': {}",
+                    ca_cert_path, e
+                )
+            });
+            tls_config = tls_config.ca_certificate(Certificate::from_pem(ca_cert_pem));
+        }
+        endpoint = endpoint
+            .tls_config(tls_config)
+            .expect("Failed to configure TLS on gRPC endpoint");
+    }
+
+    endpoint
 }
 
 fn unary_request<S>(
@@ -422,6 +435,24 @@ fn assert_err_result(error: Error, expected_msg: &str) {
             "expected ErrResult with '{}', got {:?}",
             expected_msg, error
         ),
+    }
+}
+
+#[cfg(test)]
+mod endpoint_config_tests {
+    use super::*;
+
+    fn uri() -> Uri {
+        Uri::from_static("http://127.0.0.1:8848")
+    }
+
+    #[test]
+    fn test_endpoint_keeps_nagle_algorithm_enabled() {
+        // tonic defaults tcp_nodelay to true. The client explicitly keeps
+        // Nagle's algorithm enabled (tcp_nodelay = false), so the endpoint
+        // must not inherit tonic's default.
+        let endpoint = build_endpoint(&GrpcConfiguration::default(), uri());
+        assert!(!endpoint.get_tcp_nodelay());
     }
 }
 

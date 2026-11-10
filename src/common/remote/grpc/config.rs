@@ -9,6 +9,7 @@ pub(crate) struct GrpcConfiguration {
     pub(crate) host: String,
     pub(crate) port: Option<u16>,
     pub(crate) timeout: Option<Duration>,
+    pub(crate) tcp_nodelay: bool,
     pub(crate) http2_keep_alive_interval: Option<Duration>,
     pub(crate) http2_keep_alive_timeout: Option<Duration>,
 }
@@ -19,6 +20,9 @@ impl Default for GrpcConfiguration {
             host: "127.0.0.1".to_string(),
             port: Default::default(),
             timeout: Some(DEFAULT_REQUEST_TIMEOUT),
+            // tonic defaults this to `true`; the client keeps Nagle's
+            // algorithm enabled, so it must be set explicitly.
+            tcp_nodelay: false,
             http2_keep_alive_interval: Some(DEFAULT_HTTP2_KEEP_ALIVE_INTERVAL),
             http2_keep_alive_timeout: Some(DEFAULT_HTTP2_KEEP_ALIVE_TIMEOUT),
         }
