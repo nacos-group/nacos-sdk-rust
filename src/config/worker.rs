@@ -46,8 +46,9 @@ impl ConfigWorker {
             .store(cache_kind, client_props.get_cache_dir())
             .build()
             .await;
-        let unified_cache = Arc::new(unified_cache);
         let config_filters = Arc::new(config_filters);
+        attach_config_filters(&unified_cache, &config_filters);
+        let unified_cache = Arc::new(unified_cache);
 
         // group_key: String
         let (notify_change_tx, notify_change_rx) = tokio::sync::mpsc::channel(16);
@@ -104,6 +105,20 @@ impl ConfigWorker {
             config_filters,
         })
     }
+}
+
+/// Disk-loaded entries have no runtime filters; reattach them so cache hits and
+/// notifications still run the configured filters (e.g. decryption).
+fn attach_config_filters(
+    cache: &Cache<CacheData>,
+    config_filters: &Arc<Vec<Box<dyn ConfigFilter>>>,
+) {
+    if config_filters.is_empty() {
+        return;
+    }
+    cache.for_each_mut(|_, cache_data| {
+        cache_data.config_filters = Arc::clone(config_filters);
+    });
 }
 
 impl ConfigWorker {
@@ -720,5 +735,36 @@ mod tests {
                 config_resp
             );
         }
+    }
+
+    #[tokio::test]
+    async fn test_attach_config_filters_to_loaded_entries() {
+        use crate::api::plugin::{ConfigFilter, ConfigReq, ConfigResp};
+        use crate::common::cache::{Cache, CacheBuilder};
+        use crate::config::cache::{CacheData, RespSource};
+
+        struct NoopFilter;
+
+        #[async_trait::async_trait]
+        impl ConfigFilter for NoopFilter {
+            async fn filter(&self, _: Option<&mut ConfigReq>, _: Option<&mut ConfigResp>) {}
+        }
+
+        let cache: Cache<CacheData> = CacheBuilder::config("ns".to_string()).build().await;
+        let key = "D+G+ns".to_string();
+        cache.insert(key.clone(), CacheData::default());
+
+        super::attach_config_filters(&cache, &Arc::new(Vec::new()));
+        assert!(matches!(
+            cache.get(&key).expect("entry should exist").resp_source(),
+            RespSource::Raw(_)
+        ));
+
+        let filters: Arc<Vec<Box<dyn ConfigFilter>>> = Arc::new(vec![Box::new(NoopFilter)]);
+        super::attach_config_filters(&cache, &filters);
+        assert!(matches!(
+            cache.get(&key).expect("entry should exist").resp_source(),
+            RespSource::Filtered(_)
+        ));
     }
 }

@@ -107,6 +107,16 @@ where
             f(item.key(), item.value());
         }
     }
+
+    pub(crate) fn for_each_mut<F>(&self, mut f: F)
+    where
+        F: FnMut(&String, &mut V),
+    {
+        for mut item in self.inner.iter_mut() {
+            let (key, value) = item.pair_mut();
+            f(key, value);
+        }
+    }
 }
 
 pub(crate) struct CacheRef<'a, V> {

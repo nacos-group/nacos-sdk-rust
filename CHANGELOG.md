@@ -5,16 +5,16 @@
 - 破坏性变更：API 入口的必填字符串参数统一改为 `impl Into<String>`（如 `data_id`、`group`、`content`、`cas_md5`、`beta_ips`、`service_name`）；`ConfigResponse` 与 `ServiceInstance` 的 getter 改为返回 `&str` / `Option<&str>`
 - 破坏性变更：`get_all_instances` / `select_instances` 返回 `Arc<Vec<ServiceInstance>>`，`select_one_healthy_instance` 返回 `Arc<ServiceInstance>`，`NamingChangeEvent.instances` 改为 `Option<Arc<Vec<ServiceInstance>>>`
 - 增强：上述入口可直接传入 `&str` / `&String`，无需手动 `to_string()`
-- 破坏性变更：`AuthPlugin::get_login_identity` 改为返回 `Arc<LoginIdentityContext>`，HTTP token 认证可直接共享已登录身份，不再每次请求克隆 header map（该 trait 文档已声明后续可能变更）
-- 性能：config 缓存命中不再复制配置内容，naming 缓存命中的实例列表改为共享，选择单个实例时只克隆最终选中的实例
+- 破坏性变更：`AuthPlugin::get_login_identity` 改为返回 `Arc<LoginIdentityContext>`，HTTP token 认证直接共享已登录身份，不再克隆整份身份 map（header 条目仍会复制进每次请求；该 trait 文档已声明后续可能变更）
+- 性能：未配置 `ConfigFilter` 时 config 缓存命中不再复制配置内容，naming 缓存命中的实例列表改为共享，选择单个实例时只克隆最终选中的实例
 
 ---
 
 - Change: required string parameters of API entries now accept `impl Into<String>` (e.g. `data_id`, `group`, `content`, `cas_md5`, `beta_ips`, `service_name`); `ConfigResponse` and `ServiceInstance` getters now return `&str` / `Option<&str>`
 - Change: `get_all_instances` / `select_instances` return `Arc<Vec<ServiceInstance>>`, `select_one_healthy_instance` returns `Arc<ServiceInstance>`, and `NamingChangeEvent.instances` is now `Option<Arc<Vec<ServiceInstance>>>`
 - Enhance: those entries accept `&str` / `&String` directly, no manual `to_string()`
-- Change: `AuthPlugin::get_login_identity` now returns `Arc<LoginIdentityContext>`, so HTTP token auth can share the logged-in identity instead of cloning the header map on every request (the trait is documented as subject to change)
-- Performance: config cache hits no longer copy the config content, naming cache hits share the instance list, and single-instance selection clones only the chosen instance
+- Change: `AuthPlugin::get_login_identity` now returns `Arc<LoginIdentityContext>`, so HTTP token auth shares the logged-in identity instead of cloning the whole identity map (entries are still copied into each request; the trait is documented as subject to change)
+- Performance: without a configured `ConfigFilter`, config cache hits no longer copy the config content; naming cache hits share the instance list, and single-instance selection clones only the chosen instance
 
 ### 0.8.4
 

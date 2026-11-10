@@ -301,13 +301,17 @@ mod auth_integration_tests {
             .await
             .expect("register_instance should succeed");
 
-        tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
-
-        let events = subscriber.get_received();
-        assert!(
-            !events.is_empty(),
-            "Subscriber should have received at least one event"
-        );
+        let events = tokio::time::timeout(tokio::time::Duration::from_secs(5), async {
+            loop {
+                let events = subscriber.get_received();
+                if !events.is_empty() {
+                    break events;
+                }
+                tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+            }
+        })
+        .await
+        .expect("Subscriber should have received at least one event");
         assert_eq!(events[0], service_name);
 
         naming_service

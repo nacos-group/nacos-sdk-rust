@@ -21,24 +21,10 @@ impl<'a> RandomWeightChooser<'a> {
         let mut origin_weight_sum = 0_f64;
 
         for (index, instance) in items.iter().enumerate() {
-            if !keep(instance) {
+            if !keep(instance) || instance.weight <= 0_f64 {
                 continue;
             }
-
-            let mut weight = instance.weight;
-
-            if weight <= 0_f64 {
-                continue;
-            }
-
-            if weight.is_infinite() {
-                weight = 10000.0_f64;
-            }
-
-            if weight.is_nan() {
-                weight = 1.0_f64;
-            }
-            origin_weight_sum += weight;
+            origin_weight_sum += instance.weight;
             indices.push(index);
         }
 

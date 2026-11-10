@@ -304,6 +304,77 @@ mod naming_integration_tests {
             .await;
     }
 
+    /// Test: cache hits share the same instance list.
+    ///
+    /// Two reads of an unchanged subscription must return the same `Arc`.
+    #[tokio::test]
+    async fn test_instance_list_cache_hits_share_the_list() {
+        let server_addr = get_shared_server_addr().await;
+        let service = create_naming_service(server_addr).await;
+        let service_name = "test-shared-instances-service".to_string();
+        let group = Some(constants::DEFAULT_GROUP.to_string());
+
+        let listener = Arc::new(MockNamingListener::new());
+        service
+            .subscribe(
+                service_name.clone(),
+                group.clone(),
+                vec![],
+                listener.clone(),
+            )
+            .await
+            .expect("subscribe failed");
+
+        let instances = vec![
+            ServiceInstanceBuilder::new()
+                .ip("127.0.0.1")
+                .port(9510)
+                .build(),
+            ServiceInstanceBuilder::new()
+                .ip("127.0.0.1")
+                .port(9511)
+                .build(),
+        ];
+        service
+            .batch_register_instance(service_name.clone(), group.clone(), instances)
+            .await
+            .expect("batch_register failed");
+
+        for _ in 0..50 {
+            if !listener.get_events().is_empty() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        assert!(
+            !listener.get_events().is_empty(),
+            "expected a push to populate the cache"
+        );
+
+        let first = service
+            .get_all_instances(service_name.clone(), group.clone(), vec![], true)
+            .await
+            .expect("get_all_instances failed");
+        let second = service
+            .get_all_instances(service_name.clone(), group.clone(), vec![], true)
+            .await
+            .expect("get_all_instances failed");
+
+        assert_eq!(first.len(), 2);
+        assert!(
+            Arc::ptr_eq(&first, &second),
+            "cache hits must share the same instance list"
+        );
+
+        service
+            .unsubscribe(service_name.clone(), group.clone(), vec![], listener)
+            .await
+            .expect("unsubscribe failed");
+        let _ = service
+            .batch_register_instance(service_name, group, vec![])
+            .await;
+    }
+
     /// Test: empty service boundaries.
     ///
     /// A missing service yields an empty list and cannot select an instance.

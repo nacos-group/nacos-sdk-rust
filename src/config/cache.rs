@@ -355,7 +355,24 @@ mod tests {
     }
 
     #[test]
-    fn test_raw_response_shares_cached_content() {
+    fn test_deserialize_legacy_cache_json() {
+        // Fixture written by 0.8.4: no runtime fields, plain string values.
+        let json = r#"{"data_id":"D","group":"G","namespace":"N","content_type":"text","content":"hello","md5":"m1","encrypted_data_key":"","last_modified":42}"#;
+        let decoded: CacheData =
+            serde_json::from_str(json).expect("legacy cache json should deserialize");
+
+        assert_eq!(decoded.data_id.as_str(), "D");
+        assert_eq!(decoded.group.as_str(), "G");
+        assert_eq!(decoded.namespace.as_str(), "N");
+        assert_eq!(decoded.content.as_str(), "hello");
+        assert_eq!(decoded.content_type.as_str(), "text");
+        assert_eq!(decoded.md5.as_str(), "m1");
+        assert_eq!(decoded.last_modified, 42);
+        assert!(decoded.config_filters.is_empty());
+    }
+
+    #[test]
+    fn test_resp_source_without_filters_is_raw_and_shared() {
         let mut data = CacheData::new(
             Arc::new(Vec::new()),
             "D".to_string(),
@@ -364,21 +381,10 @@ mod tests {
         );
         data.content = Arc::new("hello".to_string());
 
-        let response = data.raw_response();
+        let RespSource::Raw(response) = data.resp_source() else {
+            panic!("a cache entry without filters must take the raw path");
+        };
         assert!(response.shares_content_with(&data.content));
-    }
-
-    #[test]
-    fn test_resp_source_without_filters_is_raw() {
-        let mut data = CacheData::new(
-            Arc::new(Vec::new()),
-            "D".to_string(),
-            "G".to_string(),
-            "N".to_string(),
-        );
-        data.content = Arc::new("base".to_string());
-
-        assert!(matches!(data.resp_source(), RespSource::Raw(_)));
     }
 
     #[tokio::test]
