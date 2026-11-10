@@ -31,6 +31,14 @@ where
     RT.spawn(future)
 }
 
+pub(crate) fn spawn_blocking<F, R>(f: F) -> JoinHandle<R>
+where
+    F: FnOnce() -> R + Send + 'static,
+    R: Send + 'static,
+{
+    RT.spawn_blocking(f)
+}
+
 #[allow(dead_code)]
 pub(crate) fn schedule<F>(future: F, delay: Duration) -> JoinHandle<F::Output>
 where

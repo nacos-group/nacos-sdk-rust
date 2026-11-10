@@ -78,7 +78,6 @@ impl ConfigWorker {
             ))
             .auth_plugin(auth_plugin)
             .auth_context(client_props.get_auth_context())
-            .max_retries(client_props.get_max_retries())
             .emergency_start(client_props.get_config_load_cache_at_start())
             .build(client_id)
             .await?;
@@ -348,8 +347,8 @@ impl ConfigWorker {
             self.unified_cache.insert(group_key.clone(), cache_data);
         }
         // Add listener to existing cache data
-        if let Some(mut cache_ref_mut) = self.unified_cache.get_mut(&group_key) {
-            cache_ref_mut.add_listener(listener);
+        if let Some(cache_ref) = self.unified_cache.get(&group_key) {
+            cache_ref.add_listener(listener);
         }
     }
 
@@ -364,8 +363,8 @@ impl ConfigWorker {
         let namespace = self.client_props.get_namespace();
         let group_key = util::group_key(&data_id, &group, &namespace);
 
-        if let Some(mut cache_ref_mut) = self.unified_cache.get_mut(&group_key) {
-            cache_ref_mut.remove_listener(listener);
+        if let Some(cache_ref) = self.unified_cache.get(&group_key) {
+            cache_ref.remove_listener(listener);
         }
     }
 }

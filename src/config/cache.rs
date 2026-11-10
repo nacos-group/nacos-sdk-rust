@@ -6,7 +6,7 @@ use std::ops::Deref;
 use std::sync::{Arc, Mutex};
 
 /// Cache Data for Config
-#[derive(Serialize, Deserialize, Default)]
+#[derive(Serialize, Deserialize, Default, Clone)]
 pub(crate) struct CacheData {
     pub data_id: Arc<String>,
     pub group: Arc<String>,
@@ -41,7 +41,7 @@ impl CacheData {
     }
 
     /// Add listener.
-    pub fn add_listener(&mut self, listener: Arc<dyn crate::api::config::ConfigChangeListener>) {
+    pub fn add_listener(&self, listener: Arc<dyn crate::api::config::ConfigChangeListener>) {
         if let Ok(mut mutex) = self.listeners.lock() {
             if Self::index_of_listener(mutex.deref(), &listener).is_some() {
                 return;
@@ -51,7 +51,7 @@ impl CacheData {
     }
 
     /// Remove listener.
-    pub fn remove_listener(&mut self, listener: Arc<dyn crate::api::config::ConfigChangeListener>) {
+    pub fn remove_listener(&self, listener: Arc<dyn crate::api::config::ConfigChangeListener>) {
         if let Ok(mut mutex) = self.listeners.lock()
             && let Some(idx) = Self::index_of_listener(mutex.deref(), &listener)
         {
@@ -94,12 +94,13 @@ impl CacheData {
                 if listen_wrap.last_md5.as_str() == self.md5.as_str() {
                     continue;
                 }
-                // Notify when last-md5 not equals the-newest-md5, Notify in independent thread.
+                // Notify when last-md5 not equals the-newest-md5. User callbacks are
+                // synchronous and may block, so keep them off the SDK runtime.
                 let l_clone = listen_wrap.listener.clone();
                 let c_clone = config_resp.clone();
-                crate::common::executor::spawn(async move {
-                    l_clone.notify(c_clone);
-                });
+                drop(crate::common::executor::spawn_blocking(move || {
+                    l_clone.notify(c_clone)
+                }));
                 listen_wrap.last_md5 = Arc::clone(&self.md5);
             }
         }
@@ -240,11 +241,150 @@ mod tests {
     use crate::config::cache::CacheData;
     use std::sync::Arc;
 
+    #[tokio::test]
+    async fn test_listener_registration_does_not_rewrite_cache() {
+        use crate::api::props::CacheKind;
+        use crate::common::cache::{Cache, CacheBuilder};
+        use std::time::Duration;
+
+        let root =
+            std::env::temp_dir().join(format!("nacos-sdk-listeners-{}", rand::random::<u64>()));
+        let cache: Cache<CacheData> = CacheBuilder::config("test-ns".to_string())
+            .store(CacheKind::DiskStore, Some(root.clone()))
+            .build()
+            .await;
+        let key = "D+G+test-ns".to_string();
+        let cache_file = root.join("config").join("test-ns").join(&key);
+
+        cache.insert(
+            key.clone(),
+            CacheData::new("D".to_string(), "G".to_string(), "test-ns".to_string()),
+        );
+        tokio::time::timeout(Duration::from_secs(2), async {
+            while !cache_file.exists() {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .expect("initial insert should reach disk");
+        tokio::fs::remove_file(&cache_file)
+            .await
+            .expect("cache file should be removable");
+
+        let listener = Arc::new(TestConfigChangeListener1);
+        {
+            let entry = cache.get(&key).expect("entry should exist");
+            entry.add_listener(listener.clone());
+        }
+        {
+            let entry = cache.get(&key).expect("entry should exist");
+            entry.remove_listener(listener);
+        }
+
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        assert!(
+            !cache_file.exists(),
+            "listener add/remove must not rewrite the cache file"
+        );
+
+        let _ = tokio::fs::remove_dir_all(&root).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn test_blocking_listener_does_not_starve_other_listeners() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::mpsc;
+        use std::time::Duration;
+
+        struct BlockingListener {
+            entered: Arc<AtomicBool>,
+            release: std::sync::Mutex<mpsc::Receiver<()>>,
+        }
+
+        impl ConfigChangeListener for BlockingListener {
+            fn notify(&self, _: ConfigResponse) {
+                self.entered.store(true, Ordering::Release);
+                let _ = self.release.lock().expect("release receiver").recv();
+            }
+        }
+
+        struct SignalingListener(Arc<AtomicBool>);
+
+        impl ConfigChangeListener for SignalingListener {
+            fn notify(&self, _: ConfigResponse) {
+                self.0.store(true, Ordering::Release);
+            }
+        }
+
+        let (release_tx, release_rx) = mpsc::channel();
+        let entered = Arc::new(AtomicBool::new(false));
+        let second_ran = Arc::new(AtomicBool::new(false));
+
+        let mut data = CacheData::new("D".to_string(), "G".to_string(), "N".to_string());
+        data.md5 = Arc::new("m1".to_string());
+        data.add_listener(Arc::new(BlockingListener {
+            entered: Arc::clone(&entered),
+            release: std::sync::Mutex::new(release_rx),
+        }));
+
+        data.dispatch_notify(data.raw_response());
+        tokio::time::timeout(Duration::from_secs(2), async {
+            while !entered.load(Ordering::Acquire) {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("blocking listener should start");
+
+        data.add_listener(Arc::new(SignalingListener(Arc::clone(&second_ran))));
+        data.md5 = Arc::new("m2".to_string());
+        data.dispatch_notify(data.raw_response());
+
+        let ran = tokio::time::timeout(Duration::from_secs(2), async {
+            while !second_ran.load(Ordering::Acquire) {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .is_ok();
+
+        let _ = release_tx.send(());
+        let _ = release_tx.send(());
+        assert!(
+            ran,
+            "a blocking listener must not starve later registered listeners"
+        );
+    }
+
+    #[test]
+    fn test_dispatch_notify_works_without_tokio_runtime() {
+        use std::sync::mpsc;
+        use std::time::Duration;
+
+        struct SignalingListener(mpsc::Sender<()>);
+
+        impl ConfigChangeListener for SignalingListener {
+            fn notify(&self, _: ConfigResponse) {
+                let _ = self.0.send(());
+            }
+        }
+
+        let (tx, rx) = mpsc::channel();
+        let mut data = CacheData::new("D".to_string(), "G".to_string(), "N".to_string());
+        data.md5 = Arc::new("m1".to_string());
+        data.add_listener(Arc::new(SignalingListener(tx)));
+
+        data.dispatch_notify(data.raw_response());
+
+        rx.recv_timeout(Duration::from_secs(2))
+            .expect("listener should run without a tokio runtime");
+    }
+
     #[test]
     fn test_cache_data_add_listener() {
         let (d, g, n) = ("D".to_string(), "G".to_string(), "N".to_string());
 
-        let mut cache_data = CacheData::new(d, g, n);
+        let cache_data = CacheData::new(d, g, n);
 
         // test add listener1
         let lis1_arc = Arc::new(TestConfigChangeListener1 {});
@@ -267,7 +407,7 @@ mod tests {
     fn test_cache_data_add_listener_then_remove() {
         let (d, g, n) = ("D".to_string(), "G".to_string(), "N".to_string());
 
-        let mut cache_data = CacheData::new(d, g, n);
+        let cache_data = CacheData::new(d, g, n);
 
         // test add listener1
         let lis1_arc = Arc::new(TestConfigChangeListener1 {});

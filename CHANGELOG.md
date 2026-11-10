@@ -11,6 +11,10 @@
 - 修复：配置响应缺少 content/content_type/md5 字段时，拉取路径返回错误、推送路径告警并跳过通知，不再 panic 导致通知任务退出
 - 性能：服务实例变更日志仅在日志启用时才序列化实例数据
 - 性能：未配置 `ConfigFilter` 时 config 缓存命中不再复制配置内容，naming 缓存命中的实例列表改为共享，选择单个实例时只克隆最终选中的实例
+- 性能：缓存序列化移出调用线程，并且只在写守卫被实际修改后才落盘；注册/注销 listener 不再重写磁盘缓存
+- 性能：config/naming 用户监听回调改由阻塞线程池执行，避免同步回调阻塞 SDK 运行时
+- 增强：gRPC 请求默认 10 秒响应头超时（覆盖连接建立与等待响应头，不限制双向流生命周期；暂不支持自定义）
+- 破坏性变更：移除已废弃的 `ClientProps::max_retries` 与 `Error::MaxRetriesExceeded`
 
 ---
 
@@ -23,6 +27,10 @@
 - Fix: config responses missing content/content_type/md5 now make the fetch path return an error and the push path warn and skip notification, instead of panicking and killing the notify task
 - Performance: service-instance diff logs serialize instance data only when logging is enabled
 - Performance: without a configured `ConfigFilter`, config cache hits no longer copy the config content; naming cache hits share the instance list, and single-instance selection clones only the chosen instance
+- Performance: cache serialization runs off the caller thread and only writes after a write guard is actually mutated; listener add/remove no longer rewrites the disk cache
+- Performance: config/naming user listener callbacks run on the blocking pool so synchronous callbacks cannot stall the SDK runtime
+- Enhance: gRPC requests now have a default 10-second response-header timeout (covers connection establishment and response headers, not the bi-stream lifetime; not user-configurable yet)
+- Change: remove the deprecated `ClientProps::max_retries` and `Error::MaxRetriesExceeded`
 
 ### 0.8.4
 

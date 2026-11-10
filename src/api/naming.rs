@@ -125,6 +125,9 @@ pub trait InstanceChooser {
 }
 
 /// The NamingEventListener receive an event of [`NamingChangeEvent`].
+///
+/// Callbacks run on Tokio's blocking pool and may execute concurrently; keep
+/// them short and do not assume cross-listener ordering.
 pub trait NamingEventListener: Send + Sync + 'static {
     fn event(&self, event: Arc<NamingChangeEvent>);
 }
