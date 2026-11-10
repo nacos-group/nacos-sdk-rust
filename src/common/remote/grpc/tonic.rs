@@ -52,34 +52,8 @@ impl Tonic {
         debug!("create new endpoint :{}", endpoint_uri);
         let mut endpoint = Endpoint::from(endpoint_uri.clone());
 
-        if let Some(origin) = grpc_config.origin {
-            endpoint = endpoint.origin(origin);
-        }
-
-        if let Some(user_agent) = grpc_config.user_agent {
-            endpoint = endpoint
-                .user_agent(user_agent)
-                .expect("User agent should be settable with valid input");
-        }
-
         if let Some(timeout) = grpc_config.timeout {
             endpoint = endpoint.timeout(timeout);
-        }
-
-        if let Some(concurrency_limit) = grpc_config.concurrency_limit {
-            endpoint = endpoint.concurrency_limit(concurrency_limit);
-        }
-
-        if let Some(rate_limit) = grpc_config.rate_limit {
-            endpoint = endpoint.rate_limit(rate_limit.0, rate_limit.1);
-        }
-
-        if let Some(init_stream_window_size) = grpc_config.init_stream_window_size {
-            endpoint = endpoint.initial_stream_window_size(init_stream_window_size);
-        }
-
-        if let Some(init_connection_window_size) = grpc_config.init_connection_window_size {
-            endpoint = endpoint.initial_connection_window_size(init_connection_window_size);
         }
 
         if let Some(http2_keep_alive_interval) = grpc_config.http2_keep_alive_interval {
@@ -89,21 +63,6 @@ impl Tonic {
         if let Some(http2_keep_alive_timeout) = grpc_config.http2_keep_alive_timeout {
             endpoint = endpoint.keep_alive_timeout(http2_keep_alive_timeout);
         }
-
-        if let Some(http2_keep_alive_while_idle) = grpc_config.http2_keep_alive_while_idle {
-            endpoint = endpoint.keep_alive_while_idle(http2_keep_alive_while_idle);
-        }
-
-        if let Some(http2_adaptive_window) = grpc_config.http2_adaptive_window {
-            endpoint = endpoint.http2_adaptive_window(http2_adaptive_window);
-        }
-
-        if let Some(connect_time) = grpc_config.connect_timeout {
-            endpoint = endpoint.connect_timeout(connect_time);
-        }
-
-        endpoint = endpoint.tcp_nodelay(grpc_config.tcp_nodelay);
-        endpoint = endpoint.tcp_keepalive(grpc_config.tcp_keepalive);
 
         #[cfg(feature = "tls")]
         {

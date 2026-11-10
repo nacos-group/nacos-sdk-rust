@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{collections::HashMap, sync::Arc};
 use tracing::{Instrument, instrument};
 
 use crate::api::error::Error;
@@ -151,83 +151,8 @@ impl NacosGrpcClientBuilder {
         Self { ..self }
     }
 
-    pub(crate) fn host(mut self, host: String) -> Self {
-        self.grpc_config.host = host;
-        self
-    }
-
     pub(crate) fn port(mut self, port: Option<u16>) -> Self {
         self.grpc_config.port = port;
-        self
-    }
-
-    pub(crate) fn origin(mut self, uri: &str) -> Self {
-        self.grpc_config = self.grpc_config.with_origin(uri);
-        self
-    }
-
-    pub(crate) fn user_agent(mut self, ua: String) -> Self {
-        self.grpc_config = self.grpc_config.with_user_agent(ua);
-        self
-    }
-
-    pub(crate) fn timeout(mut self, timeout: Duration) -> Self {
-        self.grpc_config.timeout = Some(timeout);
-        self
-    }
-
-    pub(crate) fn concurrency_limit(mut self, concurrency_limit: usize) -> Self {
-        self.grpc_config.concurrency_limit = Some(concurrency_limit);
-        self
-    }
-
-    pub(crate) fn rate_limit(mut self, rate_limit: (u64, Duration)) -> Self {
-        self.grpc_config.rate_limit = Some(rate_limit);
-        self
-    }
-
-    pub(crate) fn init_stream_window_size(mut self, init_stream_window_size: u32) -> Self {
-        self.grpc_config.init_stream_window_size = Some(init_stream_window_size);
-        self
-    }
-
-    pub(crate) fn init_connection_window_size(mut self, init_connection_window_size: u32) -> Self {
-        self.grpc_config.init_connection_window_size = Some(init_connection_window_size);
-        self
-    }
-
-    pub(crate) fn tcp_keepalive(mut self, tcp_keepalive: Duration) -> Self {
-        self.grpc_config.tcp_keepalive = Some(tcp_keepalive);
-        self
-    }
-
-    pub(crate) fn tcp_nodelay(mut self, tcp_nodelay: bool) -> Self {
-        self.grpc_config.tcp_nodelay = tcp_nodelay;
-        self
-    }
-
-    pub(crate) fn http2_keep_alive_interval(mut self, http2_keep_alive_interval: Duration) -> Self {
-        self.grpc_config.http2_keep_alive_interval = Some(http2_keep_alive_interval);
-        self
-    }
-
-    pub(crate) fn http2_keep_alive_timeout(mut self, http2_keep_alive_timeout: Duration) -> Self {
-        self.grpc_config.http2_keep_alive_timeout = Some(http2_keep_alive_timeout);
-        self
-    }
-
-    pub(crate) fn http2_keep_alive_while_idle(mut self, http2_keep_alive_while_idle: bool) -> Self {
-        self.grpc_config.http2_keep_alive_while_idle = Some(http2_keep_alive_while_idle);
-        self
-    }
-
-    pub(crate) fn connect_timeout(mut self, connect_timeout: Duration) -> Self {
-        self.grpc_config.connect_timeout = Some(connect_timeout);
-        self
-    }
-
-    pub(crate) fn http2_adaptive_window(mut self, http2_adaptive_window: bool) -> Self {
-        self.grpc_config.http2_adaptive_window = Some(http2_adaptive_window);
         self
     }
 
