@@ -89,7 +89,7 @@ prost = "0.14"
 prost-types = "0.14"
 tonic = { version = "0.14", default-features = false, features = ["channel", "codegen"] }
 tonic-prost = "0.14"
-tower = { version = "0.5", features = ["buffer", "util"] }
+tower = { version = "0.5", features = ["buffer"] }
 
 want = "0.3"
 dashmap = "6.1"

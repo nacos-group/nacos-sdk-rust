@@ -27,15 +27,6 @@ pub(crate) struct NacosClientAbilities {
 }
 
 impl NacosClientAbilities {
-    #[allow(dead_code)]
-    pub(crate) fn new() -> Self {
-        NacosClientAbilities {
-            remote_ability: NacosClientRemoteAbility::new(),
-            config_ability: NacosClientConfigAbility::new(),
-            naming_ability: NacosClientNamingAbility::new(),
-        }
-    }
-
     pub(crate) fn support_remote_connection(&mut self, enable: bool) {
         self.remote_ability.support_remote_connection(enable);
     }
@@ -60,12 +51,6 @@ struct NacosClientRemoteAbility {
 }
 
 impl NacosClientRemoteAbility {
-    fn new() -> Self {
-        NacosClientRemoteAbility {
-            support_remote_connection: false,
-        }
-    }
-
     fn support_remote_connection(&mut self, enable: bool) {
         self.support_remote_connection = enable;
     }
@@ -78,12 +63,6 @@ struct NacosClientConfigAbility {
 }
 
 impl NacosClientConfigAbility {
-    fn new() -> Self {
-        NacosClientConfigAbility {
-            support_remote_metrics: false,
-        }
-    }
-
     fn support_remote_metrics(&mut self, enable: bool) {
         self.support_remote_metrics = enable;
     }
@@ -99,18 +78,63 @@ struct NacosClientNamingAbility {
 }
 
 impl NacosClientNamingAbility {
-    fn new() -> Self {
-        NacosClientNamingAbility {
-            support_delta_push: false,
-            support_remote_metric: false,
-        }
-    }
-
     fn support_delta_push(&mut self, enable: bool) {
         self.support_delta_push = enable;
     }
 
     fn support_remote_metric(&mut self, enable: bool) {
         self.support_remote_metric = enable;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_default_abilities_are_all_disabled() {
+        // The abilities used to be built by a hand-written `new()` that set
+        // every flag to false. `Default::default()` must keep producing the
+        // same result now that `new()` is gone.
+        let json = serde_json::to_value(NacosClientAbilities::default())
+            .expect("abilities should serialize");
+        assert_eq!(json["remoteAbility"]["supportRemoteConnection"], false);
+        assert_eq!(json["configAbility"]["supportRemoteMetrics"], false);
+        assert_eq!(json["namingAbility"]["supportDeltaPush"], false);
+        assert_eq!(json["namingAbility"]["supportRemoteMetric"], false);
+    }
+
+    #[test]
+    fn test_abilities_wire_format() {
+        // The abilities are sent to the Nacos server in the connection setup
+        // request. Pin the exact JSON so a refactor cannot silently change it.
+        let json = serde_json::to_value(NacosClientAbilities::default())
+            .expect("abilities should serialize");
+        assert_eq!(
+            json,
+            serde_json::json!({
+                "remoteAbility": { "supportRemoteConnection": false },
+                "configAbility": { "supportRemoteMetrics": false },
+                "namingAbility": {
+                    "supportDeltaPush": false,
+                    "supportRemoteMetric": false,
+                },
+            })
+        );
+    }
+
+    #[test]
+    fn test_abilities_setters_toggle_flags() {
+        let mut abilities = NacosClientAbilities::default();
+        abilities.support_remote_connection(true);
+        abilities.support_config_remote_metrics(true);
+        abilities.support_naming_delta_push(true);
+        abilities.support_naming_remote_metric(true);
+
+        let json = serde_json::to_value(&abilities).expect("abilities should serialize");
+        assert_eq!(json["remoteAbility"]["supportRemoteConnection"], true);
+        assert_eq!(json["configAbility"]["supportRemoteMetrics"], true);
+        assert_eq!(json["namingAbility"]["supportDeltaPush"], true);
+        assert_eq!(json["namingAbility"]["supportRemoteMetric"], true);
     }
 }

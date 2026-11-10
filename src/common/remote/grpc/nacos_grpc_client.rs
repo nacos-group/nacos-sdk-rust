@@ -1,5 +1,4 @@
-use std::{collections::HashMap, sync::Arc, time::Duration};
-use tower::layer::util::Stack;
+use std::{collections::HashMap, sync::Arc};
 use tracing::{Instrument, instrument};
 
 use crate::api::error::Error;
@@ -8,16 +7,12 @@ use crate::common::remote::grpc::message::{
     GrpcMessage, GrpcMessageBuilder, GrpcRequestMessage, GrpcResponseMessage,
 };
 use crate::common::remote::grpc::message::{GrpcMessageData, request::NacosClientAbilities};
-use crate::common::remote::grpc::nacos_grpc_service::DynamicUnaryCallLayerWrapper;
 use crate::common::remote::server_list::{PollingServerListService, ServerListProvider};
 
 use super::handlers::client_detection_request_handler::ClientDetectionRequestHandler;
 use super::message::request::{ClientDetectionRequest, HealthCheckRequest};
 use super::nacos_grpc_connection::{
     ConnectedListener, DisconnectedListener, NacosGrpcConnection, SendRequest,
-};
-use super::nacos_grpc_service::{
-    DynamicBiStreamingCallLayer, DynamicBiStreamingCallLayerWrapper, DynamicUnaryCallLayer,
 };
 use super::tonic::TonicBuilder;
 use super::{config::GrpcConfiguration, nacos_grpc_service::ServerRequestHandler};
@@ -81,8 +76,6 @@ pub(crate) struct NacosGrpcClientBuilder {
     server_list_provider: Arc<dyn ServerListProvider>,
     connected_listener: Option<ConnectedListener>,
     disconnected_listener: Option<DisconnectedListener>,
-    unary_call_layer: Option<DynamicUnaryCallLayer>,
-    bi_call_layer: Option<DynamicBiStreamingCallLayer>,
     auth_plugin: Arc<dyn AuthPlugin>,
     auth_context: HashMap<String, String>,
     emergency_start: bool,
@@ -102,8 +95,6 @@ impl NacosGrpcClientBuilder {
             server_list_provider,
             connected_listener: None,
             disconnected_listener: None,
-            unary_call_layer: None,
-            bi_call_layer: None,
             auth_context: Default::default(),
             auth_plugin: Arc::new(NoopAuthPlugin::default()),
             emergency_start: false,
@@ -160,83 +151,8 @@ impl NacosGrpcClientBuilder {
         Self { ..self }
     }
 
-    pub(crate) fn host(mut self, host: String) -> Self {
-        self.grpc_config.host = host;
-        self
-    }
-
     pub(crate) fn port(mut self, port: Option<u16>) -> Self {
         self.grpc_config.port = port;
-        self
-    }
-
-    pub(crate) fn origin(mut self, uri: &str) -> Self {
-        self.grpc_config = self.grpc_config.with_origin(uri);
-        self
-    }
-
-    pub(crate) fn user_agent(mut self, ua: String) -> Self {
-        self.grpc_config = self.grpc_config.with_user_agent(ua);
-        self
-    }
-
-    pub(crate) fn timeout(mut self, timeout: Duration) -> Self {
-        self.grpc_config.timeout = Some(timeout);
-        self
-    }
-
-    pub(crate) fn concurrency_limit(mut self, concurrency_limit: usize) -> Self {
-        self.grpc_config.concurrency_limit = Some(concurrency_limit);
-        self
-    }
-
-    pub(crate) fn rate_limit(mut self, rate_limit: (u64, Duration)) -> Self {
-        self.grpc_config.rate_limit = Some(rate_limit);
-        self
-    }
-
-    pub(crate) fn init_stream_window_size(mut self, init_stream_window_size: u32) -> Self {
-        self.grpc_config.init_stream_window_size = Some(init_stream_window_size);
-        self
-    }
-
-    pub(crate) fn init_connection_window_size(mut self, init_connection_window_size: u32) -> Self {
-        self.grpc_config.init_connection_window_size = Some(init_connection_window_size);
-        self
-    }
-
-    pub(crate) fn tcp_keepalive(mut self, tcp_keepalive: Duration) -> Self {
-        self.grpc_config.tcp_keepalive = Some(tcp_keepalive);
-        self
-    }
-
-    pub(crate) fn tcp_nodelay(mut self, tcp_nodelay: bool) -> Self {
-        self.grpc_config.tcp_nodelay = tcp_nodelay;
-        self
-    }
-
-    pub(crate) fn http2_keep_alive_interval(mut self, http2_keep_alive_interval: Duration) -> Self {
-        self.grpc_config.http2_keep_alive_interval = Some(http2_keep_alive_interval);
-        self
-    }
-
-    pub(crate) fn http2_keep_alive_timeout(mut self, http2_keep_alive_timeout: Duration) -> Self {
-        self.grpc_config.http2_keep_alive_timeout = Some(http2_keep_alive_timeout);
-        self
-    }
-
-    pub(crate) fn http2_keep_alive_while_idle(mut self, http2_keep_alive_while_idle: bool) -> Self {
-        self.grpc_config.http2_keep_alive_while_idle = Some(http2_keep_alive_while_idle);
-        self
-    }
-
-    pub(crate) fn connect_timeout(mut self, connect_timeout: Duration) -> Self {
-        self.grpc_config.connect_timeout = Some(connect_timeout);
-        self
-    }
-
-    pub(crate) fn http2_adaptive_window(mut self, http2_adaptive_window: bool) -> Self {
-        self.grpc_config.http2_adaptive_window = Some(http2_adaptive_window);
         self
     }
 
@@ -279,38 +195,6 @@ impl NacosGrpcClientBuilder {
         Self { ..self }
     }
 
-    pub(crate) fn unary_call_layer(self, layer: DynamicUnaryCallLayer) -> Self {
-        let stack = if let Some(unary_call_layer) = self.unary_call_layer {
-            Arc::new(Stack::new(
-                DynamicUnaryCallLayerWrapper(layer),
-                DynamicUnaryCallLayerWrapper(unary_call_layer),
-            ))
-        } else {
-            layer
-        };
-
-        Self {
-            unary_call_layer: Some(stack),
-            ..self
-        }
-    }
-
-    pub(crate) fn bi_call_layer(self, layer: DynamicBiStreamingCallLayer) -> Self {
-        let stack = if let Some(bi_call_layer) = self.bi_call_layer {
-            Arc::new(Stack::new(
-                DynamicBiStreamingCallLayerWrapper(layer),
-                DynamicBiStreamingCallLayerWrapper(bi_call_layer),
-            ))
-        } else {
-            layer
-        };
-
-        Self {
-            bi_call_layer: Some(stack),
-            ..self
-        }
-    }
-
     pub(crate) async fn build(mut self, id: String) -> Result<NacosGrpcClient, Error> {
         self.server_request_handler_map.insert(
             ClientDetectionRequest::identity().to_string(),
@@ -320,14 +204,7 @@ impl NacosGrpcClientBuilder {
         let send_request = {
             let server_list =
                 PollingServerListService::from_provider(self.server_list_provider.clone()).await;
-            let mut tonic_builder = TonicBuilder::new(self.grpc_config, server_list);
-            if let Some(layer) = self.unary_call_layer {
-                tonic_builder = tonic_builder.unary_call_layer(layer);
-            }
-
-            if let Some(layer) = self.bi_call_layer {
-                tonic_builder = tonic_builder.bi_call_layer(layer);
-            }
+            let tonic_builder = TonicBuilder::new(self.grpc_config, server_list);
 
             let mut connection = NacosGrpcConnection::new(
                 id.clone(),

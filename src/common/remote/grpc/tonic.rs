@@ -6,18 +6,11 @@ use std::{
 
 use futures::{Future, StreamExt};
 use tonic::transport::{Channel, Endpoint, Uri};
-use tower::{
-    Service,
-    layer::util::{Identity, Stack},
-};
+use tower::Service;
 use tracing::{Instrument, Span, debug, debug_span, error};
 
 use super::config::GrpcConfiguration;
-use super::nacos_grpc_service::{
-    Callback, DynamicBiStreamingCallLayer, DynamicBiStreamingCallLayerWrapper,
-    DynamicBiStreamingCallService, DynamicUnaryCallLayer, DynamicUnaryCallLayerWrapper, GrpcStream,
-    NacosGrpcCall,
-};
+use super::nacos_grpc_service::{Callback, GrpcStream, NacosGrpcCall};
 use crate::api::error::Error;
 use crate::api::error::Error::NoAvailableServer;
 use crate::api::error::Error::TonicGrpcStatus;
@@ -31,23 +24,16 @@ pub(crate) struct Tonic {
     channel: Channel,
     request_client: RequestClient<Channel>,
     bi_client: BiRequestStreamClient<Channel>,
-    unary_call_layer: Option<DynamicUnaryCallLayer>,
-    bi_call_layer: DynamicBiStreamingCallLayer,
     endpoint_uri: Uri,
     server_address: Arc<dyn ServerAddress>,
 }
 
 impl Tonic {
-    pub fn new(
-        grpc_config: GrpcConfiguration,
-        unary_call_layer: Option<DynamicUnaryCallLayer>,
-        bi_call_layer: DynamicBiStreamingCallLayer,
-        server_address: Arc<dyn ServerAddress>,
-    ) -> Self {
+    pub fn new(grpc_config: GrpcConfiguration, server_address: Arc<dyn ServerAddress>) -> Self {
         let url_authority = if let Some(port) = grpc_config.port {
             format!("{}:{}", grpc_config.host, port)
         } else {
-            grpc_config.host
+            grpc_config.host.clone()
         };
 
         let scheme = if cfg!(feature = "tls") {
@@ -64,81 +50,7 @@ impl Tonic {
             .expect("Endpoint URI construction should not fail with valid inputs");
 
         debug!("create new endpoint :{}", endpoint_uri);
-        let mut endpoint = Endpoint::from(endpoint_uri.clone());
-
-        if let Some(origin) = grpc_config.origin {
-            endpoint = endpoint.origin(origin);
-        }
-
-        if let Some(user_agent) = grpc_config.user_agent {
-            endpoint = endpoint
-                .user_agent(user_agent)
-                .expect("User agent should be settable with valid input");
-        }
-
-        if let Some(timeout) = grpc_config.timeout {
-            endpoint = endpoint.timeout(timeout);
-        }
-
-        if let Some(concurrency_limit) = grpc_config.concurrency_limit {
-            endpoint = endpoint.concurrency_limit(concurrency_limit);
-        }
-
-        if let Some(rate_limit) = grpc_config.rate_limit {
-            endpoint = endpoint.rate_limit(rate_limit.0, rate_limit.1);
-        }
-
-        if let Some(init_stream_window_size) = grpc_config.init_stream_window_size {
-            endpoint = endpoint.initial_stream_window_size(init_stream_window_size);
-        }
-
-        if let Some(init_connection_window_size) = grpc_config.init_connection_window_size {
-            endpoint = endpoint.initial_connection_window_size(init_connection_window_size);
-        }
-
-        if let Some(http2_keep_alive_interval) = grpc_config.http2_keep_alive_interval {
-            endpoint = endpoint.http2_keep_alive_interval(http2_keep_alive_interval);
-        }
-
-        if let Some(http2_keep_alive_timeout) = grpc_config.http2_keep_alive_timeout {
-            endpoint = endpoint.keep_alive_timeout(http2_keep_alive_timeout);
-        }
-
-        if let Some(http2_keep_alive_while_idle) = grpc_config.http2_keep_alive_while_idle {
-            endpoint = endpoint.keep_alive_while_idle(http2_keep_alive_while_idle);
-        }
-
-        if let Some(http2_adaptive_window) = grpc_config.http2_adaptive_window {
-            endpoint = endpoint.http2_adaptive_window(http2_adaptive_window);
-        }
-
-        if let Some(connect_time) = grpc_config.connect_timeout {
-            endpoint = endpoint.connect_timeout(connect_time);
-        }
-
-        endpoint = endpoint.tcp_nodelay(grpc_config.tcp_nodelay);
-        endpoint = endpoint.tcp_keepalive(grpc_config.tcp_keepalive);
-
-        #[cfg(feature = "tls")]
-        {
-            use tonic::transport::{Certificate, ClientTlsConfig};
-
-            let mut tls_config = ClientTlsConfig::new();
-            if let Ok(ca_cert_path) =
-                std::env::var(crate::api::constants::ENV_NACOS_CLIENT_TLS_CA_CERT)
-            {
-                let ca_cert_pem = std::fs::read_to_string(&ca_cert_path).unwrap_or_else(|e| {
-                    panic!(
-                        "Failed to read TLS CA certificate file '{}': {}",
-                        ca_cert_path, e
-                    )
-                });
-                tls_config = tls_config.ca_certificate(Certificate::from_pem(ca_cert_pem));
-            }
-            endpoint = endpoint
-                .tls_config(tls_config)
-                .expect("Failed to configure TLS on gRPC endpoint");
-        }
+        let endpoint = build_endpoint(&grpc_config, endpoint_uri.clone());
 
         let channel = endpoint.connect_lazy();
 
@@ -150,12 +62,56 @@ impl Tonic {
             channel,
             request_client,
             bi_client,
-            unary_call_layer,
-            bi_call_layer,
             endpoint_uri,
             server_address,
         }
     }
+}
+
+/// Builds the tonic endpoint from the gRPC configuration.
+///
+/// Split out from [`Tonic::new`] so the transport settings it applies can be
+/// asserted directly.
+fn build_endpoint(grpc_config: &GrpcConfiguration, endpoint_uri: Uri) -> Endpoint {
+    let mut endpoint = Endpoint::from(endpoint_uri);
+
+    if let Some(timeout) = grpc_config.timeout {
+        endpoint = endpoint.timeout(timeout);
+    }
+
+    if let Some(http2_keep_alive_interval) = grpc_config.http2_keep_alive_interval {
+        endpoint = endpoint.http2_keep_alive_interval(http2_keep_alive_interval);
+    }
+
+    if let Some(http2_keep_alive_timeout) = grpc_config.http2_keep_alive_timeout {
+        endpoint = endpoint.keep_alive_timeout(http2_keep_alive_timeout);
+    }
+
+    // tonic defaults tcp_nodelay to true; the client keeps Nagle's algorithm
+    // enabled, so it must be set explicitly.
+    endpoint = endpoint.tcp_nodelay(grpc_config.tcp_nodelay);
+
+    #[cfg(feature = "tls")]
+    {
+        use tonic::transport::{Certificate, ClientTlsConfig};
+
+        let mut tls_config = ClientTlsConfig::new();
+        if let Ok(ca_cert_path) = std::env::var(crate::api::constants::ENV_NACOS_CLIENT_TLS_CA_CERT)
+        {
+            let ca_cert_pem = std::fs::read_to_string(&ca_cert_path).unwrap_or_else(|e| {
+                panic!(
+                    "Failed to read TLS CA certificate file '{}': {}",
+                    ca_cert_path, e
+                )
+            });
+            tls_config = tls_config.ca_certificate(Certificate::from_pem(ca_cert_pem));
+        }
+        endpoint = endpoint
+            .tls_config(tls_config)
+            .expect("Failed to configure TLS on gRPC endpoint");
+    }
+
+    endpoint
 }
 
 fn unary_request<S>(
@@ -201,13 +157,19 @@ where
     GrpcCallTask::new(task)
 }
 
-fn bi_request(
-    mut service: DynamicBiStreamingCallService,
+fn bi_request<S>(
+    mut service: S,
     request: (
         GrpcStream<Payload>,
         Callback<Result<GrpcStream<Result<Payload, Error>>, Error>>,
     ),
-) -> GrpcCallTask {
+) -> GrpcCallTask
+where
+    S: Service<GrpcStream<Payload>, Response = GrpcStream<Result<Payload, Error>>, Error = Error>
+        + Send
+        + 'static,
+    S::Future: Send + 'static,
+{
     let task = async move {
         let (stream, mut cb) = request;
         let is_ok = cb.can_send().await;
@@ -247,8 +209,6 @@ fn bi_request(
 pub(crate) struct TonicBuilder<S> {
     grpc_config: GrpcConfiguration,
     server_list: S,
-    unary_call_layer: Option<DynamicUnaryCallLayer>,
-    bi_call_layer: DynamicBiStreamingCallLayer,
 }
 
 impl<S> TonicBuilder<S>
@@ -260,34 +220,6 @@ where
         Self {
             grpc_config,
             server_list,
-            unary_call_layer: None,
-            bi_call_layer: Arc::new(Identity::new()),
-        }
-    }
-
-    pub(crate) fn unary_call_layer(self, layer: DynamicUnaryCallLayer) -> Self {
-        let unary_call_layer = if let Some(existing) = self.unary_call_layer {
-            Arc::new(Stack::new(
-                DynamicUnaryCallLayerWrapper(layer),
-                DynamicUnaryCallLayerWrapper(existing),
-            ))
-        } else {
-            layer
-        };
-        Self {
-            unary_call_layer: Some(unary_call_layer),
-            ..self
-        }
-    }
-
-    pub(crate) fn bi_call_layer(self, layer: DynamicBiStreamingCallLayer) -> Self {
-        let stack = Arc::new(Stack::new(
-            DynamicBiStreamingCallLayerWrapper(layer),
-            DynamicBiStreamingCallLayerWrapper(self.bi_call_layer),
-        ));
-        Self {
-            bi_call_layer: stack,
-            ..self
         }
     }
 }
@@ -313,8 +245,6 @@ where
 
         let server_info_fut = self.server_list.call(());
         let mut grpc_config = self.grpc_config.clone();
-        let unary_call_layer = self.unary_call_layer.clone();
-        let bi_call_layer = self.bi_call_layer.clone();
 
         let tonic_fut = async move {
             let server_address = server_info_fut.await?;
@@ -324,7 +254,7 @@ where
             }
             grpc_config.host = server_address.host();
 
-            let tonic = Tonic::new(grpc_config, unary_call_layer, bi_call_layer, server_address);
+            let tonic = Tonic::new(grpc_config, server_address);
             Ok(tonic)
         }
         .in_current_span();
@@ -360,18 +290,14 @@ impl Service<NacosGrpcCall> for Tonic {
             NacosGrpcCall::RequestService(request) => {
                 let _span_enter = debug_span!("tonic_unary", server = %self.endpoint_uri).entered();
                 let service = UnaryCallService::new(self.request_client.clone());
-                match &self.unary_call_layer {
-                    Some(layer) => unary_request(layer.layer(Box::new(service)), request),
-                    None => unary_request(service, request),
-                }
+                unary_request(service, request)
             }
             NacosGrpcCall::BIRequestService(request) => {
                 let _span_enter =
                     debug_span!("tonic_bi_stream", server = %self.endpoint_uri).entered();
                 let bi_request_client = self.bi_client.clone();
                 let bi_call_service = BiStreamingCallService::new(bi_request_client);
-                let dynamic_bi_call_service = self.bi_call_layer.layer(Box::new(bi_call_service));
-                bi_request(dynamic_bi_call_service, request)
+                bi_request(bi_call_service, request)
             }
         }
     }
@@ -509,6 +435,24 @@ fn assert_err_result(error: Error, expected_msg: &str) {
             "expected ErrResult with '{}', got {:?}",
             expected_msg, error
         ),
+    }
+}
+
+#[cfg(test)]
+mod endpoint_config_tests {
+    use super::*;
+
+    fn uri() -> Uri {
+        Uri::from_static("http://127.0.0.1:8848")
+    }
+
+    #[test]
+    fn test_endpoint_keeps_nagle_algorithm_enabled() {
+        // tonic defaults tcp_nodelay to true. The client explicitly keeps
+        // Nagle's algorithm enabled (tcp_nodelay = false), so the endpoint
+        // must not inherit tonic's default.
+        let endpoint = build_endpoint(&GrpcConfiguration::default(), uri());
+        assert!(!endpoint.get_tcp_nodelay());
     }
 }
 
@@ -863,7 +807,8 @@ pub mod tonic_bi_call_tests {
 
             taker.want();
 
-            let ret = bi_request(Box::new(test_service), (request_stream, callback)).await;
+            // The service is passed directly, without a boxed layer wrapper.
+            let ret = bi_request(test_service, (request_stream, callback)).await;
             assert!(ret.is_ok());
 
             let response = rx.await.unwrap().unwrap();

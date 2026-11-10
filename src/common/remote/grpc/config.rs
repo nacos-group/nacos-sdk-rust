@@ -1,47 +1,17 @@
 use std::time::Duration;
 
-use reqwest::header::HeaderValue;
-use tonic::transport::Uri;
-
 const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
+const DEFAULT_HTTP2_KEEP_ALIVE_INTERVAL: Duration = Duration::from_secs(360);
+const DEFAULT_HTTP2_KEEP_ALIVE_TIMEOUT: Duration = Duration::from_secs(20);
 
 #[derive(Clone)]
 pub(crate) struct GrpcConfiguration {
     pub(crate) host: String,
     pub(crate) port: Option<u16>,
-    pub(crate) origin: Option<Uri>,
-    pub(crate) user_agent: Option<HeaderValue>,
     pub(crate) timeout: Option<Duration>,
-    pub(crate) concurrency_limit: Option<usize>,
-    pub(crate) rate_limit: Option<(u64, Duration)>,
-    pub(crate) init_stream_window_size: Option<u32>,
-    pub(crate) init_connection_window_size: Option<u32>,
-    pub(crate) tcp_keepalive: Option<Duration>,
     pub(crate) tcp_nodelay: bool,
     pub(crate) http2_keep_alive_interval: Option<Duration>,
     pub(crate) http2_keep_alive_timeout: Option<Duration>,
-    pub(crate) http2_keep_alive_while_idle: Option<bool>,
-    pub(crate) connect_timeout: Option<Duration>,
-    pub(crate) http2_adaptive_window: Option<bool>,
-}
-
-#[allow(dead_code)]
-impl GrpcConfiguration {
-    /// Set origin from a URI string. Returns self only if parsing succeeds.
-    pub(crate) fn with_origin(mut self, uri: &str) -> Self {
-        if let Ok(uri) = uri.parse::<Uri>() {
-            self.origin = Some(uri);
-        }
-        self
-    }
-
-    /// Set user agent from a string. Returns self only if parsing succeeds.
-    pub(crate) fn with_user_agent(mut self, ua: String) -> Self {
-        if let Ok(ua) = HeaderValue::try_from(ua) {
-            self.user_agent = Some(ua);
-        }
-        self
-    }
 }
 
 impl Default for GrpcConfiguration {
@@ -49,20 +19,12 @@ impl Default for GrpcConfiguration {
         Self {
             host: "127.0.0.1".to_string(),
             port: Default::default(),
-            origin: Default::default(),
-            user_agent: Default::default(),
             timeout: Some(DEFAULT_REQUEST_TIMEOUT),
-            concurrency_limit: Default::default(),
-            rate_limit: Default::default(),
-            init_stream_window_size: Default::default(),
-            init_connection_window_size: Default::default(),
-            tcp_keepalive: Default::default(),
-            tcp_nodelay: Default::default(),
-            http2_keep_alive_interval: Some(Duration::from_secs(360)),
-            http2_keep_alive_timeout: Some(Duration::from_secs(20)),
-            http2_keep_alive_while_idle: Default::default(),
-            connect_timeout: Default::default(),
-            http2_adaptive_window: Default::default(),
+            // tonic defaults this to `true`; the client keeps Nagle's
+            // algorithm enabled, so it must be set explicitly.
+            tcp_nodelay: false,
+            http2_keep_alive_interval: Some(DEFAULT_HTTP2_KEEP_ALIVE_INTERVAL),
+            http2_keep_alive_timeout: Some(DEFAULT_HTTP2_KEEP_ALIVE_TIMEOUT),
         }
     }
 }
@@ -77,5 +39,31 @@ mod tests {
             GrpcConfiguration::default().timeout,
             Some(Duration::from_secs(10))
         );
+    }
+
+    #[test]
+    fn test_default_http2_keepalive_settings() {
+        // The HTTP/2 keepalive interval and timeout have non-None defaults and
+        // are applied to the tonic endpoint. They must survive the removal of
+        // the unused configuration fields, otherwise connections would silently
+        // lose their keepalive behavior.
+        let config = GrpcConfiguration::default();
+        assert_eq!(
+            config.http2_keep_alive_interval,
+            Some(Duration::from_secs(360))
+        );
+        assert_eq!(
+            config.http2_keep_alive_timeout,
+            Some(Duration::from_secs(20))
+        );
+    }
+
+    #[test]
+    fn test_default_host_and_port() {
+        // `host` is overwritten from the server list and `port` is derived
+        // from it, but both remain part of the configuration contract.
+        let config = GrpcConfiguration::default();
+        assert_eq!(config.host, "127.0.0.1");
+        assert_eq!(config.port, None);
     }
 }
