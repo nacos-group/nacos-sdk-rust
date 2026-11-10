@@ -6,18 +6,11 @@ use std::{
 
 use futures::{Future, StreamExt};
 use tonic::transport::{Channel, Endpoint, Uri};
-use tower::{
-    Service,
-    layer::util::{Identity, Stack},
-};
+use tower::Service;
 use tracing::{Instrument, Span, debug, debug_span, error};
 
 use super::config::GrpcConfiguration;
-use super::nacos_grpc_service::{
-    Callback, DynamicBiStreamingCallLayer, DynamicBiStreamingCallLayerWrapper,
-    DynamicBiStreamingCallService, DynamicUnaryCallLayer, DynamicUnaryCallLayerWrapper, GrpcStream,
-    NacosGrpcCall,
-};
+use super::nacos_grpc_service::{Callback, GrpcStream, NacosGrpcCall};
 use crate::api::error::Error;
 use crate::api::error::Error::NoAvailableServer;
 use crate::api::error::Error::TonicGrpcStatus;
@@ -31,19 +24,12 @@ pub(crate) struct Tonic {
     channel: Channel,
     request_client: RequestClient<Channel>,
     bi_client: BiRequestStreamClient<Channel>,
-    unary_call_layer: Option<DynamicUnaryCallLayer>,
-    bi_call_layer: DynamicBiStreamingCallLayer,
     endpoint_uri: Uri,
     server_address: Arc<dyn ServerAddress>,
 }
 
 impl Tonic {
-    pub fn new(
-        grpc_config: GrpcConfiguration,
-        unary_call_layer: Option<DynamicUnaryCallLayer>,
-        bi_call_layer: DynamicBiStreamingCallLayer,
-        server_address: Arc<dyn ServerAddress>,
-    ) -> Self {
+    pub fn new(grpc_config: GrpcConfiguration, server_address: Arc<dyn ServerAddress>) -> Self {
         let url_authority = if let Some(port) = grpc_config.port {
             format!("{}:{}", grpc_config.host, port)
         } else {
@@ -150,8 +136,6 @@ impl Tonic {
             channel,
             request_client,
             bi_client,
-            unary_call_layer,
-            bi_call_layer,
             endpoint_uri,
             server_address,
         }
@@ -201,13 +185,19 @@ where
     GrpcCallTask::new(task)
 }
 
-fn bi_request(
-    mut service: DynamicBiStreamingCallService,
+fn bi_request<S>(
+    mut service: S,
     request: (
         GrpcStream<Payload>,
         Callback<Result<GrpcStream<Result<Payload, Error>>, Error>>,
     ),
-) -> GrpcCallTask {
+) -> GrpcCallTask
+where
+    S: Service<GrpcStream<Payload>, Response = GrpcStream<Result<Payload, Error>>, Error = Error>
+        + Send
+        + 'static,
+    S::Future: Send + 'static,
+{
     let task = async move {
         let (stream, mut cb) = request;
         let is_ok = cb.can_send().await;
@@ -247,8 +237,6 @@ fn bi_request(
 pub(crate) struct TonicBuilder<S> {
     grpc_config: GrpcConfiguration,
     server_list: S,
-    unary_call_layer: Option<DynamicUnaryCallLayer>,
-    bi_call_layer: DynamicBiStreamingCallLayer,
 }
 
 impl<S> TonicBuilder<S>
@@ -260,34 +248,6 @@ where
         Self {
             grpc_config,
             server_list,
-            unary_call_layer: None,
-            bi_call_layer: Arc::new(Identity::new()),
-        }
-    }
-
-    pub(crate) fn unary_call_layer(self, layer: DynamicUnaryCallLayer) -> Self {
-        let unary_call_layer = if let Some(existing) = self.unary_call_layer {
-            Arc::new(Stack::new(
-                DynamicUnaryCallLayerWrapper(layer),
-                DynamicUnaryCallLayerWrapper(existing),
-            ))
-        } else {
-            layer
-        };
-        Self {
-            unary_call_layer: Some(unary_call_layer),
-            ..self
-        }
-    }
-
-    pub(crate) fn bi_call_layer(self, layer: DynamicBiStreamingCallLayer) -> Self {
-        let stack = Arc::new(Stack::new(
-            DynamicBiStreamingCallLayerWrapper(layer),
-            DynamicBiStreamingCallLayerWrapper(self.bi_call_layer),
-        ));
-        Self {
-            bi_call_layer: stack,
-            ..self
         }
     }
 }
@@ -313,8 +273,6 @@ where
 
         let server_info_fut = self.server_list.call(());
         let mut grpc_config = self.grpc_config.clone();
-        let unary_call_layer = self.unary_call_layer.clone();
-        let bi_call_layer = self.bi_call_layer.clone();
 
         let tonic_fut = async move {
             let server_address = server_info_fut.await?;
@@ -324,7 +282,7 @@ where
             }
             grpc_config.host = server_address.host();
 
-            let tonic = Tonic::new(grpc_config, unary_call_layer, bi_call_layer, server_address);
+            let tonic = Tonic::new(grpc_config, server_address);
             Ok(tonic)
         }
         .in_current_span();
@@ -360,18 +318,14 @@ impl Service<NacosGrpcCall> for Tonic {
             NacosGrpcCall::RequestService(request) => {
                 let _span_enter = debug_span!("tonic_unary", server = %self.endpoint_uri).entered();
                 let service = UnaryCallService::new(self.request_client.clone());
-                match &self.unary_call_layer {
-                    Some(layer) => unary_request(layer.layer(Box::new(service)), request),
-                    None => unary_request(service, request),
-                }
+                unary_request(service, request)
             }
             NacosGrpcCall::BIRequestService(request) => {
                 let _span_enter =
                     debug_span!("tonic_bi_stream", server = %self.endpoint_uri).entered();
                 let bi_request_client = self.bi_client.clone();
                 let bi_call_service = BiStreamingCallService::new(bi_request_client);
-                let dynamic_bi_call_service = self.bi_call_layer.layer(Box::new(bi_call_service));
-                bi_request(dynamic_bi_call_service, request)
+                bi_request(bi_call_service, request)
             }
         }
     }
@@ -863,7 +817,8 @@ pub mod tonic_bi_call_tests {
 
             taker.want();
 
-            let ret = bi_request(Box::new(test_service), (request_stream, callback)).await;
+            // The service is passed directly, without a boxed layer wrapper.
+            let ret = bi_request(test_service, (request_stream, callback)).await;
             assert!(ret.is_ok());
 
             let response = rx.await.unwrap().unwrap();
