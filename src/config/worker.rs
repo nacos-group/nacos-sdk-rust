@@ -139,14 +139,24 @@ impl ConfigWorker {
         )
         .await?;
 
+        let content = config_resp.content.ok_or_else(|| {
+            crate::api::error::Error::ErrResult("config content missing in response".to_string())
+        })?;
+        let content_type = config_resp.content_type.ok_or_else(|| {
+            crate::api::error::Error::ErrResult(
+                "config content_type missing in response".to_string(),
+            )
+        })?;
+        let md5 = config_resp.md5.ok_or_else(|| {
+            crate::api::error::Error::ErrResult("config md5 missing in response".to_string())
+        })?;
+
         // invoke config_filter
         let mut conf_resp = ConfigResp::new(
             data_id,
             group,
             namespace,
-            config_resp
-                .content
-                .expect("Config content should exist in response"),
+            content,
             config_resp.encrypted_data_key.unwrap_or_default(),
         );
         for config_filter in self.config_filters.iter() {
@@ -158,12 +168,8 @@ impl ConfigWorker {
             conf_resp.group,
             conf_resp.namespace,
             conf_resp.content,
-            config_resp
-                .content_type
-                .expect("Config content_type should exist in response"),
-            config_resp
-                .md5
-                .expect("Config md5 should exist in response"),
+            content_type,
+            md5,
         ))
     }
 
@@ -419,29 +425,34 @@ impl ConfigWorker {
 
     /// Synchronously fill fields from the response; returns whether listeners should
     /// be notified (the first fill during initialization does not notify).
-    fn fill_data(cache_data: &mut CacheData, config_resp: ConfigQueryResponse) -> bool {
-        cache_data.content_type = Arc::new(
-            config_resp
-                .content_type
-                .expect("Config content_type missing in response"),
-        );
-        cache_data.content = Arc::new(
-            config_resp
-                .content
-                .expect("Config content missing in response"),
-        );
-        cache_data.md5 = Arc::new(config_resp.md5.expect("Config md5 missing in response"));
+    ///
+    /// A rejected response consumes the initialization window without touching the
+    /// cached fields, so the next successful fill still notifies listeners.
+    fn fill_data(
+        cache_data: &mut CacheData,
+        config_resp: ConfigQueryResponse,
+    ) -> crate::api::error::Result<bool> {
+        let first_fill = std::mem::take(&mut cache_data.initializing);
+        let content_type = config_resp.content_type.ok_or_else(|| {
+            crate::api::error::Error::ErrResult(
+                "config content_type missing in response".to_string(),
+            )
+        })?;
+        let content = config_resp.content.ok_or_else(|| {
+            crate::api::error::Error::ErrResult("config content missing in response".to_string())
+        })?;
+        let md5 = config_resp.md5.ok_or_else(|| {
+            crate::api::error::Error::ErrResult("config md5 missing in response".to_string())
+        })?;
+        cache_data.content_type = Arc::new(content_type);
+        cache_data.content = Arc::new(content);
+        cache_data.md5 = Arc::new(md5);
         // Compatibility None < 2.1.0
         cache_data.encrypted_data_key =
             Arc::new(config_resp.encrypted_data_key.unwrap_or_default());
         cache_data.last_modified = config_resp.last_modified;
         tracing::info!("fill_data, cache_data={}", cache_data);
-        if cache_data.initializing {
-            cache_data.initializing = false;
-            false
-        } else {
-            true
-        }
+        Ok(!first_fill)
     }
 
     async fn fill_data_and_notify(
@@ -449,9 +460,18 @@ impl ConfigWorker {
         config_resp: ConfigQueryResponse,
         config_filters: &Arc<Vec<Box<dyn ConfigFilter>>>,
     ) {
-        if Self::fill_data(cache_data, config_resp) {
-            // check md5 and then notify
-            cache_data.notify_listener(config_filters).await;
+        match Self::fill_data(cache_data, config_resp) {
+            Ok(true) => {
+                // check md5 and then notify
+                cache_data.notify_listener(config_filters).await;
+            }
+            Ok(false) => {}
+            Err(e) => tracing::warn!(
+                data_id = %cache_data.data_id,
+                group = %cache_data.group,
+                namespace = %cache_data.namespace,
+                "fill cache data failed, skip notify: {e:?}"
+            ),
         }
     }
 
@@ -499,7 +519,16 @@ impl ConfigWorker {
                         Ok(config_resp) => {
                             let should_notify = match unified_cache.get_mut(&group_key) {
                                 Some(mut cache_ref_mut) => {
-                                    Self::fill_data(&mut cache_ref_mut, config_resp)
+                                    match Self::fill_data(&mut cache_ref_mut, config_resp) {
+                                        Ok(should_notify) => should_notify,
+                                        Err(e) => {
+                                            tracing::warn!(
+                                                group_key = %group_key,
+                                                "fill cache data failed, skip notify: {e:?}"
+                                            );
+                                            false
+                                        }
+                                    }
                                 }
                                 None => false,
                             };
@@ -609,11 +638,80 @@ impl ConfigWorker {
 #[cfg(test)]
 mod tests {
     use crate::api::config::{ConfigChangeListener, ConfigResponse};
-    use crate::api::plugin::NoopAuthPlugin;
+    use crate::api::plugin::{ConfigFilter, NoopAuthPlugin};
     use crate::api::props::ClientProps;
+    use crate::config::cache::CacheData;
+    use crate::config::message::response::ConfigQueryResponse;
     use crate::config::util;
     use crate::config::worker::ConfigWorker;
     use std::sync::Arc;
+
+    fn cache_data() -> CacheData {
+        CacheData::new(
+            "data".to_string(),
+            "group".to_string(),
+            "namespace".to_string(),
+        )
+    }
+
+    #[test]
+    fn fill_data_returns_err_when_content_missing() {
+        let resp = ConfigQueryResponse {
+            content: None,
+            md5: Some("md5".to_string()),
+            content_type: Some("text".to_string()),
+            ..Default::default()
+        };
+
+        assert!(ConfigWorker::fill_data(&mut cache_data(), resp).is_err());
+    }
+
+    #[test]
+    fn fill_data_returns_err_when_md5_missing() {
+        let resp = ConfigQueryResponse {
+            content: Some("content".to_string()),
+            md5: None,
+            content_type: Some("text".to_string()),
+            ..Default::default()
+        };
+
+        assert!(ConfigWorker::fill_data(&mut cache_data(), resp).is_err());
+    }
+
+    #[test]
+    fn fill_data_returns_err_when_content_type_missing() {
+        let resp = ConfigQueryResponse {
+            content: Some("content".to_string()),
+            md5: Some("md5".to_string()),
+            content_type: None,
+            ..Default::default()
+        };
+
+        assert!(ConfigWorker::fill_data(&mut cache_data(), resp).is_err());
+    }
+
+    #[tokio::test]
+    async fn failed_initial_fill_does_not_swallow_next_notification() {
+        let mut data = cache_data();
+        let filters: Arc<Vec<Box<dyn ConfigFilter>>> = Arc::new(Vec::new());
+        let malformed = ConfigQueryResponse {
+            content: None,
+            ..Default::default()
+        };
+        ConfigWorker::fill_data_and_notify(&mut data, malformed, &filters).await;
+
+        let valid = ConfigQueryResponse {
+            content: Some("content".to_string()),
+            md5: Some("md5".to_string()),
+            content_type: Some("text".to_string()),
+            ..Default::default()
+        };
+        assert!(
+            ConfigWorker::fill_data(&mut data, valid)
+                .expect("valid response should fill the cache"),
+            "first successful fill after a rejected initial response must notify"
+        );
+    }
 
     #[tokio::test]
     #[ignore]

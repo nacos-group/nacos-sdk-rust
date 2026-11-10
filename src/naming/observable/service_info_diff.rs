@@ -54,32 +54,29 @@ impl<'a> ServiceInfoDiff<'a> {
     /// Log the changes for debugging purposes
     pub fn log_changes(&self, key: &str) {
         if !self.new_instances.is_empty() {
-            let json = serde_json::to_string(&self.new_instances).unwrap_or("[]".to_owned());
             info!(
                 "new ips({}) service: {} -> {}",
                 self.new_instances.len(),
                 key,
-                json
+                serde_json::to_string(&self.new_instances).unwrap_or_else(|_| "[]".to_owned())
             );
         }
 
         if !self.removed_instances.is_empty() {
-            let json = serde_json::to_string(&self.removed_instances).unwrap_or("[]".to_owned());
             info!(
                 "removed ips({}) service: {} -> {}",
                 self.removed_instances.len(),
                 key,
-                json
+                serde_json::to_string(&self.removed_instances).unwrap_or_else(|_| "[]".to_owned())
             );
         }
 
         if !self.modified_instances.is_empty() {
-            let json = serde_json::to_string(&self.modified_instances).unwrap_or("[]".to_owned());
             info!(
                 "modified ips({}) service: {} -> {}",
                 self.modified_instances.len(),
                 key,
-                json
+                serde_json::to_string(&self.modified_instances).unwrap_or_else(|_| "[]".to_owned())
             );
         }
     }
