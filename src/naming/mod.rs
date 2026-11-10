@@ -18,9 +18,8 @@ use std::sync::atomic::AtomicU64;
 
 use tracing::{debug, info, instrument, warn};
 
-use crate::api::error::Error::ErrResult;
 use crate::api::error::Result;
-use crate::api::naming::{InstanceChooser, NamingEventListener, ServiceInstance};
+use crate::api::naming::{NamingEventListener, ServiceInstance};
 use crate::api::plugin::AuthPlugin;
 use crate::api::props::ClientProps;
 
@@ -70,6 +69,10 @@ impl std::fmt::Debug for NacosNamingService {
 
 const MODULE_NAME: &str = "naming";
 static SEQ: AtomicU64 = AtomicU64::new(1);
+
+fn is_selectable(instance: &ServiceInstance, healthy: bool) -> bool {
+    healthy == instance.healthy && instance.enabled && instance.weight > 0.0
+}
 
 impl NacosNamingService {
     pub(crate) async fn new(
@@ -358,27 +361,28 @@ impl NacosNamingService {
         group_name: Option<String>,
         clusters: Vec<String>,
         subscribe: bool,
-    ) -> Result<Vec<ServiceInstance>> {
+    ) -> Result<Arc<Vec<ServiceInstance>>> {
         let cluster_str = clusters.join(",");
         let group_name = crate::common::util::normalize_group_name(group_name);
 
-        let service_info;
-        if subscribe {
+        let hosts = if subscribe {
             let grouped_name = ServiceInfo::get_grouped_service_name(&service_name, &group_name);
             let key = ServiceInfo::get_key(&grouped_name, &cluster_str);
 
-            if let Some(cached_info) = self.naming_cache.get(&key) {
-                info!("get_all_instances returned cached service_info, group_key={key}");
-                service_info = Some(cached_info.clone());
-            } else {
-                let subscribe_service_info = self
-                    .subscribe_async(service_name, Some(group_name), clusters, None)
-                    .await;
-                if let Ok(subscribe_service_info) = subscribe_service_info {
-                    service_info = Some(subscribe_service_info);
-                } else {
-                    service_info = None;
+            let cached_hosts = self
+                .naming_cache
+                .get(&key)
+                .map(|cached| cached.hosts.clone());
+            match cached_hosts {
+                Some(hosts) => {
+                    info!("get_all_instances returned cached service_info, group_key={key}");
+                    hosts
                 }
+                None => self
+                    .subscribe_async(service_name, Some(group_name), clusters, None)
+                    .await
+                    .ok()
+                    .flatten(),
             }
         } else {
             let request = ServiceQueryRequest {
@@ -395,16 +399,9 @@ impl NacosNamingService {
                 .request_to_server::<ServiceQueryRequest, QueryServiceResponse>(request)
                 .await?;
             crate::common::error::handle_response(&response, "get_all_instances")?;
-            service_info = Some(response.service_info);
-        }
-        let Some(service_info) = service_info else {
-            return Ok(Vec::default());
+            response.service_info.hosts
         };
-        let instances = service_info.hosts;
-        let Some(instances) = instances else {
-            return Ok(Vec::default());
-        };
-        Ok(instances)
+        Ok(hosts.unwrap_or_default())
     }
 
     async fn select_instances_async(
@@ -414,19 +411,24 @@ impl NacosNamingService {
         clusters: Vec<String>,
         subscribe: bool,
         healthy: bool,
-    ) -> Result<Vec<ServiceInstance>> {
+    ) -> Result<Arc<Vec<ServiceInstance>>> {
         let group_name = crate::common::util::normalize_group_name(group_name);
 
         let all_instance = self
             .get_all_instances_async(service_name, Some(group_name), clusters, subscribe)
             .await?;
+        if all_instance
+            .iter()
+            .all(|instance| is_selectable(instance, healthy))
+        {
+            return Ok(all_instance);
+        }
         let ret: Vec<ServiceInstance> = all_instance
-            .into_iter()
-            .filter(|instance| {
-                healthy == instance.healthy && instance.enabled && instance.weight > 0.0
-            })
+            .iter()
+            .filter(|instance| is_selectable(instance, healthy))
+            .cloned()
             .collect();
-        Ok(ret)
+        Ok(Arc::new(ret))
     }
 
     async fn select_one_healthy_instance_async(
@@ -435,26 +437,18 @@ impl NacosNamingService {
         group_name: Option<String>,
         clusters: Vec<String>,
         subscribe: bool,
-    ) -> Result<ServiceInstance> {
+    ) -> Result<Arc<ServiceInstance>> {
         let group_name = crate::common::util::normalize_group_name(group_name);
         let service_name_for_tip = service_name.clone();
 
-        let ret = self
-            .select_instances_async(
-                service_name.clone(),
-                Some(group_name),
-                clusters,
-                subscribe,
-                true,
-            )
+        let instances = self
+            .get_all_instances_async(service_name, Some(group_name), clusters, subscribe)
             .await?;
-        let chooser = RandomWeightChooser::new(service_name, ret)?;
-        let Some(instance) = chooser.choose() else {
-            return Err(ErrResult(format!(
-                "no available {service_name_for_tip} service instance can be selected"
-            )));
-        };
-        Ok(instance)
+        let chooser = RandomWeightChooser::new(&service_name_for_tip, &instances, |instance| {
+            is_selectable(instance, true)
+        })?;
+        let index = chooser.choose_index();
+        Ok(Arc::new(instances[index].clone()))
     }
 
     async fn get_service_list_async(
@@ -488,7 +482,7 @@ impl NacosNamingService {
         group_name: Option<String>,
         clusters: Vec<String>,
         event_listener: Option<Arc<dyn NamingEventListener>>,
-    ) -> Result<ServiceInfo> {
+    ) -> Result<Option<Arc<Vec<ServiceInstance>>>> {
         let clusters = clusters.join(",");
         let group_name = crate::common::util::normalize_group_name(group_name);
         // Use key without clusters for both listener registration and cache operations (aligned with Java client)
@@ -548,7 +542,7 @@ impl NacosNamingService {
                 }
             });
 
-            return Ok(cached_info.clone());
+            return Ok(cached_info.hosts.clone());
         }
 
         let response = self
@@ -559,7 +553,7 @@ impl NacosNamingService {
         debug!("subscribe the {response:?}");
         redo_task.frozen();
 
-        Ok(response.service_info)
+        Ok(response.service_info.hosts)
     }
 
     async fn unsubscribe_async(
@@ -659,7 +653,7 @@ impl NacosNamingService {
         group_name: Option<String>,
         clusters: Vec<String>,
         subscribe: bool,
-    ) -> Result<Vec<ServiceInstance>> {
+    ) -> Result<Arc<Vec<ServiceInstance>>> {
         self.get_all_instances_async(service_name, group_name, clusters, subscribe)
             .await
     }
@@ -672,7 +666,7 @@ impl NacosNamingService {
         clusters: Vec<String>,
         subscribe: bool,
         healthy: bool,
-    ) -> Result<Vec<ServiceInstance>> {
+    ) -> Result<Arc<Vec<ServiceInstance>>> {
         self.select_instances_async(service_name, group_name, clusters, subscribe, healthy)
             .await
     }
@@ -684,7 +678,7 @@ impl NacosNamingService {
         group_name: Option<String>,
         clusters: Vec<String>,
         subscribe: bool,
-    ) -> Result<ServiceInstance> {
+    ) -> Result<Arc<ServiceInstance>> {
         self.select_one_healthy_instance_async(service_name, group_name, clusters, subscribe)
             .await
     }
@@ -741,6 +735,37 @@ pub(crate) mod tests {
 
     fn tracing_log_try_init() {
         crate::test_config::setup_log();
+    }
+
+    #[test]
+    fn test_is_selectable_boundaries() {
+        let mut instance = ServiceInstance {
+            ip: "127.0.0.1".to_string(),
+            ..Default::default()
+        };
+        assert!(is_selectable(&instance, true));
+        assert!(!is_selectable(&instance, false));
+
+        instance.healthy = false;
+        assert!(!is_selectable(&instance, true));
+        assert!(is_selectable(&instance, false));
+
+        instance.healthy = true;
+        instance.enabled = false;
+        assert!(!is_selectable(&instance, true));
+
+        instance.enabled = true;
+        instance.weight = 0.0;
+        assert!(!is_selectable(&instance, true));
+
+        instance.weight = -1.0;
+        assert!(!is_selectable(&instance, true));
+
+        instance.weight = f64::NAN;
+        assert!(!is_selectable(&instance, true));
+
+        instance.weight = f64::INFINITY;
+        assert!(is_selectable(&instance, true));
     }
 
     #[tokio::test]

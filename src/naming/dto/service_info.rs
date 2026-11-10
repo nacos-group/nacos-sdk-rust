@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use serde::{Deserialize, Serialize};
 use tracing::error;
 
@@ -28,7 +30,7 @@ pub struct ServiceInfo {
 
     pub reach_protection_threshold: bool,
 
-    pub hosts: Option<Vec<ServiceInstance>>,
+    pub hosts: Option<Arc<Vec<ServiceInstance>>>,
 }
 
 const SERVICE_INFO_SEPARATOR: &str = "@@";
@@ -57,7 +59,7 @@ impl ServiceInfo {
             return false;
         };
 
-        for host in hosts {
+        for host in hosts.iter() {
             if !host.healthy {
                 continue;
             }
@@ -119,5 +121,94 @@ impl Default for ServiceInfo {
             reach_protection_threshold: false,
             hosts: Default::default(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ServiceInfo;
+    use crate::api::naming::ServiceInstance;
+    use std::sync::Arc;
+
+    #[test]
+    fn test_service_info_serde_shared_hosts() {
+        let service_info = ServiceInfo {
+            hosts: Some(Arc::new(vec![ServiceInstance {
+                ip: "127.0.0.1".to_string(),
+                port: 8848,
+                ..Default::default()
+            }])),
+            ..Default::default()
+        };
+
+        let json = serde_json::to_string(&service_info).expect("service info should serialize");
+        assert!(json.contains("\"hosts\":[{"));
+
+        let decoded: ServiceInfo =
+            serde_json::from_str(&json).expect("service info should deserialize");
+        let hosts = decoded.hosts.expect("hosts should exist");
+        assert_eq!(hosts.len(), 1);
+        assert_eq!(hosts[0].port, 8848);
+    }
+
+    fn instance(healthy: bool, weight: f64) -> ServiceInstance {
+        ServiceInstance {
+            ip: "127.0.0.1".to_string(),
+            port: 8848,
+            healthy,
+            weight,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn test_validate_boundaries() {
+        let mut info = ServiceInfo::default();
+        assert!(!info.validate());
+
+        info.all_ips = Some(true);
+        assert!(info.validate());
+
+        info.all_ips = Some(false);
+        info.all_ips_3x = Some(true);
+        assert!(!info.validate());
+
+        info.all_ips = None;
+        assert!(info.validate());
+
+        info.all_ips_3x = Some(false);
+        info.hosts = Some(Arc::new(vec![instance(false, 1.0)]));
+        assert!(!info.validate());
+
+        info.hosts = Some(Arc::new(vec![instance(true, 0.0)]));
+        assert!(!info.validate());
+
+        info.hosts = Some(Arc::new(vec![instance(true, 1.0)]));
+        assert!(info.validate());
+    }
+
+    #[test]
+    fn test_ip_count_and_key_format() {
+        let mut info = ServiceInfo::default();
+        assert_eq!(info.ip_count(), 0);
+
+        info.hosts = Some(Arc::new(vec![instance(true, 1.0), instance(true, 1.0)]));
+        assert_eq!(info.ip_count(), 2);
+
+        assert_eq!(
+            ServiceInfo::get_grouped_service_name("svc", "DEFAULT"),
+            "DEFAULT@@svc"
+        );
+        assert_eq!(
+            ServiceInfo::get_grouped_service_name("DEFAULT@@svc", "DEFAULT"),
+            "DEFAULT@@svc"
+        );
+        assert_eq!(ServiceInfo::get_grouped_service_name("svc", ""), "svc");
+        assert_eq!(ServiceInfo::get_key("svc", ""), "svc");
+        assert_eq!(ServiceInfo::get_key("svc", "c1"), "svc@@c1");
+        assert_eq!(
+            ServiceInfo::get_key_without_clusters("svc", "DEFAULT"),
+            "DEFAULT@@svc"
+        );
     }
 }

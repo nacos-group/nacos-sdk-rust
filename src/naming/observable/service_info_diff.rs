@@ -14,13 +14,13 @@ pub struct ServiceInfoDiff<'a> {
 impl<'a> ServiceInfoDiff<'a> {
     /// Calculate the difference between old and new service hosts
     pub fn calculate(old_hosts: &'a [ServiceInstance], new_hosts: &'a [ServiceInstance]) -> Self {
-        let old_hosts_map: std::collections::HashMap<String, &ServiceInstance> = old_hosts
+        let old_hosts_map: std::collections::HashMap<(&str, i32), &ServiceInstance> = old_hosts
             .iter()
-            .map(|host| (host.ip_and_port(), host))
+            .map(|host| ((host.ip.as_str(), host.port), host))
             .collect();
-        let new_hosts_map: std::collections::HashMap<String, &ServiceInstance> = new_hosts
+        let new_hosts_map: std::collections::HashMap<(&str, i32), &ServiceInstance> = new_hosts
             .iter()
-            .map(|host| (host.ip_and_port(), host))
+            .map(|host| ((host.ip.as_str(), host.port), host))
             .collect();
 
         let mut diff = Self::default();
@@ -88,4 +88,76 @@ impl<'a> ServiceInfoDiff<'a> {
 /// Check if the new service info is outdated compared to cached data
 pub fn is_outdated_data(old_service: &ServiceInfo, new_service: &ServiceInfo) -> bool {
     old_service.last_ref_time > new_service.last_ref_time
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ServiceInfoDiff, is_outdated_data};
+    use crate::api::naming::ServiceInstance;
+    use crate::naming::dto::ServiceInfo;
+
+    fn instance(ip: &str, port: i32, version: &str) -> ServiceInstance {
+        let mut instance = ServiceInstance {
+            ip: ip.to_string(),
+            port,
+            ..Default::default()
+        };
+        instance
+            .metadata
+            .insert("version".to_string(), version.to_string());
+        instance
+    }
+
+    #[test]
+    fn test_diff_detects_new_removed_and_modified() {
+        let old = vec![instance("a", 1, "v1"), instance("b", 2, "v1")];
+        let new = vec![instance("a", 1, "v2"), instance("c", 3, "v1")];
+
+        let diff = ServiceInfoDiff::calculate(&old, &new);
+        assert!(diff.changed);
+        assert_eq!(diff.new_instances.len(), 1);
+        assert_eq!(diff.new_instances[0].ip, "c");
+        assert_eq!(diff.removed_instances.len(), 1);
+        assert_eq!(diff.removed_instances[0].ip, "b");
+        assert_eq!(diff.modified_instances.len(), 1);
+        assert_eq!(diff.modified_instances[0].ip, "a");
+    }
+
+    #[test]
+    fn test_diff_is_order_insensitive() {
+        let old = vec![instance("a", 1, "v1"), instance("b", 2, "v1")];
+        let new = vec![instance("b", 2, "v1"), instance("a", 1, "v1")];
+
+        let diff = ServiceInfoDiff::calculate(&old, &new);
+        assert!(!diff.changed);
+    }
+
+    #[test]
+    fn test_diff_treats_same_ip_different_port_as_replacement() {
+        let old = vec![instance("a", 1, "v1")];
+        let new = vec![instance("a", 2, "v1")];
+
+        let diff = ServiceInfoDiff::calculate(&old, &new);
+        assert!(diff.changed);
+        assert_eq!(diff.new_instances.len(), 1);
+        assert_eq!(diff.removed_instances.len(), 1);
+        assert!(diff.modified_instances.is_empty());
+    }
+
+    #[test]
+    fn test_outdated_data_boundary() {
+        let mut old = ServiceInfo {
+            last_ref_time: 10,
+            ..Default::default()
+        };
+        let mut new = ServiceInfo::default();
+
+        assert!(is_outdated_data(&old, &new));
+
+        new.last_ref_time = 10;
+        assert!(!is_outdated_data(&old, &new));
+
+        old.last_ref_time = 9;
+        assert!(!is_outdated_data(&old, &new));
+    }
 }

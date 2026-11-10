@@ -41,7 +41,12 @@ impl NacosGrpcClient {
         let mut request_headers = request.take_headers();
         if let Some(resource) = request.request_resource() {
             let auth_context = self.auth_plugin.get_login_identity(resource);
-            request_headers.extend(auth_context.contexts);
+            request_headers.extend(
+                auth_context
+                    .contexts
+                    .iter()
+                    .map(|(key, value)| (key.clone(), value.clone())),
+            );
         }
 
         let grpc_request = GrpcMessageBuilder::new(request)

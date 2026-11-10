@@ -22,7 +22,10 @@ pub trait AuthPlugin: Send + Sync {
     async fn login(&self, server_list: Arc<Vec<String>>, auth_context: Arc<AuthContext>);
 
     /// Get the [`LoginIdentityContext`].
-    fn get_login_identity(&self, resource: RequestResource) -> LoginIdentityContext;
+    ///
+    /// Returning an [`Arc`] lets plugins that keep an identity around (e.g. HTTP
+    /// token auth) hand out a shared reference instead of cloning the headers.
+    fn get_login_identity(&self, resource: RequestResource) -> Arc<LoginIdentityContext>;
 }
 
 #[derive(Clone, Default)]
@@ -66,7 +69,7 @@ impl LoginIdentityContext {
 /// Noop AuthPlugin.
 #[derive(Default)]
 pub(crate) struct NoopAuthPlugin {
-    login_identity: LoginIdentityContext,
+    login_identity: Arc<LoginIdentityContext>,
 }
 
 #[async_trait::async_trait]
@@ -76,7 +79,7 @@ impl AuthPlugin for NoopAuthPlugin {
         // noop
     }
 
-    fn get_login_identity(&self, _: RequestResource) -> LoginIdentityContext {
+    fn get_login_identity(&self, _: RequestResource) -> Arc<LoginIdentityContext> {
         // noop
         self.login_identity.clone()
     }
@@ -122,4 +125,20 @@ pub struct RequestResource {
     pub namespace: Option<String>,
     pub group: Option<String>,
     pub resource: Option<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_noop_auth_plugin_shares_login_identity() {
+        let auth_plugin = NoopAuthPlugin::default();
+
+        let first = auth_plugin.get_login_identity(RequestResource::default());
+        let second = auth_plugin.get_login_identity(RequestResource::default());
+
+        assert!(first.contexts.is_empty());
+        assert!(Arc::ptr_eq(&first, &second));
+    }
 }

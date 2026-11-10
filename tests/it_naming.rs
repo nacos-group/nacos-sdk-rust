@@ -238,6 +238,168 @@ mod naming_integration_tests {
             .await;
     }
 
+    /// Test: a fetched instance list is an immutable snapshot.
+    ///
+    /// Instances registered by another client must not mutate a list already returned.
+    #[tokio::test]
+    async fn test_instance_list_is_immutable_snapshot() {
+        let server_addr = get_shared_server_addr().await;
+        let service = create_naming_service(server_addr.clone()).await;
+        let service_name = "test-snapshot-service".to_string();
+        let group = Some(constants::DEFAULT_GROUP.to_string());
+
+        let first_instances = vec![
+            ServiceInstanceBuilder::new()
+                .ip("127.0.0.1")
+                .port(9500)
+                .build(),
+            ServiceInstanceBuilder::new()
+                .ip("127.0.0.1")
+                .port(9501)
+                .build(),
+        ];
+        service
+            .batch_register_instance(service_name.clone(), group.clone(), first_instances)
+            .await
+            .expect("batch_register failed");
+        tokio::time::sleep(PROPAGATION_WAIT).await;
+
+        let first = service
+            .get_all_instances(service_name.clone(), group.clone(), vec![], false)
+            .await
+            .expect("get_all_instances failed");
+        assert_eq!(first.len(), 2);
+
+        let other_instance = ServiceInstanceBuilder::new()
+            .ip("127.0.0.2")
+            .port(9502)
+            .build();
+        let other_service = create_naming_service(server_addr).await;
+        other_service
+            .register_instance(service_name.clone(), group.clone(), other_instance.clone())
+            .await
+            .expect("register failed");
+        tokio::time::sleep(PROPAGATION_WAIT).await;
+
+        let second = service
+            .get_all_instances(service_name.clone(), group.clone(), vec![], false)
+            .await
+            .expect("get_all_instances failed");
+        assert_eq!(second.len(), 3);
+        assert_eq!(
+            first.len(),
+            2,
+            "previously returned snapshot must not change"
+        );
+        assert!(
+            first.iter().any(|i| i.port() == 9500) && first.iter().any(|i| i.port() == 9501),
+            "snapshot should keep the original instances"
+        );
+
+        let _ = other_service
+            .deregister_instance(service_name.clone(), group.clone(), other_instance)
+            .await;
+        let _ = service
+            .batch_register_instance(service_name, group, vec![])
+            .await;
+    }
+
+    /// Test: cache hits share the same instance list.
+    ///
+    /// Two reads of an unchanged subscription must return the same `Arc`.
+    #[tokio::test]
+    async fn test_instance_list_cache_hits_share_the_list() {
+        let server_addr = get_shared_server_addr().await;
+        let service = create_naming_service(server_addr).await;
+        let service_name = "test-shared-instances-service".to_string();
+        let group = Some(constants::DEFAULT_GROUP.to_string());
+
+        let listener = Arc::new(MockNamingListener::new());
+        service
+            .subscribe(
+                service_name.clone(),
+                group.clone(),
+                vec![],
+                listener.clone(),
+            )
+            .await
+            .expect("subscribe failed");
+
+        let instances = vec![
+            ServiceInstanceBuilder::new()
+                .ip("127.0.0.1")
+                .port(9510)
+                .build(),
+            ServiceInstanceBuilder::new()
+                .ip("127.0.0.1")
+                .port(9511)
+                .build(),
+        ];
+        service
+            .batch_register_instance(service_name.clone(), group.clone(), instances)
+            .await
+            .expect("batch_register failed");
+
+        for _ in 0..50 {
+            if !listener.get_events().is_empty() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        assert!(
+            !listener.get_events().is_empty(),
+            "expected a push to populate the cache"
+        );
+
+        let first = service
+            .get_all_instances(service_name.clone(), group.clone(), vec![], true)
+            .await
+            .expect("get_all_instances failed");
+        let second = service
+            .get_all_instances(service_name.clone(), group.clone(), vec![], true)
+            .await
+            .expect("get_all_instances failed");
+
+        assert_eq!(first.len(), 2);
+        assert!(
+            Arc::ptr_eq(&first, &second),
+            "cache hits must share the same instance list"
+        );
+
+        service
+            .unsubscribe(service_name.clone(), group.clone(), vec![], listener)
+            .await
+            .expect("unsubscribe failed");
+        let _ = service
+            .batch_register_instance(service_name, group, vec![])
+            .await;
+    }
+
+    /// Test: empty service boundaries.
+    ///
+    /// A missing service yields an empty list and cannot select an instance.
+    #[tokio::test]
+    async fn test_empty_service_boundaries() {
+        let server_addr = get_shared_server_addr().await;
+        let service = create_naming_service(server_addr).await;
+        let service_name = "test-empty-service".to_string();
+        let group = Some(constants::DEFAULT_GROUP.to_string());
+
+        let all = service
+            .get_all_instances(service_name.clone(), group.clone(), vec![], false)
+            .await
+            .expect("get_all_instances should succeed for an empty service");
+        assert!(all.is_empty());
+
+        let one = service
+            .select_one_healthy_instance(service_name, group, vec![], false)
+            .await;
+        assert!(
+            one.is_err(),
+            "selecting from an empty service must return an error"
+        );
+    }
+
     #[tokio::test]
     async fn test_select_instances() {
         let server_addr = get_shared_server_addr().await;
@@ -270,7 +432,7 @@ mod naming_integration_tests {
             .await
             .expect("select_instances failed");
 
-        for inst in &healthy {
+        for inst in healthy.iter() {
             assert!(inst.healthy(), "expected healthy instance");
         }
 

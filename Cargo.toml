@@ -67,7 +67,7 @@ futures-util = "0.3"
 async-trait = "0.1"
 async-stream = "0.3"
 
-serde = { version = "1", features = ["derive"] }
+serde = { version = "1", features = ["derive", "rc"] }
 serde_json = "1"
 
 tracing = "0.1"

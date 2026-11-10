@@ -293,13 +293,13 @@ impl AuthPlugin for AliyunRamAuthPlugin {
     }
 
     /// Get the [`LoginIdentityContext`].
-    fn get_login_identity(&self, resource: RequestResource) -> LoginIdentityContext {
+    fn get_login_identity(&self, resource: RequestResource) -> Arc<LoginIdentityContext> {
         tracing::trace!("signature to resource {:?}", resource);
-        match resource.request_type.as_str() {
+        Arc::new(match resource.request_type.as_str() {
             "Naming" => self.get_login_identify_for_naming(resource),
             "Config" => self.get_login_identify_for_config(resource),
             _ => LoginIdentityContext::default(),
-        }
+        })
     }
 }
 
@@ -598,7 +598,7 @@ mod test {
                     .instances
                     .as_ref()
                     .expect("Event instances should exist")
-                    .clone(),
+                    .to_vec(),
             ));
         }
     }

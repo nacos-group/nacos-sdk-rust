@@ -116,7 +116,8 @@ pub struct NamingChangeEvent {
     pub service_name: String,
     pub group_name: String,
     pub clusters: String,
-    pub instances: Option<Vec<ServiceInstance>>,
+    /// Shared snapshot of the service instances.
+    pub instances: Option<Arc<Vec<ServiceInstance>>>,
 }
 
 pub trait InstanceChooser {
@@ -192,13 +193,14 @@ impl NamingService {
             .await
     }
 
+    /// Returns a shared snapshot of the instances; cloning the returned [`Arc`] is cheap.
     pub async fn get_all_instances(
         &self,
         service_name: impl Into<String>,
         group_name: Option<String>,
         clusters: Vec<String>,
         subscribe: bool,
-    ) -> Result<Vec<ServiceInstance>> {
+    ) -> Result<Arc<Vec<ServiceInstance>>> {
         let service_name: String = service_name.into();
         crate::common::util::check_not_blank(&service_name, "service_name")?;
         self.inner
@@ -206,6 +208,7 @@ impl NamingService {
             .await
     }
 
+    /// Returns a shared snapshot of the matching instances; cloning the returned [`Arc`] is cheap.
     pub async fn select_instances(
         &self,
         service_name: impl Into<String>,
@@ -213,7 +216,7 @@ impl NamingService {
         clusters: Vec<String>,
         subscribe: bool,
         healthy: bool,
-    ) -> Result<Vec<ServiceInstance>> {
+    ) -> Result<Arc<Vec<ServiceInstance>>> {
         let service_name: String = service_name.into();
         crate::common::util::check_not_blank(&service_name, "service_name")?;
         self.inner
@@ -221,13 +224,14 @@ impl NamingService {
             .await
     }
 
+    /// Returns the chosen instance behind an [`Arc`]; cloning it is cheap.
     pub async fn select_one_healthy_instance(
         &self,
         service_name: impl Into<String>,
         group_name: Option<String>,
         clusters: Vec<String>,
         subscribe: bool,
-    ) -> Result<ServiceInstance> {
+    ) -> Result<Arc<ServiceInstance>> {
         let service_name: String = service_name.into();
         crate::common::util::check_not_blank(&service_name, "service_name")?;
         self.inner
@@ -369,5 +373,25 @@ mod tests {
         assert_eq!(instance_id, Some("id"));
         assert_eq!(cluster_name, Some("cluster"));
         assert_eq!(service_name, Some("service"));
+    }
+
+    #[test]
+    fn test_service_instance_boundaries() {
+        let instance = ServiceInstance {
+            ip: "127.0.0.1".to_string(),
+            port: 8848,
+            ..Default::default()
+        };
+        assert_eq!(instance.ip_and_port(), "127.0.0.1:8848");
+        assert_eq!(ServiceInstance::default().instance_id(), None);
+        assert!(instance.is_same_instance(&instance.clone()));
+
+        let mut changed = instance.clone();
+        changed.metadata.insert("k".to_string(), "v".to_string());
+        assert!(!instance.is_same_instance(&changed));
+
+        let mut changed = instance.clone();
+        changed.port = 8849;
+        assert!(!instance.is_same_instance(&changed));
     }
 }
