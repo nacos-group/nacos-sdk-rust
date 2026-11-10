@@ -129,8 +129,7 @@ mod tests {
     use std::sync::Arc;
 
     use crate::api::plugin::{
-        ACCESS_TOKEN, AuthContext, AuthPlugin, HttpLoginAuthPlugin, LoginIdentityContext,
-        RequestResource,
+        ACCESS_TOKEN, AuthPlugin, HttpLoginAuthPlugin, LoginIdentityContext, RequestResource,
     };
 
     #[test]
@@ -144,33 +143,5 @@ mod tests {
 
         assert!(Arc::ptr_eq(&first, &stored));
         assert!(Arc::ptr_eq(&first, &second));
-    }
-
-    #[tokio::test]
-    #[ignore]
-    #[cfg(not(tarpaulin))]
-    async fn test_http_login_auth_plugin() {
-        crate::test_config::setup_log();
-
-        let http_auth_plugin = HttpLoginAuthPlugin::default();
-        let server_list = Arc::new(vec!["127.0.0.1:8848".to_string()]);
-
-        let auth_context = Arc::new(
-            AuthContext::default()
-                .add_param(crate::api::plugin::USERNAME, "nacos")
-                .add_param(crate::api::plugin::PASSWORD, "nacos"),
-        );
-
-        http_auth_plugin
-            .login(server_list.clone(), auth_context.clone())
-            .await;
-        let login_identity_1 = http_auth_plugin.get_login_identity(RequestResource::default());
-        assert_eq!(login_identity_1.contexts.len(), 1);
-
-        tokio::time::sleep(tokio::time::Duration::from_millis(111)).await;
-
-        http_auth_plugin.login(server_list, auth_context).await;
-        let login_identity_2 = http_auth_plugin.get_login_identity(RequestResource::default());
-        assert_eq!(login_identity_1.contexts, login_identity_2.contexts)
     }
 }

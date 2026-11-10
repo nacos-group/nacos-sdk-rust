@@ -13,7 +13,9 @@ use crate::common::remote::server_list::{PollingServerListService, ServerListPro
 
 use super::handlers::client_detection_request_handler::ClientDetectionRequestHandler;
 use super::message::request::{ClientDetectionRequest, HealthCheckRequest};
-use super::nacos_grpc_connection::{NacosGrpcConnection, SendRequest};
+use super::nacos_grpc_connection::{
+    ConnectedListener, DisconnectedListener, NacosGrpcConnection, SendRequest,
+};
 use super::nacos_grpc_service::{
     DynamicBiStreamingCallLayer, DynamicBiStreamingCallLayerWrapper, DynamicUnaryCallLayer,
 };
@@ -67,8 +69,6 @@ impl NacosGrpcClient {
 }
 
 type HandlerMap = HashMap<String, Arc<dyn ServerRequestHandler>>;
-type ConnectedListener = Arc<dyn Fn(String) + Send + Sync + 'static>;
-type DisconnectedListener = Arc<dyn Fn(String) + Send + Sync + 'static>;
 
 pub(crate) struct NacosGrpcClientBuilder {
     app_name: String,

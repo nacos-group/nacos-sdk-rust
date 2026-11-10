@@ -306,7 +306,7 @@ mod config_integration_tests {
         assert_ne!(updated_resp.md5(), &original_md5);
 
         let wrong_md5 = "wrong_md5_value";
-        let _wrong_cas_result = service
+        let wrong_cas_result = service
             .publish_config_cas(
                 test_data.data_id.clone(),
                 test_data.group.clone(),
@@ -318,8 +318,17 @@ mod config_integration_tests {
 
         let final_resp = service
             .get_config(test_data.data_id.clone(), test_data.group.clone())
-            .await;
-        assert!(final_resp.is_ok(), "get_config should succeed after CAS");
+            .await
+            .expect("get_config should succeed after CAS");
+        // rnacos reports success for a wrong MD5, so only assert the
+        // rejection guarantee when the server actually rejected it.
+        if !matches!(wrong_cas_result, Ok(true)) {
+            assert_eq!(
+                final_resp.content(),
+                &new_content,
+                "a rejected CAS must not overwrite the current content"
+            );
+        }
 
         cleanup_config(&service, test_data.data_id.clone(), test_data.group.clone()).await;
     }

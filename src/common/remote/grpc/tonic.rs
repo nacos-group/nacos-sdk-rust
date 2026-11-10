@@ -6,15 +6,17 @@ use std::{
 
 use futures::{Future, StreamExt};
 use tonic::transport::{Channel, Endpoint, Uri};
-use tower::{Service, layer::util::Stack};
+use tower::{
+    Service,
+    layer::util::{Identity, Stack},
+};
 use tracing::{Instrument, Span, debug, debug_span, error};
 
 use super::config::GrpcConfiguration;
 use super::nacos_grpc_service::{
-    BiStreamingCallIdentityLayer, Callback, DynamicBiStreamingCallLayer,
-    DynamicBiStreamingCallLayerWrapper, DynamicBiStreamingCallService, DynamicUnaryCallLayer,
-    DynamicUnaryCallLayerWrapper, DynamicUnaryCallService, GrpcStream, NacosGrpcCall,
-    UnaryCallIdentityLayer,
+    Callback, DynamicBiStreamingCallLayer, DynamicBiStreamingCallLayerWrapper,
+    DynamicBiStreamingCallService, DynamicUnaryCallLayer, DynamicUnaryCallLayerWrapper, GrpcStream,
+    NacosGrpcCall,
 };
 use crate::api::error::Error;
 use crate::api::error::Error::NoAvailableServer;
@@ -29,7 +31,7 @@ pub(crate) struct Tonic {
     channel: Channel,
     request_client: RequestClient<Channel>,
     bi_client: BiRequestStreamClient<Channel>,
-    unary_call_layer: DynamicUnaryCallLayer,
+    unary_call_layer: Option<DynamicUnaryCallLayer>,
     bi_call_layer: DynamicBiStreamingCallLayer,
     endpoint_uri: Uri,
     server_address: Arc<dyn ServerAddress>,
@@ -38,7 +40,7 @@ pub(crate) struct Tonic {
 impl Tonic {
     pub fn new(
         grpc_config: GrpcConfiguration,
-        unary_call_layer: DynamicUnaryCallLayer,
+        unary_call_layer: Option<DynamicUnaryCallLayer>,
         bi_call_layer: DynamicBiStreamingCallLayer,
         server_address: Arc<dyn ServerAddress>,
     ) -> Self {
@@ -156,10 +158,14 @@ impl Tonic {
     }
 }
 
-fn unary_request(
-    mut service: DynamicUnaryCallService,
+fn unary_request<S>(
+    mut service: S,
     request: (Payload, Callback<Result<Payload, Error>>),
-) -> GrpcCallTask {
+) -> GrpcCallTask
+where
+    S: Service<Payload, Response = Payload, Error = Error> + Send + 'static,
+    S::Future: Send + 'static,
+{
     let task = async move {
         let (payload, mut cb) = request;
         let is_ok = cb.can_send().await;
@@ -241,7 +247,7 @@ fn bi_request(
 pub(crate) struct TonicBuilder<S> {
     grpc_config: GrpcConfiguration,
     server_list: S,
-    unary_call_layer: DynamicUnaryCallLayer,
+    unary_call_layer: Option<DynamicUnaryCallLayer>,
     bi_call_layer: DynamicBiStreamingCallLayer,
 }
 
@@ -254,18 +260,22 @@ where
         Self {
             grpc_config,
             server_list,
-            unary_call_layer: Arc::new(UnaryCallIdentityLayer),
-            bi_call_layer: Arc::new(BiStreamingCallIdentityLayer),
+            unary_call_layer: None,
+            bi_call_layer: Arc::new(Identity::new()),
         }
     }
 
     pub(crate) fn unary_call_layer(self, layer: DynamicUnaryCallLayer) -> Self {
-        let stack = Arc::new(Stack::new(
-            DynamicUnaryCallLayerWrapper(layer),
-            DynamicUnaryCallLayerWrapper(self.unary_call_layer),
-        ));
+        let unary_call_layer = if let Some(existing) = self.unary_call_layer {
+            Arc::new(Stack::new(
+                DynamicUnaryCallLayerWrapper(layer),
+                DynamicUnaryCallLayerWrapper(existing),
+            ))
+        } else {
+            layer
+        };
         Self {
-            unary_call_layer: stack,
+            unary_call_layer: Some(unary_call_layer),
             ..self
         }
     }
@@ -349,11 +359,11 @@ impl Service<NacosGrpcCall> for Tonic {
         match call {
             NacosGrpcCall::RequestService(request) => {
                 let _span_enter = debug_span!("tonic_unary", server = %self.endpoint_uri).entered();
-                let unary_request_client = self.request_client.clone();
-                let unary_call_service = UnaryCallService::new(unary_request_client);
-                let dynamic_unary_call_service =
-                    self.unary_call_layer.layer(Box::new(unary_call_service));
-                unary_request(dynamic_unary_call_service, request)
+                let service = UnaryCallService::new(self.request_client.clone());
+                match &self.unary_call_layer {
+                    Some(layer) => unary_request(layer.layer(Box::new(service)), request),
+                    None => unary_request(service, request),
+                }
             }
             NacosGrpcCall::BIRequestService(request) => {
                 let _span_enter =
@@ -503,10 +513,19 @@ fn assert_err_result(error: Error, expected_msg: &str) {
 }
 
 #[cfg(test)]
+fn run_test<T, F>(test: F) -> T
+where
+    F: FnOnce() -> T,
+{
+    crate::test_config::setup_log();
+    test()
+}
+
+#[cfg(test)]
 #[allow(clippy::disallowed_methods)] // Tests mock! has std::result::Result::unwrap
 pub mod tonic_unary_call_tests {
 
-    use crate::{nacos_proto::v2::Metadata, test_config};
+    use crate::nacos_proto::v2::Metadata;
     use mockall::*;
     use tokio::sync::oneshot;
 
@@ -528,22 +547,6 @@ pub mod tonic_unary_call_tests {
             fn call(&mut self, req: Payload) -> <Self as Service<Payload>>::Future;
 
         }
-    }
-
-    fn setup() {
-        test_config::setup_log();
-    }
-
-    fn teardown() {}
-
-    fn run_test<T, F>(test: F) -> T
-    where
-        F: FnOnce() -> T,
-    {
-        setup();
-        let ret = test();
-        teardown();
-        ret
     }
 
     // Helper functions
@@ -597,7 +600,7 @@ pub mod tonic_unary_call_tests {
 
             drop(taker);
 
-            let ret = unary_request(Box::new(test_service), (request, callback)).await;
+            let ret = unary_request(test_service, (request, callback)).await;
             assert!(ret.is_err());
             assert_err_result(
                 ret.unwrap_err(),
@@ -620,7 +623,7 @@ pub mod tonic_unary_call_tests {
             taker.want();
             drop(rx);
 
-            let ret = unary_request(Box::new(test_service), (request, callback)).await;
+            let ret = unary_request(test_service, (request, callback)).await;
             assert!(ret.is_err());
             assert_err_result(
                 ret.unwrap_err(),
@@ -642,7 +645,7 @@ pub mod tonic_unary_call_tests {
 
             taker.want();
 
-            let ret = unary_request(Box::new(test_service), (request, callback)).await;
+            let ret = unary_request(test_service, (request, callback)).await;
             assert!(ret.is_err());
             assert_err_result(ret.unwrap_err(), "test_service is not ready.");
         })
@@ -669,7 +672,7 @@ pub mod tonic_unary_call_tests {
 
             taker.want();
 
-            let ret = unary_request(Box::new(test_service), (request, callback)).await;
+            let ret = unary_request(test_service, (request, callback)).await;
             assert!(ret.is_ok());
 
             let response = rx.await.unwrap().unwrap();
@@ -690,7 +693,7 @@ pub mod tonic_unary_call_tests {
 
             taker.want();
 
-            let ret = unary_request(Box::new(test_service), (request, callback)).await;
+            let ret = unary_request(test_service, (request, callback)).await;
             assert!(ret.is_ok());
 
             assert_err_result(rx.await.unwrap().unwrap_err(), "test-error");
@@ -703,7 +706,7 @@ pub mod tonic_unary_call_tests {
 #[allow(clippy::disallowed_methods)] // Tests allow std::result::Result::unwrap
 pub mod tonic_bi_call_tests {
 
-    use crate::{nacos_proto::v2::Metadata, test_config};
+    use crate::nacos_proto::v2::Metadata;
     use async_stream::stream;
     use futures_util::stream;
     use mockall::*;
@@ -727,22 +730,6 @@ pub mod tonic_bi_call_tests {
             fn call(&mut self, req: GrpcStream<Payload>) -> <Self as Service<GrpcStream<Payload>>>::Future;
 
         }
-    }
-
-    fn setup() {
-        test_config::setup_log();
-    }
-
-    fn teardown() {}
-
-    fn run_test<T, F>(test: F) -> T
-    where
-        F: FnOnce() -> T,
-    {
-        setup();
-        let ret = test();
-        teardown();
-        ret
     }
 
     // Helper functions for bi-streaming tests

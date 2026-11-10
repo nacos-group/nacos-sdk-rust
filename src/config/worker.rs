@@ -17,7 +17,7 @@ use tracing::{Instrument, instrument};
 
 #[derive(Clone)]
 pub(crate) struct ConfigWorker {
-    pub(crate) client_props: ClientProps,
+    namespace: String,
     remote_client: Arc<NacosGrpcClient>,
     unified_cache: Arc<Cache<CacheData>>,
     config_filters: Arc<Vec<Box<dyn ConfigFilter>>>,
@@ -30,6 +30,7 @@ impl ConfigWorker {
         config_filters: Vec<Box<dyn ConfigFilter>>,
         client_id: String,
     ) -> crate::api::error::Result<Self> {
+        let namespace = client_props.get_namespace();
         let cache_ns = client_props.get_namespace_default_if_empty();
         let cache_kind = client_props.get_cache_kind();
         let config_load_cache_at_start = client_props.get_config_load_cache_at_start();
@@ -98,7 +99,7 @@ impl ConfigWorker {
         ));
 
         Ok(Self {
-            client_props,
+            namespace,
             remote_client,
             unified_cache,
             config_filters,
@@ -107,14 +108,17 @@ impl ConfigWorker {
 }
 
 impl ConfigWorker {
+    pub(crate) fn namespace(&self) -> &str {
+        &self.namespace
+    }
+
     #[instrument(skip_all)]
     pub(crate) async fn get_config(
         &self,
         data_id: String,
         group: String,
     ) -> crate::api::error::Result<ConfigResponse> {
-        let namespace = self.client_props.get_namespace();
-        let group_key = util::group_key(&data_id, &group, &namespace);
+        let group_key = util::group_key(&data_id, &group, &self.namespace);
 
         // Try to get config from cache first (if cache exists and content is complete)
         let cached_source = self.unified_cache.get(&group_key).and_then(|r| {
@@ -134,7 +138,7 @@ impl ConfigWorker {
             self.remote_client.clone(),
             data_id.clone(),
             group.clone(),
-            namespace.clone(),
+            self.namespace.clone(),
         )
         .await?;
 
@@ -154,7 +158,7 @@ impl ConfigWorker {
         let mut conf_resp = ConfigResp::new(
             data_id,
             group,
-            namespace,
+            self.namespace.clone(),
             content,
             config_resp.encrypted_data_key.unwrap_or_default(),
         );
@@ -260,9 +264,13 @@ impl ConfigWorker {
         beta_ips: Option<String>,
         params: Option<HashMap<String, String>>,
     ) -> crate::api::error::Result<bool> {
-        let namespace = self.client_props.get_namespace();
-
-        let mut conf_req = ConfigReq::new(data_id, group, namespace, content, "".to_string());
+        let mut conf_req = ConfigReq::new(
+            data_id,
+            group,
+            self.namespace.clone(),
+            content,
+            "".to_string(),
+        );
         for config_filter in self.config_filters.iter() {
             config_filter.filter(Some(&mut conf_req), None).await;
         }
@@ -288,8 +296,13 @@ impl ConfigWorker {
         data_id: String,
         group: String,
     ) -> crate::api::error::Result<bool> {
-        let namespace = self.client_props.get_namespace();
-        Self::remove_config_inner_async(self.remote_client.clone(), data_id, group, namespace).await
+        Self::remove_config_inner_async(
+            self.remote_client.clone(),
+            data_id,
+            group,
+            self.namespace.clone(),
+        )
+        .await
     }
 
     /// Add listener.
@@ -300,11 +313,10 @@ impl ConfigWorker {
         group: String,
         listener: Arc<dyn crate::api::config::ConfigChangeListener>,
     ) {
-        let namespace = self.client_props.get_namespace();
-        let group_key = util::group_key(&data_id, &group, &namespace);
+        let group_key = util::group_key(&data_id, &group, &self.namespace);
 
         if !self.unified_cache.contains_key(&group_key) {
-            let mut cache_data = CacheData::new(data_id, group, namespace);
+            let mut cache_data = CacheData::new(data_id, group, self.namespace.clone());
 
             // listen immediately upon initialization
             let config_resp = Self::get_config_inner_async(
@@ -360,8 +372,7 @@ impl ConfigWorker {
         group: String,
         listener: Arc<dyn crate::api::config::ConfigChangeListener>,
     ) {
-        let namespace = self.client_props.get_namespace();
-        let group_key = util::group_key(&data_id, &group, &namespace);
+        let group_key = util::group_key(&data_id, &group, &self.namespace);
 
         if let Some(cache_ref) = self.unified_cache.get(&group_key) {
             cache_ref.remove_listener(listener);
@@ -636,12 +647,9 @@ impl ConfigWorker {
 
 #[cfg(test)]
 mod tests {
-    use crate::api::config::{ConfigChangeListener, ConfigResponse};
-    use crate::api::plugin::{ConfigFilter, NoopAuthPlugin};
-    use crate::api::props::ClientProps;
+    use crate::api::plugin::ConfigFilter;
     use crate::config::cache::CacheData;
     use crate::config::message::response::ConfigQueryResponse;
-    use crate::config::util;
     use crate::config::worker::ConfigWorker;
     use std::sync::Arc;
 
@@ -710,120 +718,5 @@ mod tests {
                 .expect("valid response should fill the cache"),
             "first successful fill after a rejected initial response must notify"
         );
-    }
-
-    #[tokio::test]
-    #[ignore]
-    async fn test_client_worker_add_listener() {
-        let (d, g, n) = ("D".to_string(), "G".to_string(), "N".to_string());
-
-        let client_worker = ConfigWorker::new(
-            ClientProps::new().namespace(n.clone()),
-            Arc::new(NoopAuthPlugin::default()),
-            Vec::new(),
-            "test_config".to_string(),
-        )
-        .await
-        .expect("Failed to create ConfigWorker in test");
-
-        // test add listener1
-        let lis1_arc = Arc::new(TestConfigChangeListener1 {});
-        let _listen = client_worker
-            .add_listener(d.clone(), g.clone(), lis1_arc)
-            .await;
-
-        // test add listener2
-        let lis2_arc = Arc::new(TestConfigChangeListener2 {});
-        let _listen = client_worker
-            .add_listener(d.clone(), g.clone(), lis2_arc.clone())
-            .await;
-        // test add a listener2 again
-        let _listen = client_worker
-            .add_listener(d.clone(), g.clone(), lis2_arc)
-            .await;
-
-        let group_key = util::group_key(&d, &g, &n);
-        {
-            let cache_data = client_worker
-                .unified_cache
-                .get(&group_key)
-                .expect("Cache data should exist for group key");
-            let listen_mutex = cache_data
-                .listeners
-                .lock()
-                .expect("Failed to lock cache data listeners");
-            assert_eq!(2, listen_mutex.len());
-        }
-    }
-
-    #[tokio::test]
-    #[ignore]
-    async fn test_client_worker_add_listener_then_remove() {
-        let (d, g, n) = ("D".to_string(), "G".to_string(), "N".to_string());
-
-        let client_worker = ConfigWorker::new(
-            ClientProps::new().namespace(n.clone()),
-            Arc::new(NoopAuthPlugin::default()),
-            Vec::new(),
-            "test_config".to_string(),
-        )
-        .await
-        .expect("Failed to create ConfigWorker in test");
-
-        // test add listener1
-        let lis1_arc = Arc::new(TestConfigChangeListener1 {});
-        let lis1_arc2 = Arc::clone(&lis1_arc);
-        let _listen = client_worker
-            .add_listener(d.clone(), g.clone(), lis1_arc)
-            .await;
-
-        let group_key = util::group_key(&d, &g, &n);
-        {
-            let cache_data = client_worker
-                .unified_cache
-                .get(&group_key)
-                .expect("Cache data should exist for group key");
-            let listen_mutex = cache_data
-                .listeners
-                .lock()
-                .expect("Failed to lock cache data listeners");
-            assert_eq!(1, listen_mutex.len());
-        }
-
-        client_worker
-            .remove_listener(d.clone(), g.clone(), lis1_arc2)
-            .await;
-        {
-            let cache_data = client_worker
-                .unified_cache
-                .get(&group_key)
-                .expect("Cache data should exist for group key");
-            let listen_mutex = cache_data
-                .listeners
-                .lock()
-                .expect("Failed to lock cache data listeners");
-            assert_eq!(0, listen_mutex.len());
-        }
-    }
-
-    struct TestConfigChangeListener1;
-    struct TestConfigChangeListener2;
-
-    impl ConfigChangeListener for TestConfigChangeListener1 {
-        fn notify(&self, config_resp: ConfigResponse) {
-            tracing::info!(
-                "TestConfigChangeListener1 listen the config={}",
-                config_resp
-            );
-        }
-    }
-
-    impl ConfigChangeListener for TestConfigChangeListener2 {
-        fn notify(&self, config_resp: ConfigResponse) {
-            tracing::info!(
-                "TestConfigChangeListener2 listen the config={}",
-                config_resp
-            );
-        }
     }
 }

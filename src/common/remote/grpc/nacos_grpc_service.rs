@@ -100,15 +100,6 @@ impl Layer<DynamicUnaryCallService> for DynamicUnaryCallLayerWrapper {
     }
 }
 
-pub(crate) struct UnaryCallIdentityLayer;
-impl Layer<DynamicUnaryCallService> for UnaryCallIdentityLayer {
-    type Service = DynamicUnaryCallService;
-
-    fn layer(&self, inner: DynamicUnaryCallService) -> Self::Service {
-        inner
-    }
-}
-
 pub(crate) type DynamicBiStreamingCallService = Box<
     dyn Service<
             GrpcStream<Payload>,
@@ -200,21 +191,15 @@ impl Layer<DynamicBiStreamingCallService> for DynamicBiStreamingCallLayerWrapper
     }
 }
 
-pub(crate) struct BiStreamingCallIdentityLayer;
-impl Layer<DynamicBiStreamingCallService> for BiStreamingCallIdentityLayer {
-    type Service = DynamicBiStreamingCallService;
-
-    fn layer(&self, inner: DynamicBiStreamingCallService) -> Self::Service {
-        inner
-    }
-}
-
 #[cfg(test)]
 pub mod unary_call_layer_test {
     use std::{pin::Pin, sync::Arc, task::Poll};
 
     use futures::{Future, future::poll_fn};
-    use tower::{Layer, Service, layer::util::Stack};
+    use tower::{
+        Layer, Service,
+        layer::util::{Identity, Stack},
+    };
     use tracing::debug;
 
     use crate::{
@@ -224,13 +209,14 @@ pub mod unary_call_layer_test {
         test_config,
     };
 
-    use super::{DynamicUnaryCallLayer, DynamicUnaryCallService, UnaryCallIdentityLayer};
+    use super::{DynamicUnaryCallLayer, DynamicUnaryCallService};
 
-    struct DynamicUnaryCallServiceA {
+    struct HeaderService {
         inner: DynamicUnaryCallService,
+        header: &'static str,
     }
 
-    impl Service<Payload> for DynamicUnaryCallServiceA {
+    impl Service<Payload> for HeaderService {
         type Response = Payload;
 
         type Error = Error;
@@ -241,7 +227,7 @@ pub mod unary_call_layer_test {
             &mut self,
             cx: &mut std::task::Context<'_>,
         ) -> std::task::Poll<Result<(), Self::Error>> {
-            debug!("DynamicUnaryCallServiceA");
+            debug!("{}", self.header);
             self.inner.poll_ready(cx)
         }
 
@@ -252,105 +238,23 @@ pub mod unary_call_layer_test {
                 .expect("Metadata should be present in request");
             metadata
                 .headers
-                .insert("DynamicUnaryCallServiceA".to_string(), "ok".to_string());
+                .insert(self.header.to_string(), "ok".to_string());
             req.metadata = Some(metadata);
             self.inner.call(req)
         }
     }
 
-    struct UnaryCallLayerA;
+    struct HeaderLayer(&'static str);
 
-    impl Layer<DynamicUnaryCallService> for UnaryCallLayerA {
+    impl Layer<DynamicUnaryCallService> for HeaderLayer {
         type Service = DynamicUnaryCallService;
 
         fn layer(&self, inner: DynamicUnaryCallService) -> Self::Service {
-            debug!("UnaryCallLayerA");
-            Box::new(DynamicUnaryCallServiceA { inner })
-        }
-    }
-
-    struct DynamicUnaryCallServiceB {
-        inner: DynamicUnaryCallService,
-    }
-
-    impl Service<Payload> for DynamicUnaryCallServiceB {
-        type Response = Payload;
-
-        type Error = Error;
-
-        type Future = Pin<Box<dyn Future<Output = Result<Payload, Error>> + Send + 'static>>;
-
-        fn poll_ready(
-            &mut self,
-            cx: &mut std::task::Context<'_>,
-        ) -> std::task::Poll<Result<(), Self::Error>> {
-            debug!("DynamicUnaryCallServiceB");
-            self.inner.poll_ready(cx)
-        }
-
-        fn call(&mut self, mut req: Payload) -> Self::Future {
-            let mut metadata = req
-                .metadata
-                .take()
-                .expect("Metadata should be present in request");
-            metadata
-                .headers
-                .insert("DynamicUnaryCallServiceB".to_string(), "ok".to_string());
-            req.metadata = Some(metadata);
-            self.inner.call(req)
-        }
-    }
-
-    struct UnaryCallLayerB;
-
-    impl Layer<DynamicUnaryCallService> for UnaryCallLayerB {
-        type Service = DynamicUnaryCallService;
-
-        fn layer(&self, inner: DynamicUnaryCallService) -> Self::Service {
-            debug!("UnaryCallLayerB");
-            Box::new(DynamicUnaryCallServiceB { inner })
-        }
-    }
-    struct DynamicUnaryCallServiceC {
-        inner: DynamicUnaryCallService,
-    }
-
-    impl Service<Payload> for DynamicUnaryCallServiceC {
-        type Response = Payload;
-
-        type Error = Error;
-
-        type Future = Pin<Box<dyn Future<Output = Result<Payload, Error>> + Send + 'static>>;
-
-        fn poll_ready(
-            &mut self,
-            cx: &mut std::task::Context<'_>,
-        ) -> std::task::Poll<Result<(), Self::Error>> {
-            debug!("DynamicUnaryCallServiceC");
-            self.inner.poll_ready(cx)
-        }
-
-        fn call(&mut self, mut req: Payload) -> Self::Future {
-            let mut metadata = req
-                .metadata
-                .take()
-                .expect("Metadata should be present in request");
-            metadata
-                .headers
-                .insert("DynamicUnaryCallServiceC".to_string(), "ok".to_string());
-            req.metadata = Some(metadata);
-            self.inner.call(req)
-        }
-    }
-
-    struct UnaryCallLayerC;
-
-    impl Layer<DynamicUnaryCallService> for UnaryCallLayerC {
-        type Service = DynamicUnaryCallService;
-
-        fn layer(&self, inner: DynamicUnaryCallService) -> Self::Service {
-            debug!("UnaryCallLayerC");
-            Box::new(DynamicUnaryCallServiceC { inner })
+            debug!("{}", self.0);
+            Box::new(HeaderService {
+                inner,
+                header: self.0,
+            })
         }
     }
 
@@ -394,7 +298,7 @@ pub mod unary_call_layer_test {
     impl UnaryCallLayerBuilder {
         fn new() -> Self {
             Self {
-                layer: Arc::new(UnaryCallIdentityLayer),
+                layer: Arc::new(Identity::new()),
             }
         }
 
@@ -431,9 +335,9 @@ pub mod unary_call_layer_test {
     pub async fn test() {
         run_test(|| async {
             let builder = UnaryCallLayerBuilder::new()
-                .add_layer(Arc::new(UnaryCallLayerA))
-                .add_layer(Arc::new(UnaryCallLayerB))
-                .add_layer(Arc::new(UnaryCallLayerC));
+                .add_layer(Arc::new(HeaderLayer("DynamicUnaryCallServiceA")))
+                .add_layer(Arc::new(HeaderLayer("DynamicUnaryCallServiceB")))
+                .add_layer(Arc::new(HeaderLayer("DynamicUnaryCallServiceC")));
             let layer = builder.build();
 
             let mut service = layer.layer(Box::new(RealDynamicUnaryCallService));

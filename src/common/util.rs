@@ -125,6 +125,19 @@ mod tests {
     }
 
     #[test]
+    fn test_normalize_group_name() {
+        assert_eq!(
+            super::normalize_group_name(None),
+            crate::api::constants::DEFAULT_GROUP
+        );
+        assert_eq!(
+            super::normalize_group_name(Some(String::new())),
+            crate::api::constants::DEFAULT_GROUP
+        );
+        assert_eq!(super::normalize_group_name(Some("G".to_string())), "G");
+    }
+
+    #[test]
     fn test_generate_client_id() {
         use std::sync::atomic::AtomicU64;
 
