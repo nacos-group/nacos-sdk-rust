@@ -6,7 +6,7 @@ use dashmap::{
     DashMap,
     mapref::one::{Ref, RefMut},
 };
-use tracing::{Instrument, info};
+use tracing::{Instrument, info, warn};
 
 use crate::api::props::CacheKind;
 use crate::common::cache::disk::DiskStore;
@@ -22,7 +22,7 @@ pub(crate) struct Cache<V> {
 
 impl<V> Cache<V>
 where
-    V: serde::Serialize + serde::de::DeserializeOwned + Send + Sync + 'static,
+    V: serde::Serialize + serde::de::DeserializeOwned + Send + Sync + Clone + 'static,
 {
     async fn new(store: Option<Arc<dyn Store<V>>>, load_cache_at_start: bool) -> Self {
         let inner = match &store {
@@ -50,34 +50,50 @@ where
         Self { inner, store }
     }
 
-    pub(crate) fn get(&self, key: &String) -> Option<CacheRef<'_, V>> {
+    pub(crate) fn get(&self, key: &str) -> Option<CacheRef<'_, V>> {
         self.inner
             .get(key)
             .map(|dash_map_ref| CacheRef { dash_map_ref })
     }
 
-    pub(crate) fn get_mut(&self, key: &String) -> Option<CacheRefMut<'_, V>> {
+    pub(crate) fn get_mut(&self, key: &str) -> Option<CacheRefMut<'_, V>> {
         self.inner.get_mut(key).map(|dash_map_ref_mut| CacheRefMut {
             dash_map_ref_mut,
             store: self.store.clone(),
-            inner: self.inner.clone(),
+            dirty: false,
         })
     }
 
     pub(crate) fn insert(&self, key: String, value: V) -> Option<V> {
-        if let Some(ref store) = self.store
-            && let Ok(bytes) = serde_json::to_vec(&value)
-        {
-            let store = store.clone();
-            let key_str = key.clone();
-            executor::spawn(async move { store.save(&key_str, bytes).await }.in_current_span());
+        let ret = self.inner.insert(key.clone(), value);
+
+        if let Some(store) = self.store.clone() {
+            let inner = Arc::clone(&self.inner);
+
+            executor::spawn(
+                async move {
+                    // Hold the shard lock only for the clone; serialization and
+                    // disk I/O must not block writers.
+                    let snapshot = inner.get(&key).map(|entry| entry.value().clone());
+                    let bytes = tokio::task::spawn_blocking(move || {
+                        snapshot.as_ref().and_then(|value| serialize_value(value))
+                    })
+                    .await
+                    .ok()
+                    .flatten();
+                    if let Some(bytes) = bytes {
+                        store.save(&key, bytes).await;
+                    }
+                }
+                .in_current_span(),
+            );
         }
 
-        self.inner.insert(key, value)
+        ret
     }
 
     #[allow(dead_code)]
-    pub(crate) fn remove(&self, key: &String) -> Option<V> {
+    pub(crate) fn remove(&self, key: &str) -> Option<V> {
         let ret = self.inner.remove(key)?;
 
         if let Some(ref store) = self.store {
@@ -95,7 +111,7 @@ where
         Some(ret.1)
     }
 
-    pub(crate) fn contains_key(&self, key: &String) -> bool {
+    pub(crate) fn contains_key(&self, key: &str) -> bool {
         self.inner.contains_key(key)
     }
 
@@ -123,16 +139,16 @@ impl<V> Deref for CacheRef<'_, V> {
 
 pub(crate) struct CacheRefMut<'a, V>
 where
-    V: serde::Serialize + Send + Sync + 'static,
+    V: serde::Serialize + Send + Sync + Clone + 'static,
 {
     dash_map_ref_mut: RefMut<'a, String, V>,
     store: Option<Arc<dyn Store<V>>>,
-    inner: Arc<DashMap<String, V>>,
+    dirty: bool,
 }
 
 impl<V> Deref for CacheRefMut<'_, V>
 where
-    V: serde::Serialize + Send + Sync + 'static,
+    V: serde::Serialize + Send + Sync + Clone + 'static,
 {
     type Target = V;
 
@@ -143,33 +159,51 @@ where
 
 impl<V> DerefMut for CacheRefMut<'_, V>
 where
-    V: serde::Serialize + Send + Sync + 'static,
+    V: serde::Serialize + Send + Sync + Clone + 'static,
 {
     fn deref_mut(&mut self) -> &mut Self::Target {
+        self.dirty = true;
         self.dash_map_ref_mut.value_mut()
     }
 }
 
 impl<V> Drop for CacheRefMut<'_, V>
 where
-    V: serde::Serialize + Send + Sync + 'static,
+    V: serde::Serialize + Send + Sync + Clone + 'static,
 {
     fn drop(&mut self) {
+        if !self.dirty {
+            return;
+        }
         if let Some(store) = self.store.take() {
-            let inner = self.inner.clone();
+            let snapshot = self.dash_map_ref_mut.value().clone();
             let key = self.dash_map_ref_mut.key().clone();
 
             executor::spawn(
                 async move {
-                    let bytes = inner
-                        .get(&key)
-                        .and_then(|data| serde_json::to_vec(data.value()).ok());
+                    let bytes = tokio::task::spawn_blocking(move || serialize_value(&snapshot))
+                        .await
+                        .ok()
+                        .flatten();
                     if let Some(bytes) = bytes {
                         store.save(&key, bytes).await;
                     }
                 }
                 .in_current_span(),
             );
+        }
+    }
+}
+
+fn serialize_value<V>(value: &V) -> Option<Vec<u8>>
+where
+    V: serde::Serialize,
+{
+    match serde_json::to_vec(value) {
+        Ok(bytes) => Some(bytes),
+        Err(e) => {
+            warn!("serialize cache entry failed: {e:?}");
+            None
         }
     }
 }
@@ -190,7 +224,7 @@ const NAMING_MODULE: &str = "naming";
 
 impl<V> CacheBuilder<V>
 where
-    V: serde::Serialize + serde::de::DeserializeOwned + Send + Sync + 'static,
+    V: serde::Serialize + serde::de::DeserializeOwned + Send + Sync + Clone + 'static,
 {
     pub(crate) fn config(namespace: String) -> Self {
         Self {
@@ -282,6 +316,169 @@ pub mod tests {
 
     fn setup() {
         test_config::setup_log();
+    }
+
+    #[tokio::test]
+    async fn test_cache_accepts_str_keys() {
+        let cache: Cache<String> = CacheBuilder::config("test-str-keys".to_string())
+            .build()
+            .await;
+
+        cache.insert("key".to_string(), "value".to_string());
+        assert_eq!(
+            cache.get("key").as_deref().map(String::as_str),
+            Some("value")
+        );
+        assert!(cache.contains_key("key"));
+        assert!(cache.get_mut("key").is_some());
+        assert_eq!(cache.remove("key").as_deref(), Some("value"));
+        assert!(cache.get("key").is_none());
+    }
+
+    #[tokio::test]
+    async fn test_unmodified_write_guard_does_not_rewrite_disk() {
+        let root = std::env::temp_dir().join(format!("nacos-sdk-dirty-{}", rand::random::<u64>()));
+        let cache: Cache<String> = CacheBuilder::config("test-namespace".to_string())
+            .store(CacheKind::DiskStore, Some(root.clone()))
+            .build()
+            .await;
+        let cache_file = root.join("config").join("test-namespace").join("key");
+
+        cache.insert("key".to_string(), "value".to_string());
+        tokio::time::timeout(Duration::from_secs(2), async {
+            while !cache_file.exists() {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .expect("initial insert should reach disk");
+
+        tokio::fs::remove_file(&cache_file)
+            .await
+            .expect("cache file should be removable");
+
+        {
+            let _guard = cache.get_mut("key").expect("entry should exist");
+        }
+
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        assert!(
+            !cache_file.exists(),
+            "dropping an unmodified write guard must not rewrite the cache file"
+        );
+
+        let _ = tokio::fs::remove_dir_all(&root).await;
+    }
+
+    #[allow(clippy::disallowed_methods, clippy::disallowed_types)]
+    #[tokio::test]
+    async fn test_insert_does_not_serialize_on_caller_thread() {
+        #[derive(Clone)]
+        struct SlowValue;
+
+        impl serde::Serialize for SlowValue {
+            fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+            where
+                S: serde::Serializer,
+            {
+                std::thread::sleep(Duration::from_millis(400));
+                serializer.serialize_unit()
+            }
+        }
+
+        impl<'de> serde::Deserialize<'de> for SlowValue {
+            fn deserialize<D>(_: D) -> Result<Self, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                Ok(SlowValue)
+            }
+        }
+
+        let root = std::env::temp_dir().join(format!("nacos-sdk-slow-{}", rand::random::<u64>()));
+        let cache: Cache<SlowValue> = CacheBuilder::config("test-namespace".to_string())
+            .store(CacheKind::DiskStore, Some(root.clone()))
+            .build()
+            .await;
+
+        let started = std::time::Instant::now();
+        cache.insert("slow".to_string(), SlowValue);
+        let elapsed = started.elapsed();
+        assert!(
+            elapsed < Duration::from_millis(150),
+            "insert blocked on serialization for {elapsed:?}"
+        );
+
+        let cache_file = root.join("config").join("test-namespace").join("slow");
+        tokio::time::timeout(Duration::from_secs(2), async {
+            while !cache_file.exists() {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .expect("cache entry should eventually reach disk");
+
+        let _ = tokio::fs::remove_dir_all(&root).await;
+    }
+
+    #[allow(clippy::disallowed_methods, clippy::disallowed_types)]
+    #[tokio::test]
+    async fn test_serialization_does_not_hold_the_cache_lock() {
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicBool, Ordering};
+
+        #[derive(Clone)]
+        struct BlockingValue(Arc<AtomicBool>);
+
+        impl serde::Serialize for BlockingValue {
+            fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+            where
+                S: serde::Serializer,
+            {
+                self.0.store(true, Ordering::Release);
+                std::thread::sleep(Duration::from_millis(400));
+                serializer.serialize_unit()
+            }
+        }
+
+        impl<'de> serde::Deserialize<'de> for BlockingValue {
+            fn deserialize<D>(_: D) -> Result<Self, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                Ok(BlockingValue(Arc::new(AtomicBool::new(false))))
+            }
+        }
+
+        let root = std::env::temp_dir().join(format!("nacos-sdk-lock-{}", rand::random::<u64>()));
+        let cache: Cache<BlockingValue> = CacheBuilder::config("test-namespace".to_string())
+            .store(CacheKind::DiskStore, Some(root.clone()))
+            .build()
+            .await;
+
+        let started = Arc::new(AtomicBool::new(false));
+        cache.insert("key".to_string(), BlockingValue(Arc::clone(&started)));
+        tokio::time::timeout(Duration::from_secs(2), async {
+            while !started.load(Ordering::Acquire) {
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .expect("serialization should start");
+
+        let insert_started = std::time::Instant::now();
+        cache.insert(
+            "key".to_string(),
+            BlockingValue(Arc::new(AtomicBool::new(false))),
+        );
+        let elapsed = insert_started.elapsed();
+        assert!(
+            elapsed < Duration::from_millis(150),
+            "insert blocked on the shard lock for {elapsed:?}"
+        );
+
+        tokio::time::sleep(Duration::from_millis(600)).await;
+        let _ = tokio::fs::remove_dir_all(&root).await;
     }
 
     #[tokio::test]
@@ -436,22 +633,19 @@ pub mod tests {
         cache.insert("key".to_string(), "value".to_string());
         {
             let mut value = cache
-                .get_mut(&"key".to_string())
+                .get_mut("key")
                 .expect("Mutable value should be present in cache");
             *value = String::from("modified");
         }
         let removed = cache
-            .remove(&"key".to_string())
+            .remove("key")
             .expect("Removed value should be present");
         assert_eq!(removed, "modified");
 
         // wait for any potential async store write
         tokio::time::sleep(Duration::from_millis(222)).await;
 
-        assert!(
-            cache.get(&"key".to_string()).is_none(),
-            "cache should be memory-only"
-        );
+        assert!(cache.get("key").is_none(), "cache should be memory-only");
         assert!(
             !root.exists(),
             "memory-only cache should not write anything to disk, actual: {:?}",
@@ -465,7 +659,7 @@ pub mod tests {
             .build()
             .await;
         assert!(
-            cache.get(&"key".to_string()).is_none(),
+            cache.get("key").is_none(),
             "memory-only cache should not load anything from disk"
         );
         assert!(!root.exists());

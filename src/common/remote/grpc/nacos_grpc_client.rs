@@ -85,7 +85,6 @@ pub(crate) struct NacosGrpcClientBuilder {
     bi_call_layer: Option<DynamicBiStreamingCallLayer>,
     auth_plugin: Arc<dyn AuthPlugin>,
     auth_context: HashMap<String, String>,
-    max_retries: Option<u32>,
     emergency_start: bool,
 }
 
@@ -107,7 +106,6 @@ impl NacosGrpcClientBuilder {
             bi_call_layer: None,
             auth_context: Default::default(),
             auth_plugin: Arc::new(NoopAuthPlugin::default()),
-            max_retries: None,
             emergency_start: false,
         }
     }
@@ -134,11 +132,6 @@ impl NacosGrpcClientBuilder {
 
     pub(crate) fn add_labels(mut self, labels: HashMap<String, String>) -> Self {
         self.labels.extend(labels);
-        Self { ..self }
-    }
-
-    pub(crate) fn max_retries(mut self, max_retries: Option<u32>) -> Self {
-        self.max_retries = max_retries;
         Self { ..self }
     }
 
@@ -344,7 +337,6 @@ impl NacosGrpcClientBuilder {
                 self.namespace,
                 self.labels,
                 self.client_abilities,
-                self.max_retries,
             );
 
             if let Some(connected_listener) = self.connected_listener {

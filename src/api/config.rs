@@ -169,6 +169,9 @@ impl ConfigService {
 }
 
 /// The ConfigChangeListener receive notify of [`ConfigResponse`].
+///
+/// Callbacks run on Tokio's blocking pool and may execute concurrently; keep
+/// them short and do not assume cross-listener ordering.
 pub trait ConfigChangeListener: Send + Sync {
     fn notify(&self, config_resp: ConfigResponse);
 }

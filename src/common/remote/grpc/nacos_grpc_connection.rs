@@ -35,6 +35,10 @@ type DisconnectedListener = Arc<dyn Fn(String) + Send + Sync + 'static>;
 type HandlerMap = HashMap<String, Arc<dyn ServerRequestHandler>>;
 const MAX_RETRY: u32 = 6;
 
+// Initialization gives up after this many failed attempts, matching the
+// legacy `max_retries = None` default. Runtime reconnects stay unbounded.
+const MAX_INIT_RETRIES: u32 = 1;
+
 const HEALTH_CHECK_REQUEST_TIMEOUT: Duration = Duration::from_secs(3);
 
 const HEALTH_CHECK_INTERVAL: Duration = Duration::from_secs(5);
@@ -76,7 +80,6 @@ where
         watch::Sender<Option<String>>,
         watch::Receiver<Option<String>>,
     ),
-    max_retries: Option<u32>,
     is_initialized: bool,
 }
 
@@ -98,7 +101,6 @@ where
         namespace: String,
         labels: HashMap<String, String>,
         client_abilities: NacosClientAbilities,
-        max_retries: Option<u32>,
     ) -> Self {
         let connection_id_watcher = watch::channel(None);
 
@@ -116,7 +118,6 @@ where
             connection_id: None,
             retry_count: 0,
             connection_id_watcher,
-            max_retries,
             is_initialized: false,
         }
     }
@@ -457,20 +458,17 @@ where
             debug_span!(parent: None, "grpc_connection", id = self.id.as_str()).entered();
 
         loop {
-            if !self.is_initialized {
-                let max_retries = self.max_retries.unwrap_or(1);
-                if self.retry_count >= max_retries {
-                    error!(
-                        "Connection initialization failed after {} attempts. \
-                         The Nacos server may be unreachable. \
-                         Please check server address and network connectivity.",
-                        max_retries
-                    );
-                    // FIXME Tower Service 契约违反：poll_ready 返回 Ok(()) 但 call() 返回错误
-                    //  但当前先与 emergency_start 配合，允许应急启动。
-                    self.retry_count = 0;
-                    return Poll::Ready(Ok(()));
-                }
+            if !self.is_initialized && self.retry_count >= MAX_INIT_RETRIES {
+                error!(
+                    "Connection initialization failed (attempts: {}). \
+                     The Nacos server may be unreachable. \
+                     Please check server address and network connectivity.",
+                    MAX_INIT_RETRIES
+                );
+                // FIXME Tower Service 契约违反：poll_ready 返回 Ok(()) 但 call() 返回错误
+                //  但当前先与 emergency_start 配合，允许应急启动。
+                self.retry_count = 0;
+                return Poll::Ready(Ok(()));
             }
 
             match self.state {

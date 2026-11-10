@@ -3,6 +3,8 @@ use std::time::Duration;
 use reqwest::header::HeaderValue;
 use tonic::transport::Uri;
 
+const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
+
 #[derive(Clone)]
 pub(crate) struct GrpcConfiguration {
     pub(crate) host: String,
@@ -49,7 +51,7 @@ impl Default for GrpcConfiguration {
             port: Default::default(),
             origin: Default::default(),
             user_agent: Default::default(),
-            timeout: Default::default(),
+            timeout: Some(DEFAULT_REQUEST_TIMEOUT),
             concurrency_limit: Default::default(),
             rate_limit: Default::default(),
             init_stream_window_size: Default::default(),
@@ -62,5 +64,18 @@ impl Default for GrpcConfiguration {
             connect_timeout: Default::default(),
             http2_adaptive_window: Default::default(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_default_request_timeout_is_ten_seconds() {
+        assert_eq!(
+            GrpcConfiguration::default().timeout,
+            Some(Duration::from_secs(10))
+        );
     }
 }
