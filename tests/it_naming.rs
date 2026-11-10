@@ -203,6 +203,42 @@ mod naming_integration_tests {
     }
 
     #[tokio::test]
+    async fn test_get_service_list() {
+        let server_addr = get_shared_server_addr().await;
+        let service = create_naming_service(server_addr).await;
+        let service_name = "test-service-list".to_string();
+        let group = Some(constants::DEFAULT_GROUP.to_string());
+
+        let instance = ServiceInstanceBuilder::new()
+            .ip("127.0.0.1")
+            .port(9300)
+            .build();
+
+        service
+            .register_instance(service_name.clone(), group.clone(), instance.clone())
+            .await
+            .expect("register_instance failed");
+
+        tokio::time::sleep(PROPAGATION_WAIT).await;
+
+        let (service_names, count) = service
+            .get_service_list(1, 100, group.clone())
+            .await
+            .expect("get_service_list failed");
+        assert!(count >= 1, "expected at least one service");
+        assert!(
+            service_names
+                .iter()
+                .any(|name| name.contains(&service_name)),
+            "registered service missing from list: {service_names:?}"
+        );
+
+        let _ = service
+            .deregister_instance(service_name, group, instance)
+            .await;
+    }
+
+    #[tokio::test]
     async fn test_get_all_instances() {
         let server_addr = get_shared_server_addr().await;
         let service = create_naming_service(server_addr).await;

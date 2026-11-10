@@ -21,7 +21,7 @@ use crate::common::remote::grpc::message::request::{
     ConnectionSetupRequest, HealthCheckRequest, NacosClientAbilities, ServerCheckRequest,
 };
 use crate::common::remote::grpc::message::response::{HealthCheckResponse, ServerCheckResponse};
-use crate::common::remote::grpc::message::{GrpcMessage, GrpcMessageBuilder};
+use crate::common::remote::grpc::message::{GrpcMessage, GrpcMessageBuilder, GrpcRequestMessage};
 use crate::common::remote::grpc::nacos_grpc_service::GrpcStream;
 use crate::common::remote::grpc::utils;
 use crate::{api::error::Error, nacos_proto::v2::Payload};
@@ -122,43 +122,61 @@ where
         }
     }
 
-    pub(crate) fn connected_listener(self, listener: ConnectedListener) -> Self {
-        let mut rx = self.connection_id_watcher.1.clone();
-        let watch_fu = async move {
-            let mut previous_id = None;
-            while rx.changed().await.is_ok() {
-                let current_id = { rx.borrow().clone() };
+    fn enter_retry(&mut self, cause: RetryCause) {
+        self.retry_count += 1;
+        let sleep_time = sleep_time(self.retry_count);
+        match cause {
+            RetryCause::Connect(e) => error!(
+                "create connection error, this operate will be retry after {} sec, retry count:{}. {}",
+                sleep_time, self.retry_count, e
+            ),
+            RetryCause::Init(e) => error!(
+                "initializing connection error, this operate will be retry after {} sec, retry count:{}. {}",
+                sleep_time, self.retry_count, e
+            ),
+            RetryCause::Unhealthy => error!(
+                "the connection {:?} is not in health, destroy connection and retry, this operate will be retry after {} sec, retry count:{}.",
+                self.connection_id, sleep_time, self.retry_count
+            ),
+            RetryCause::NotReady(e) => error!(
+                "connection {:?} not ready, destroy connection and retry, this operate will be retry after {} sec, retry count:{}. {}",
+                self.connection_id, sleep_time, self.retry_count, e
+            ),
+        }
+        self.state = State::Retry(Box::pin(sleep(Duration::from_secs(sleep_time as u64))));
+    }
 
-                // if previous id is none and the current id is some then the state is connected
-                if previous_id.is_none()
-                    && let Some(ref id) = current_id
-                {
-                    listener(id.clone());
-                }
-                previous_id = current_id;
-            }
-            debug!("connected listener quit.");
-        };
-        executor::spawn(watch_fu);
-        self
+    pub(crate) fn connected_listener(self, listener: ConnectedListener) -> Self {
+        self.connection_status_listener(true, listener)
     }
 
     pub(crate) fn disconnected_listener(self, listener: DisconnectedListener) -> Self {
+        self.connection_status_listener(false, listener)
+    }
+
+    fn connection_status_listener(
+        self,
+        connected: bool,
+        listener: Arc<dyn Fn(String) + Send + Sync + 'static>,
+    ) -> Self {
         let mut rx = self.connection_id_watcher.1.clone();
         let watch_fu = async move {
             let mut previous_id: Option<String> = None;
             while rx.changed().await.is_ok() {
-                let current_id = { rx.borrow().clone() };
-
-                // if previous id is some and the current id is none then the state is disconnected
-                if current_id.is_none()
-                    && let Some(ref id) = previous_id
-                {
-                    listener(id.clone());
+                let current_id = rx.borrow().clone();
+                if previous_id.is_some() != current_id.is_some() {
+                    let id = if connected {
+                        current_id.as_ref()
+                    } else {
+                        previous_id.as_ref()
+                    };
+                    if let Some(id) = id {
+                        listener(id.clone());
+                    }
                 }
                 previous_id = current_id;
             }
-            debug!("disconnect listener quit.");
+            debug!("connection status listener quit, connected={connected}");
         };
         executor::spawn(watch_fu);
         self
@@ -349,14 +367,17 @@ where
         Ok(conn_id_sender)
     }
 
-    async fn connection_health_check(service: &mut M::Service) -> Result<(), Error> {
-        info!("connection health check");
-
+    async fn request_once<Req>(
+        service: &mut M::Service,
+        request: Req,
+        request_context: &str,
+    ) -> Result<(oneshot::Receiver<Result<Payload, Error>>, want::Taker), Error>
+    where
+        Req: GrpcRequestMessage + 'static,
+    {
         let request = utils::convert(
-            GrpcMessageBuilder::new(HealthCheckRequest::default())
-                .build()
-                .into_payload(),
-            "health check request message convert to grpc message occur an error",
+            GrpcMessageBuilder::new(request).build().into_payload(),
+            request_context,
         )?;
 
         let (cb, rx, mut tk) = utils::create_grpc_callback::<Result<Payload, Error>>();
@@ -364,6 +385,19 @@ where
         executor::spawn(service.call(grpc_call));
 
         tk.want();
+        Ok((rx, tk))
+    }
+
+    async fn connection_health_check(service: &mut M::Service) -> Result<(), Error> {
+        info!("connection health check");
+
+        let (rx, _tk) = Self::request_once(
+            service,
+            HealthCheckRequest::default(),
+            "health check request message convert to grpc message occur an error",
+        )
+        .await?;
+
         let response = match tokio::time::timeout(HEALTH_CHECK_REQUEST_TIMEOUT, rx).await {
             Err(_) => {
                 warn!(
@@ -396,18 +430,13 @@ where
     async fn check_server(service: &mut M::Service) -> Result<String, Error> {
         info!("check server");
 
-        let request = utils::convert(
-            GrpcMessageBuilder::new(ServerCheckRequest::new())
-                .build()
-                .into_payload(),
+        let (rx, _tk) = Self::request_once(
+            service,
+            ServerCheckRequest::new(),
             "server check request message convert to grpc message occur an error",
-        )?;
+        )
+        .await?;
 
-        let (cb, rx, mut tk) = utils::create_grpc_callback::<Result<Payload, Error>>();
-        let grpc_call = NacosGrpcCall::RequestService((request, cb));
-        executor::spawn(service.call(grpc_call));
-
-        tk.want();
         let response = utils::convert(
             utils::recv_response(rx.await, "grpc request callback failed")?,
             "check server failed",
@@ -435,6 +464,13 @@ pub(crate) enum State<F, S> {
     Retry(Pin<Box<dyn Future<Output = ()> + Send>>),
 }
 
+enum RetryCause {
+    Connect(Error),
+    Init(Error),
+    Unhealthy,
+    NotReady(Error),
+}
+
 impl<M> Service<Payload> for NacosGrpcConnection<M>
 where
     M: MakeService<(), NacosGrpcCall, MakeError = Error, Error = Error> + Send + 'static,
@@ -448,7 +484,7 @@ where
 
     type Error = Error;
 
-    type Future = ResponseFuture;
+    type Future = Pin<Box<dyn Future<Output = Result<Payload, Error>> + Send>>;
 
     fn poll_ready(
         &mut self,
@@ -471,7 +507,7 @@ where
                 return Poll::Ready(Ok(()));
             }
 
-            match self.state {
+            let retry = match self.state {
                 State::Idle => {
                     info!("create new connection.");
                     let send_ret = self.connection_id_watcher.0.send(None);
@@ -486,43 +522,28 @@ where
                     self.state = State::Connecting(Box::pin(mk_fut));
                     continue;
                 }
-                State::Connecting(ref mut fut) => {
-                    let ret = fut.as_mut().poll(cx);
-                    match ret {
-                        Poll::Pending => return Poll::Pending,
-                        Poll::Ready(Ok(ret)) => {
-                            let init_future = Box::pin(NacosGrpcConnection::<M>::init_connection(
-                                ret,
-                                self.client_version.clone(),
-                                self.namespace.clone(),
-                                self.labels.clone(),
-                                self.client_abilities.clone(),
-                                self.handler_map.clone(),
-                                self.health.clone(),
-                                self.last_active.clone(),
-                            ));
-                            self.state = State::Initializing(init_future);
-                            continue;
-                        }
-                        Poll::Ready(Err(e)) => {
-                            self.retry_count += 1;
-                            let sleep_time = sleep_time(self.retry_count);
-                            error!(
-                                "create connection error, this operate will be retry after {} sec, retry count:{}. {}",
-                                sleep_time, self.retry_count, e
-                            );
-                            self.state = State::Retry(Box::pin(sleep(Duration::from_secs(
-                                sleep_time as u64,
-                            ))));
-                            continue;
-                        }
+                State::Connecting(ref mut fut) => match fut.as_mut().poll(cx) {
+                    Poll::Pending => return Poll::Pending,
+                    Poll::Ready(Ok(ret)) => {
+                        let init_future = Box::pin(NacosGrpcConnection::<M>::init_connection(
+                            ret,
+                            self.client_version.clone(),
+                            self.namespace.clone(),
+                            self.labels.clone(),
+                            self.client_abilities.clone(),
+                            self.handler_map.clone(),
+                            self.health.clone(),
+                            self.last_active.clone(),
+                        ));
+                        self.state = State::Initializing(init_future);
+                        continue;
                     }
-                }
+                    Poll::Ready(Err(e)) => Some(RetryCause::Connect(e)),
+                },
                 State::Initializing(ref mut init) => {
                     info!("the new connection is initializing.");
 
-                    let ret = init.as_mut().poll(cx);
-                    match ret {
+                    match init.as_mut().poll(cx) {
                         Poll::Pending => return Poll::Pending,
                         Poll::Ready(Ok((service, connection_id))) => {
                             info!(
@@ -550,55 +571,22 @@ where
                             self.connection_id = Some(connection_id);
                             continue;
                         }
-                        Poll::Ready(Err(e)) => {
-                            self.retry_count += 1;
-                            let sleep_time = sleep_time(self.retry_count);
-                            error!(
-                                "initializing connection error, this operate will be retry after {} sec, retry count:{}. {}",
-                                sleep_time, self.retry_count, e
-                            );
-                            self.state = State::Retry(Box::pin(sleep(Duration::from_secs(
-                                sleep_time as u64,
-                            ))));
-                            continue;
-                        }
+                        Poll::Ready(Err(e)) => Some(RetryCause::Init(e)),
                     }
                 }
-                State::Connected(ref mut service) => {
-                    let ready = service.poll_ready(cx);
-                    match ready {
-                        Poll::Pending => return Poll::Pending,
-                        Poll::Ready(Ok(_)) => {
-                            if !self.health.load(Ordering::Acquire) {
-                                self.retry_count += 1;
-                                let sleep_time = sleep_time(self.retry_count);
-                                error!(
-                                    "the connection {:?} is not in health, destroy connection and retry, this operate will be retry after {} sec, retry count:{}.",
-                                    self.connection_id, sleep_time, self.retry_count
-                                );
-                                self.state = State::Retry(Box::pin(sleep(Duration::from_secs(
-                                    sleep_time as u64,
-                                ))));
-                                continue;
-                            }
+                State::Connected(ref mut service) => match service.poll_ready(cx) {
+                    Poll::Pending => return Poll::Pending,
+                    Poll::Ready(Ok(_)) => {
+                        if self.health.load(Ordering::Acquire) {
                             return Poll::Ready(Ok(()));
                         }
-                        Poll::Ready(Err(e)) => {
-                            self.health.store(false, Ordering::Release);
-                            self.retry_count += 1;
-                            let sleep_time = sleep_time(self.retry_count);
-                            error!(
-                                "connection {:?} not ready, destroy connection and retry, this operate will be retry after {} sec, retry count:{}. {}",
-                                self.connection_id, sleep_time, self.retry_count, e
-                            );
-                            self.state = State::Retry(Box::pin(sleep(Duration::from_secs(
-                                sleep_time as u64,
-                            ))));
-                            continue;
-                        }
+                        Some(RetryCause::Unhealthy)
                     }
-                }
-
+                    Poll::Ready(Err(e)) => {
+                        self.health.store(false, Ordering::Release);
+                        Some(RetryCause::NotReady(e))
+                    }
+                },
                 State::Retry(ref mut sleep) => {
                     let ret = sleep.as_mut().poll(cx);
                     if ret == Poll::Pending {
@@ -607,6 +595,11 @@ where
                     self.state = State::Idle;
                     continue;
                 }
+            };
+
+            if let Some(cause) = retry {
+                self.enter_retry(cause);
+                continue;
             }
         }
     }
@@ -630,42 +623,16 @@ where
                 }
                 .in_current_span();
                 executor::spawn(call_task);
-                ResponseFuture::new(response_fut)
+                Box::pin(response_fut)
             }
             _ => {
                 let fut: Pin<Box<dyn Future<Output = Result<Payload, Error>> + Send>> = Box::pin(
                     async move { Err(ErrResult("the connection is not connected".to_string())) }
                         .in_current_span(),
                 );
-                ResponseFuture::new(fut)
+                Box::pin(fut)
             }
         }
-    }
-}
-
-pub(crate) struct ResponseFuture {
-    inner: Pin<Box<dyn Future<Output = Result<Payload, Error>> + Send>>,
-}
-
-impl ResponseFuture {
-    pub(crate) fn new<F>(inner: F) -> Self
-    where
-        F: Future<Output = Result<Payload, Error>> + Send + 'static,
-    {
-        Self {
-            inner: Box::pin(inner),
-        }
-    }
-}
-
-impl Future for ResponseFuture {
-    type Output = Result<Payload, Error>;
-
-    fn poll(
-        mut self: Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Self::Output> {
-        self.inner.as_mut().poll(cx)
     }
 }
 

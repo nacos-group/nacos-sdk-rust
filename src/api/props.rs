@@ -420,6 +420,18 @@ mod tests {
 
     use super::*;
 
+    fn run_child_test(test: &str, envs: &[(&str, &str)], remove: &[&str]) {
+        let current_exe =
+            std::env::current_exe().expect("current test executable should be available");
+        let mut command = std::process::Command::new(current_exe);
+        command.args(["--exact", test]).envs(envs.iter().copied());
+        for key in remove {
+            command.env_remove(key);
+        }
+        let status = command.status().expect("child test should run");
+        assert!(status.success(), "child test {test} failed");
+    }
+
     #[tokio::test]
     async fn test_get_server_list() {
         let client_props = ClientProps::new()
@@ -466,33 +478,26 @@ mod tests {
         const CHILD_ENV: &str = "NACOS_CLIENT_STRING_PROPS_TEST_CHILD";
 
         if std::env::var_os(CHILD_ENV).is_none() {
-            let current_exe =
-                std::env::current_exe().expect("current test executable should be available");
-            let status = std::process::Command::new(&current_exe)
-                .args([
-                    "--exact",
-                    "api::props::tests::test_get_string_props_from_env",
-                ])
-                .env(CHILD_ENV, "with_env")
-                .env(ENV_NACOS_CLIENT_COMMON_NAMESPACE, "env-ns")
-                .env(ENV_NACOS_CLIENT_COMMON_APP_NAME, "env-app")
-                .env(ENV_NACOS_CLIENT_COMMON_SERVER_ADDRESS, "env-server:8848")
-                .status()
-                .expect("string props environment test should run");
-            assert!(status.success(), "child case with_env should pass");
-
-            let status = std::process::Command::new(&current_exe)
-                .args([
-                    "--exact",
-                    "api::props::tests::test_get_string_props_from_env",
-                ])
-                .env(CHILD_ENV, "without_env")
-                .env_remove(ENV_NACOS_CLIENT_COMMON_NAMESPACE)
-                .env_remove(ENV_NACOS_CLIENT_COMMON_APP_NAME)
-                .env_remove(ENV_NACOS_CLIENT_COMMON_SERVER_ADDRESS)
-                .status()
-                .expect("string props environment test should run");
-            assert!(status.success(), "child case without_env should pass");
+            let test = "api::props::tests::test_get_string_props_from_env";
+            run_child_test(
+                test,
+                &[
+                    (CHILD_ENV, "with_env"),
+                    (ENV_NACOS_CLIENT_COMMON_NAMESPACE, "env-ns"),
+                    (ENV_NACOS_CLIENT_COMMON_APP_NAME, "env-app"),
+                    (ENV_NACOS_CLIENT_COMMON_SERVER_ADDRESS, "env-server:8848"),
+                ],
+                &[],
+            );
+            run_child_test(
+                test,
+                &[(CHILD_ENV, "without_env")],
+                &[
+                    ENV_NACOS_CLIENT_COMMON_NAMESPACE,
+                    ENV_NACOS_CLIENT_COMMON_APP_NAME,
+                    ENV_NACOS_CLIENT_COMMON_SERVER_ADDRESS,
+                ],
+            );
             return;
         }
 
@@ -541,15 +546,11 @@ mod tests {
         const CHILD_ENV: &str = "NACOS_CLIENT_CACHE_DIR_TEST_CHILD";
 
         if std::env::var_os(CHILD_ENV).is_none() {
-            let status = std::process::Command::new(
-                std::env::current_exe().expect("current test executable should be available"),
-            )
-            .args(["--exact", "api::props::tests::test_get_cache_dir_from_env"])
-            .env(CHILD_ENV, "1")
-            .env(ENV_NACOS_CLIENT_CACHE_DIR, "env-cache")
-            .status()
-            .expect("cache directory environment test should run");
-            assert!(status.success());
+            run_child_test(
+                "api::props::tests::test_get_cache_dir_from_env",
+                &[(CHILD_ENV, "1"), (ENV_NACOS_CLIENT_CACHE_DIR, "env-cache")],
+                &[],
+            );
             return;
         }
 
@@ -624,21 +625,20 @@ mod tests {
         const CHILD_CASE_ENV: &str = "NACOS_CLIENT_CACHE_KIND_TEST_CASE";
 
         let Ok(case) = std::env::var(CHILD_CASE_ENV) else {
-            let current_exe =
-                std::env::current_exe().expect("current test executable should be available");
             for (case, env_value) in [
                 ("none", "none"),
                 ("disk-store", "disk-store"),
                 ("invalid", "redis"),
                 ("blank", "   "),
             ] {
-                let status = std::process::Command::new(&current_exe)
-                    .args(["--exact", "api::props::tests::test_get_cache_kind_from_env"])
-                    .env(CHILD_CASE_ENV, case)
-                    .env(ENV_NACOS_CLIENT_CACHE_KIND, env_value)
-                    .status()
-                    .expect("cache kind environment test should run");
-                assert!(status.success(), "child case {case} should pass");
+                run_child_test(
+                    "api::props::tests::test_get_cache_kind_from_env",
+                    &[
+                        (CHILD_CASE_ENV, case),
+                        (ENV_NACOS_CLIENT_CACHE_KIND, env_value),
+                    ],
+                    &[],
+                );
             }
             return;
         };
