@@ -173,6 +173,12 @@ impl ServiceInfoUpdateTask {
                 request.cluster
             );
 
+            let cache_key = {
+                let group_name = request.group_name.as_deref().unwrap_or_default();
+                let service_name = request.service_name.as_deref().unwrap_or_default();
+                ServiceInfoUpdater::update_task_key(service_name, group_name, &request.cluster)
+            };
+
             info!("{log_tag}:ServiceInfoUpdateTask started");
 
             while running.load(Ordering::Acquire) {
@@ -189,16 +195,7 @@ impl ServiceInfoUpdateTask {
 
                 debug!("{log_tag}:ServiceInfoUpdateTask refreshing");
 
-                let cached_last_ref_time = {
-                    let group_name = request.group_name.as_deref().unwrap_or_default();
-                    let service_name = request.service_name.as_deref().unwrap_or_default();
-                    let cluster = &request.cluster;
-
-                    let grouped_name =
-                        ServiceInfo::get_grouped_service_name(service_name, group_name);
-                    let key = ServiceInfo::get_key(&grouped_name, cluster);
-                    cache.get(&key).map(|data| data.last_ref_time)
-                };
+                let cached_last_ref_time = cache.get(&cache_key).map(|data| data.last_ref_time);
 
                 let mut need_query_service_info = true;
 

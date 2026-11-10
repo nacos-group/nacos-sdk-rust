@@ -321,10 +321,10 @@ impl ConfigWorker {
             }
             let req = ConfigBatchListenRequest::new(true).add_config_listen_context(
                 ConfigListenContext::new(
-                    cache_data.data_id.to_string(),
-                    cache_data.group.to_string(),
-                    cache_data.namespace.to_string(),
-                    cache_data.md5.to_string(),
+                    Arc::clone(&cache_data.data_id),
+                    Arc::clone(&cache_data.group),
+                    Arc::clone(&cache_data.namespace),
+                    Arc::clone(&cache_data.md5),
                 ),
             );
             let remote_client_clone = self.remote_client.clone();
@@ -382,10 +382,10 @@ impl ConfigWorker {
                 // Use foreach to iterate over all cached configs
                 unified_cache.for_each(|_key, c| {
                     listen_context_vec.push(ConfigListenContext::new(
-                        c.data_id.to_string(),
-                        c.group.to_string(),
-                        c.namespace.to_string(),
-                        c.md5.to_string(),
+                        Arc::clone(&c.data_id),
+                        Arc::clone(&c.group),
+                        Arc::clone(&c.namespace),
+                        Arc::clone(&c.md5),
                     ));
                 });
             }

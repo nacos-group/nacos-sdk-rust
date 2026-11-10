@@ -111,32 +111,22 @@ pub(crate) mod properties {
         PROPERTIES.get(key.as_ref()).cloned()
     }
 
-    pub(crate) fn get_value<Key, Default>(key: Key, default: Default) -> String
-    where
-        Key: AsRef<str>,
-        Default: AsRef<str>,
-    {
-        PROPERTIES
-            .get(key.as_ref())
-            .map_or(default.as_ref().to_string(), |value| value.to_string())
-    }
-
     pub(crate) fn get_value_u16<Key>(key: Key, default: u16) -> u16
     where
         Key: AsRef<str>,
     {
-        PROPERTIES.get(key.as_ref()).map_or(default, |value| {
-            value.to_string().parse::<u16>().unwrap_or(default)
-        })
+        PROPERTIES
+            .get(key.as_ref())
+            .map_or(default, |value| value.parse::<u16>().unwrap_or(default))
     }
 
     pub(crate) fn get_value_bool<Key>(key: Key, default: bool) -> bool
     where
         Key: AsRef<str>,
     {
-        PROPERTIES.get(key.as_ref()).map_or(default, |value| {
-            value.to_string().parse::<bool>().unwrap_or(default)
-        })
+        PROPERTIES
+            .get(key.as_ref())
+            .map_or(default, |value| value.parse::<bool>().unwrap_or(default))
     }
 }
 
@@ -184,13 +174,7 @@ mod tests {
 #[cfg(test)]
 mod test_props {
     use crate::api::constants::ENV_NACOS_CLIENT_NAMING_PUSH_EMPTY_PROTECTION;
-    use crate::properties::{get_value, get_value_bool, get_value_u16};
-
-    #[test]
-    fn test_get_value() {
-        let v = get_value("ENV_TEST", "TEST");
-        assert_eq!(v, "TEST");
-    }
+    use crate::properties::{get_value_bool, get_value_u16};
 
     #[test]
     fn test_get_value_bool() {
@@ -203,6 +187,53 @@ mod test_props {
         let not_exist_key = "MUST_NOT_EXIST";
         let v = get_value_u16(not_exist_key, 91);
         assert_eq!(v, 91);
+    }
+
+    /// `PROPERTIES` is a process-wide snapshot, so env driven cases run in child processes,
+    /// one child per `NACOS_CLIENT_TEST_PARSE_CASE` value.
+    #[test]
+    fn test_get_value_parse_from_env() {
+        const CHILD_CASE_ENV: &str = "NACOS_CLIENT_TEST_PARSE_CASE";
+        const PORT_ENV: &str = "NACOS_CLIENT_TEST_PARSE_PORT";
+        const BOOL_ENV: &str = "NACOS_CLIENT_TEST_PARSE_BOOL";
+
+        let Ok(case) = std::env::var(CHILD_CASE_ENV) else {
+            let current_exe =
+                std::env::current_exe().expect("current test executable should be available");
+            for (case, port, bool_value) in [
+                ("valid", "1234", "false"),
+                ("invalid", "not-a-port", "not-a-bool"),
+                ("overflow", "70000", "TRUE"),
+            ] {
+                let status = std::process::Command::new(&current_exe)
+                    .args(["--exact", "test_props::test_get_value_parse_from_env"])
+                    .env(CHILD_CASE_ENV, case)
+                    .env(PORT_ENV, port)
+                    .env(BOOL_ENV, bool_value)
+                    .status()
+                    .expect("parse environment test should run");
+                assert!(status.success(), "child case {case} should pass");
+            }
+            return;
+        };
+
+        match case.as_str() {
+            "valid" => {
+                assert_eq!(get_value_u16(PORT_ENV, 91), 1234);
+                assert!(!get_value_bool(BOOL_ENV, true));
+            }
+            // unparseable values fall back to the default
+            "invalid" => {
+                assert_eq!(get_value_u16(PORT_ENV, 91), 91);
+                assert!(get_value_bool(BOOL_ENV, true));
+            }
+            // out-of-range u16 falls back; bool parsing is case-sensitive
+            "overflow" => {
+                assert_eq!(get_value_u16(PORT_ENV, 91), 91);
+                assert!(!get_value_bool(BOOL_ENV, false));
+            }
+            other => panic!("unknown test case: {other}"),
+        }
     }
 }
 

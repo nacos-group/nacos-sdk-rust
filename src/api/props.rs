@@ -1,7 +1,7 @@
 use std::{collections::HashMap, path::PathBuf, str::FromStr};
 
 use crate::api::constants::*;
-use crate::properties::{get_value, get_value_bool, get_value_option};
+use crate::properties::{get_value_bool, get_value_option};
 
 /// Configures settings for Client.
 #[derive(Debug, Clone)]
@@ -45,10 +45,8 @@ pub struct ClientProps {
 impl ClientProps {
     pub(crate) fn get_server_addr(&self) -> String {
         if self.env_first {
-            get_value(
-                ENV_NACOS_CLIENT_COMMON_SERVER_ADDRESS,
-                self.server_addr.clone(),
-            )
+            get_value_option(ENV_NACOS_CLIENT_COMMON_SERVER_ADDRESS)
+                .unwrap_or_else(|| self.server_addr.clone())
         } else {
             self.server_addr.clone()
         }
@@ -83,7 +81,8 @@ impl ClientProps {
 
     pub(crate) fn get_namespace(&self) -> String {
         if self.env_first {
-            get_value(ENV_NACOS_CLIENT_COMMON_NAMESPACE, self.namespace.clone())
+            get_value_option(ENV_NACOS_CLIENT_COMMON_NAMESPACE)
+                .unwrap_or_else(|| self.namespace.clone())
         } else {
             self.namespace.clone()
         }
@@ -91,7 +90,8 @@ impl ClientProps {
 
     pub(crate) fn get_app_name(&self) -> String {
         if self.env_first {
-            get_value(ENV_NACOS_CLIENT_COMMON_APP_NAME, self.app_name.clone())
+            get_value_option(ENV_NACOS_CLIENT_COMMON_APP_NAME)
+                .unwrap_or_else(|| self.app_name.clone())
         } else {
             self.app_name.clone()
         }
@@ -483,6 +483,68 @@ mod tests {
             props.get_endpoint().as_deref(),
             Some("http://127.0.0.1:8080")
         );
+    }
+
+    /// `PROPERTIES` is a process-wide snapshot, so env driven cases run in child processes.
+    #[test]
+    fn test_get_string_props_from_env() {
+        const CHILD_ENV: &str = "NACOS_CLIENT_STRING_PROPS_TEST_CHILD";
+
+        if std::env::var_os(CHILD_ENV).is_none() {
+            let current_exe =
+                std::env::current_exe().expect("current test executable should be available");
+            let status = std::process::Command::new(&current_exe)
+                .args([
+                    "--exact",
+                    "api::props::tests::test_get_string_props_from_env",
+                ])
+                .env(CHILD_ENV, "with_env")
+                .env(ENV_NACOS_CLIENT_COMMON_NAMESPACE, "env-ns")
+                .env(ENV_NACOS_CLIENT_COMMON_APP_NAME, "env-app")
+                .env(ENV_NACOS_CLIENT_COMMON_SERVER_ADDRESS, "env-server:8848")
+                .status()
+                .expect("string props environment test should run");
+            assert!(status.success(), "child case with_env should pass");
+
+            let status = std::process::Command::new(&current_exe)
+                .args([
+                    "--exact",
+                    "api::props::tests::test_get_string_props_from_env",
+                ])
+                .env(CHILD_ENV, "without_env")
+                .env_remove(ENV_NACOS_CLIENT_COMMON_NAMESPACE)
+                .env_remove(ENV_NACOS_CLIENT_COMMON_APP_NAME)
+                .env_remove(ENV_NACOS_CLIENT_COMMON_SERVER_ADDRESS)
+                .status()
+                .expect("string props environment test should run");
+            assert!(status.success(), "child case without_env should pass");
+            return;
+        }
+
+        let props = ClientProps::new()
+            .namespace("props-ns")
+            .app_name("props-app")
+            .server_addr("props-server:8848");
+
+        let case = std::env::var(CHILD_ENV).expect("child case should be set");
+        match case.as_str() {
+            "with_env" => {
+                assert_eq!(props.get_namespace(), "env-ns");
+                assert_eq!(props.get_app_name(), "env-app");
+                assert_eq!(props.get_server_addr(), "env-server:8848");
+
+                let props = props.env_first(false);
+                assert_eq!(props.get_namespace(), "props-ns");
+                assert_eq!(props.get_app_name(), "props-app");
+                assert_eq!(props.get_server_addr(), "props-server:8848");
+            }
+            "without_env" => {
+                assert_eq!(props.get_namespace(), "props-ns");
+                assert_eq!(props.get_app_name(), "props-app");
+                assert_eq!(props.get_server_addr(), "props-server:8848");
+            }
+            other => panic!("unknown test case: {other}"),
+        }
     }
 
     #[test]
