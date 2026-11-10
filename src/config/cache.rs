@@ -159,13 +159,13 @@ impl CacheData {
             config_filter.filter(None, Some(&mut conf_resp)).await;
         }
 
-        ConfigResponse::new(
-            conf_resp.data_id,
-            conf_resp.group,
-            conf_resp.namespace,
-            conf_resp.content,
-            content_type.as_ref().clone(),
-            md5.as_ref().clone(),
+        ConfigResponse::from_shared(
+            Arc::new(conf_resp.data_id),
+            Arc::new(conf_resp.group),
+            Arc::new(conf_resp.namespace),
+            Arc::new(conf_resp.content),
+            content_type,
+            md5,
         )
     }
 }
@@ -384,6 +384,31 @@ mod tests {
             panic!("a cache entry without filters must take the raw path");
         };
         assert!(response.shares_content_with(&data.content));
+    }
+
+    #[tokio::test]
+    async fn test_filtered_response_shares_content_type_and_md5() {
+        use crate::api::plugin::{ConfigFilter, ConfigReq, ConfigResp};
+
+        struct Noop;
+
+        #[async_trait::async_trait]
+        impl ConfigFilter for Noop {
+            async fn filter(&self, _: Option<&mut ConfigReq>, _: Option<&mut ConfigResp>) {}
+        }
+
+        let filters: Arc<Vec<Box<dyn ConfigFilter>>> = Arc::new(vec![Box::new(Noop)]);
+        let mut data = CacheData::new("D".to_string(), "G".to_string(), "N".to_string());
+        data.content = Arc::new("hello".to_string());
+        data.content_type = Arc::new("json".to_string());
+        data.md5 = Arc::new("m1".to_string());
+
+        let response = data.resp_source(&filters).into_response().await;
+        assert_eq!(response.content(), "hello");
+        assert_eq!(response.content_type(), "json");
+        assert_eq!(response.md5(), "m1");
+        assert!(response.shares_content_type_with(&data.content_type));
+        assert!(response.shares_md5_with(&data.md5));
     }
 
     #[tokio::test]

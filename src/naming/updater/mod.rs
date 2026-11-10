@@ -189,7 +189,7 @@ impl ServiceInfoUpdateTask {
 
                 debug!("{log_tag}:ServiceInfoUpdateTask refreshing");
 
-                let service_info = {
+                let cached_last_ref_time = {
                     let group_name = request.group_name.as_deref().unwrap_or_default();
                     let service_name = request.service_name.as_deref().unwrap_or_default();
                     let cluster = &request.cluster;
@@ -197,18 +197,18 @@ impl ServiceInfoUpdateTask {
                     let grouped_name =
                         ServiceInfo::get_grouped_service_name(service_name, group_name);
                     let key = ServiceInfo::get_key(&grouped_name, cluster);
-                    cache.get(&key).map(|data| data.clone())
+                    cache.get(&key).map(|data| data.last_ref_time)
                 };
 
                 let mut need_query_service_info = true;
 
-                if let Some(service_info) = service_info {
-                    let is_outdate = last_refresh_time >= (service_info.last_ref_time as u64);
+                if let Some(cached_last_ref_time) = cached_last_ref_time {
+                    let is_outdate = last_refresh_time >= (cached_last_ref_time as u64);
                     if is_outdate {
                         need_query_service_info = true;
                     } else {
                         need_query_service_info = false;
-                        last_refresh_time = service_info.last_ref_time as u64;
+                        last_refresh_time = cached_last_ref_time as u64;
                     }
                 }
 

@@ -151,7 +151,7 @@ impl ServiceInfoEmitter {
     #[instrument(skip_all)]
     pub(crate) async fn emit(&self, service_info: ServiceInfo) {
         let notify = self
-            .process_service_info(service_info.clone())
+            .process_service_info(&service_info)
             .in_current_span()
             .await;
         let span = Span::current();
@@ -167,8 +167,8 @@ impl ServiceInfoEmitter {
         service_info.hosts.is_none() || (self.push_empty_protection && !service_info.validate())
     }
 
-    async fn process_service_info(&self, service_info: ServiceInfo) -> bool {
-        if self.is_empty_or_error_push(&service_info) {
+    async fn process_service_info(&self, service_info: &ServiceInfo) -> bool {
+        if self.is_empty_or_error_push(service_info) {
             warn!("empty or error push: {service_info:?}");
             return false;
         }
@@ -179,7 +179,7 @@ impl ServiceInfoEmitter {
 
         let changed = {
             let old_service = self.cache.get(&key);
-            Self::is_changed_service_info(old_service, &service_info)
+            Self::is_changed_service_info(old_service, service_info)
         };
 
         if changed {
@@ -189,7 +189,7 @@ impl ServiceInfoEmitter {
                 key,
                 service_info.hosts_to_json()
             );
-            let _ = self.cache.insert(key, service_info);
+            let _ = self.cache.insert(key, service_info.clone());
         }
         changed
     }
@@ -247,5 +247,87 @@ impl ServiceInfoEmitter {
         diff.log_changes(&key);
 
         diff.changed
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::api::naming::ServiceInstance;
+    use crate::common::cache::CacheBuilder;
+
+    fn service_info(ips: &[&str]) -> ServiceInfo {
+        let hosts = ips
+            .iter()
+            .map(|ip| ServiceInstance {
+                ip: ip.to_string(),
+                port: 8848,
+                healthy: true,
+                weight: 1.0,
+                ..Default::default()
+            })
+            .collect();
+        ServiceInfo {
+            name: "svc".to_string(),
+            group_name: "DEFAULT".to_string(),
+            hosts: Some(Arc::new(hosts)),
+            ..Default::default()
+        }
+    }
+
+    #[tokio::test]
+    async fn test_emit_notifies_and_caches_only_on_change() {
+        let cache = Arc::new(CacheBuilder::naming("test-ns".to_string()).build().await);
+        let (sender, mut receiver) = channel(16);
+        let emitter = ServiceInfoEmitter::new(sender, Arc::clone(&cache), false);
+        let key = ServiceInfo::get_key_without_clusters("svc", "DEFAULT");
+
+        emitter.emit(service_info(&["127.0.0.1"])).await;
+        let (notified, _) = receiver.try_recv().expect("initial push should notify");
+        assert_eq!(notified.hosts.as_ref().expect("hosts").len(), 1);
+        assert_eq!(
+            cache
+                .get(&key)
+                .expect("cached")
+                .hosts
+                .as_ref()
+                .expect("hosts")
+                .len(),
+            1
+        );
+
+        emitter.emit(service_info(&["127.0.0.1"])).await;
+        assert!(
+            receiver.try_recv().is_err(),
+            "unchanged push must not notify"
+        );
+        assert!(
+            Arc::ptr_eq(
+                cache
+                    .get(&key)
+                    .expect("cached")
+                    .hosts
+                    .as_ref()
+                    .expect("hosts"),
+                notified.hosts.as_ref().expect("hosts"),
+            ),
+            "unchanged push must not replace the cached entry"
+        );
+
+        emitter
+            .emit(service_info(&["127.0.0.1", "127.0.0.2"]))
+            .await;
+        let (notified, _) = receiver.try_recv().expect("changed push should notify");
+        assert_eq!(notified.hosts.as_ref().expect("hosts").len(), 2);
+        assert_eq!(
+            cache
+                .get(&key)
+                .expect("cached")
+                .hosts
+                .as_ref()
+                .expect("hosts")
+                .len(),
+            2
+        );
     }
 }

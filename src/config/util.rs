@@ -3,7 +3,7 @@ const GROUP_KEY_SPLIT: &str = "+_+";
 
 /// group to data_id '+_+' group '+_+' namespace
 pub(crate) fn group_key(data_id: &str, group: &str, namespace: &str) -> String {
-    "".to_string() + data_id + GROUP_KEY_SPLIT + group + GROUP_KEY_SPLIT + namespace
+    format!("{data_id}{GROUP_KEY_SPLIT}{group}{GROUP_KEY_SPLIT}{namespace}")
 }
 
 /// parse group_key to (data_id, group, namespace)
@@ -28,6 +28,7 @@ mod tests {
         let namespace = "namespace";
 
         let group_key = util::group_key(data_id, group, namespace);
+        assert_eq!(group_key, "data_id+_+group+_+namespace");
         let (parse_data_id, parse_group, parse_namespace) = util::parse_key(group_key.as_str());
 
         assert_eq!(parse_data_id, data_id);

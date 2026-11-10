@@ -316,23 +316,16 @@ where
                     while let Some(Ok(response)) = server_stream.next().await {
                         last_active.store(now_millis(), Ordering::Release);
                         debug!("server stream receive message from server");
-                        let Some(handler_key) = response
-                            .metadata
-                            .as_ref()
-                            .map(|meta_data| meta_data.r#type.clone())
-                        else {
+                        let Some(metadata) = response.metadata.as_ref() else {
                             debug!("response payload type field is empty, skip.");
                             continue;
                         };
-                        debug!("server stream handler: {}", handler_key);
-                        let handler = server_stream_handlers.get(&handler_key).cloned();
+                        debug!("server stream handler: {}", metadata.r#type);
+                        let handler = server_stream_handlers.get(&metadata.r#type).cloned();
                         let handler = handler.unwrap_or_else(|| Arc::new(DefaultHandler));
                         let Some(ret) = handler.request_reply(response).in_current_span().await
                         else {
-                            debug!(
-                                "handler no response, don't need to send to server. skip. key:{}",
-                                handler_key
-                            );
+                            debug!("handler no response, don't need to send to server. skip.");
                             continue;
                         };
                         let ret = local_sender_clone.send(ret).await;
@@ -461,7 +454,7 @@ where
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Result<(), Self::Error>> {
         let _span_enter =
-            debug_span!(parent: None, "grpc_connection", id = self.id.clone()).entered();
+            debug_span!(parent: None, "grpc_connection", id = self.id.as_str()).entered();
 
         loop {
             if !self.is_initialized {
@@ -621,11 +614,7 @@ where
     }
 
     fn call(&mut self, req: Payload) -> Self::Future {
-        let conn_id = if let Some(ref conn_id) = self.connection_id {
-            conn_id.clone()
-        } else {
-            "None".to_string()
-        };
+        let conn_id = self.connection_id.as_deref().unwrap_or("None");
 
         let _span_enter = debug_span!("grpc_connection", conn_id = conn_id).entered();
 

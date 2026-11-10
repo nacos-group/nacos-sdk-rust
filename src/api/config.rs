@@ -237,6 +237,16 @@ impl ConfigResponse {
         Arc::ptr_eq(&self.content, other)
     }
 
+    #[cfg(test)]
+    pub(crate) fn shares_content_type_with(&self, other: &Arc<String>) -> bool {
+        Arc::ptr_eq(&self.content_type, other)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn shares_md5_with(&self, other: &Arc<String>) -> bool {
+        Arc::ptr_eq(&self.md5, other)
+    }
+
     pub(crate) fn from_shared(
         data_id: Arc<String>,
         group: Arc<String>,
