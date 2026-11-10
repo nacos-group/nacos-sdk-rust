@@ -18,7 +18,7 @@
 //! Integration tests for the Naming service.
 //!
 //! These tests require a running Nacos server (rnacos or Docker).
-//! Run with: `cargo test --test it_naming --features naming -- --include-ignored`
+//! Run with: `cargo test --test it_naming --features naming`
 
 #![allow(dead_code)]
 
@@ -222,7 +222,7 @@ mod naming_integration_tests {
         tokio::time::sleep(PROPAGATION_WAIT).await;
 
         let (service_names, count) = service
-            .get_service_list(1, 100, group.clone())
+            .get_service_list(1, 1000, group.clone())
             .await
             .expect("get_service_list failed");
         assert!(count >= 1, "expected at least one service");

@@ -359,13 +359,10 @@ impl Service<NacosGrpcCall> for Tonic {
         match call {
             NacosGrpcCall::RequestService(request) => {
                 let _span_enter = debug_span!("tonic_unary", server = %self.endpoint_uri).entered();
-                let request_client = self.request_client.clone();
+                let service = UnaryCallService::new(self.request_client.clone());
                 match &self.unary_call_layer {
-                    Some(layer) => {
-                        let service = UnaryCallService::new(request_client);
-                        unary_request(layer.layer(Box::new(service)), request)
-                    }
-                    None => unary_request(UnaryCallService::new(request_client), request),
+                    Some(layer) => unary_request(layer.layer(Box::new(service)), request),
+                    None => unary_request(service, request),
                 }
             }
             NacosGrpcCall::BIRequestService(request) => {

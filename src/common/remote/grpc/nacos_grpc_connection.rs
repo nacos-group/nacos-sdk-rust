@@ -21,7 +21,7 @@ use crate::common::remote::grpc::message::request::{
     ConnectionSetupRequest, HealthCheckRequest, NacosClientAbilities, ServerCheckRequest,
 };
 use crate::common::remote::grpc::message::response::{HealthCheckResponse, ServerCheckResponse};
-use crate::common::remote::grpc::message::{GrpcMessage, GrpcMessageBuilder, GrpcRequestMessage};
+use crate::common::remote::grpc::message::{GrpcMessage, GrpcMessageBuilder, GrpcMessageData};
 use crate::common::remote::grpc::nacos_grpc_service::GrpcStream;
 use crate::common::remote::grpc::utils;
 use crate::{api::error::Error, nacos_proto::v2::Payload};
@@ -29,8 +29,9 @@ use crate::{api::error::Error, nacos_proto::v2::Payload};
 use super::nacos_grpc_service::NacosGrpcCall;
 use super::nacos_grpc_service::ServerRequestHandler;
 
-type ConnectedListener = Arc<dyn Fn(String) + Send + Sync + 'static>;
-type DisconnectedListener = Arc<dyn Fn(String) + Send + Sync + 'static>;
+pub(crate) type ConnectionStatusListener = Arc<dyn Fn(String) + Send + Sync + 'static>;
+pub(crate) type ConnectedListener = ConnectionStatusListener;
+pub(crate) type DisconnectedListener = ConnectionStatusListener;
 
 type HandlerMap = HashMap<String, Arc<dyn ServerRequestHandler>>;
 const MAX_RETRY: u32 = 6;
@@ -157,7 +158,7 @@ where
     fn connection_status_listener(
         self,
         connected: bool,
-        listener: Arc<dyn Fn(String) + Send + Sync + 'static>,
+        listener: ConnectionStatusListener,
     ) -> Self {
         let mut rx = self.connection_id_watcher.1.clone();
         let watch_fu = async move {
@@ -367,13 +368,15 @@ where
         Ok(conn_id_sender)
     }
 
-    async fn request_once<Req>(
+    /// The returned `want::Taker` must stay alive until `rx` resolves, otherwise
+    /// the gRPC callback is torn down before the response arrives.
+    fn request_once<Req>(
         service: &mut M::Service,
         request: Req,
         request_context: &str,
     ) -> Result<(oneshot::Receiver<Result<Payload, Error>>, want::Taker), Error>
     where
-        Req: GrpcRequestMessage + 'static,
+        Req: GrpcMessageData + 'static,
     {
         let request = utils::convert(
             GrpcMessageBuilder::new(request).build().into_payload(),
@@ -391,12 +394,11 @@ where
     async fn connection_health_check(service: &mut M::Service) -> Result<(), Error> {
         info!("connection health check");
 
-        let (rx, _tk) = Self::request_once(
+        let (rx, _taker) = Self::request_once(
             service,
             HealthCheckRequest::default(),
             "health check request message convert to grpc message occur an error",
-        )
-        .await?;
+        )?;
 
         let response = match tokio::time::timeout(HEALTH_CHECK_REQUEST_TIMEOUT, rx).await {
             Err(_) => {
@@ -430,12 +432,11 @@ where
     async fn check_server(service: &mut M::Service) -> Result<String, Error> {
         info!("check server");
 
-        let (rx, _tk) = Self::request_once(
+        let (rx, _taker) = Self::request_once(
             service,
             ServerCheckRequest::new(),
             "server check request message convert to grpc message occur an error",
-        )
-        .await?;
+        )?;
 
         let response = utils::convert(
             utils::recv_response(rx.await, "grpc request callback failed")?,
@@ -507,7 +508,7 @@ where
                 return Poll::Ready(Ok(()));
             }
 
-            let retry = match self.state {
+            let cause = match self.state {
                 State::Idle => {
                     info!("create new connection.");
                     let send_ret = self.connection_id_watcher.0.send(None);
@@ -538,7 +539,7 @@ where
                         self.state = State::Initializing(init_future);
                         continue;
                     }
-                    Poll::Ready(Err(e)) => Some(RetryCause::Connect(e)),
+                    Poll::Ready(Err(e)) => RetryCause::Connect(e),
                 },
                 State::Initializing(ref mut init) => {
                     info!("the new connection is initializing.");
@@ -571,7 +572,7 @@ where
                             self.connection_id = Some(connection_id);
                             continue;
                         }
-                        Poll::Ready(Err(e)) => Some(RetryCause::Init(e)),
+                        Poll::Ready(Err(e)) => RetryCause::Init(e),
                     }
                 }
                 State::Connected(ref mut service) => match service.poll_ready(cx) {
@@ -580,11 +581,11 @@ where
                         if self.health.load(Ordering::Acquire) {
                             return Poll::Ready(Ok(()));
                         }
-                        Some(RetryCause::Unhealthy)
+                        RetryCause::Unhealthy
                     }
                     Poll::Ready(Err(e)) => {
                         self.health.store(false, Ordering::Release);
-                        Some(RetryCause::NotReady(e))
+                        RetryCause::NotReady(e)
                     }
                 },
                 State::Retry(ref mut sleep) => {
@@ -597,10 +598,8 @@ where
                 }
             };
 
-            if let Some(cause) = retry {
-                self.enter_retry(cause);
-                continue;
-            }
+            self.enter_retry(cause);
+            continue;
         }
     }
 

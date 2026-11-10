@@ -17,7 +17,6 @@ use tracing::{Instrument, instrument};
 
 #[derive(Clone)]
 pub(crate) struct ConfigWorker {
-    pub(crate) client_props: ClientProps,
     namespace: String,
     remote_client: Arc<NacosGrpcClient>,
     unified_cache: Arc<Cache<CacheData>>,
@@ -100,7 +99,6 @@ impl ConfigWorker {
         ));
 
         Ok(Self {
-            client_props,
             namespace,
             remote_client,
             unified_cache,
@@ -110,6 +108,10 @@ impl ConfigWorker {
 }
 
 impl ConfigWorker {
+    pub(crate) fn namespace(&self) -> &str {
+        &self.namespace
+    }
+
     #[instrument(skip_all)]
     pub(crate) async fn get_config(
         &self,

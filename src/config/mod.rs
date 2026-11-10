@@ -6,7 +6,7 @@
 //! - `cache`: Local caching of configuration data with change notifications
 //! - `handler`: Server push request handlers for configuration changes
 //! - `message`: gRPC message definitions for config-related requests/responses
-//! - `util`: Configuration-specific utilities (group key generation, parsing)
+//! - `util`: Configuration-specific utilities (group key generation)
 //! - `worker`: Background worker for config polling and change detection
 //!
 //! The public API for configuration management is exposed through [`crate::api::config::ConfigService`].
@@ -34,10 +34,7 @@ pub(crate) struct NacosConfigService {
 impl std::fmt::Debug for NacosConfigService {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("NacosConfigService")
-            .field(
-                "namespace",
-                &self.client_worker.client_props.get_namespace(),
-            )
+            .field("namespace", &self.client_worker.namespace())
             .field("client_id", &self.client_id)
             .finish()
     }
