@@ -348,8 +348,7 @@ impl Service<NacosGrpcCall> for Tonic {
     fn call(&mut self, call: NacosGrpcCall) -> Self::Future {
         match call {
             NacosGrpcCall::RequestService(request) => {
-                let _span_enter =
-                    debug_span!("tonic_unary", server = self.endpoint_uri.to_string()).entered();
+                let _span_enter = debug_span!("tonic_unary", server = %self.endpoint_uri).entered();
                 let unary_request_client = self.request_client.clone();
                 let unary_call_service = UnaryCallService::new(unary_request_client);
                 let dynamic_unary_call_service =
@@ -358,8 +357,7 @@ impl Service<NacosGrpcCall> for Tonic {
             }
             NacosGrpcCall::BIRequestService(request) => {
                 let _span_enter =
-                    debug_span!("tonic_bi_stream", server = self.endpoint_uri.to_string())
-                        .entered();
+                    debug_span!("tonic_bi_stream", server = %self.endpoint_uri).entered();
                 let bi_request_client = self.bi_client.clone();
                 let bi_call_service = BiStreamingCallService::new(bi_request_client);
                 let dynamic_bi_call_service = self.bi_call_layer.layer(Box::new(bi_call_service));

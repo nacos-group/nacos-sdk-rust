@@ -66,7 +66,7 @@ where
     pub(crate) fn into_payload(self) -> Result<Payload> {
         let meta_data = Metadata {
             r#type: T::identity().to_string(),
-            client_ip: self.client_ip.to_string(),
+            client_ip: self.client_ip,
             headers: self.headers,
         };
 
