@@ -46,9 +46,8 @@ impl ConfigWorker {
             .store(cache_kind, client_props.get_cache_dir())
             .build()
             .await;
-        let config_filters = Arc::new(config_filters);
-        attach_config_filters(&unified_cache, &config_filters);
         let unified_cache = Arc::new(unified_cache);
+        let config_filters = Arc::new(config_filters);
 
         // group_key: String
         let (notify_change_tx, notify_change_rx) = tokio::sync::mpsc::channel(16);
@@ -90,6 +89,7 @@ impl ConfigWorker {
             Arc::clone(&remote_client),
             Arc::clone(&unified_cache),
             notify_change_rx,
+            Arc::clone(&config_filters),
         ));
 
         crate::common::executor::spawn(Self::list_ensure_cache_data_newest(
@@ -107,20 +107,6 @@ impl ConfigWorker {
     }
 }
 
-/// Disk-loaded entries have no runtime filters; reattach them so cache hits and
-/// notifications still run the configured filters (e.g. decryption).
-fn attach_config_filters(
-    cache: &Cache<CacheData>,
-    config_filters: &Arc<Vec<Box<dyn ConfigFilter>>>,
-) {
-    if config_filters.is_empty() {
-        return;
-    }
-    cache.for_each_mut(|_, cache_data| {
-        cache_data.config_filters = Arc::clone(config_filters);
-    });
-}
-
 impl ConfigWorker {
     #[instrument(skip_all)]
     pub(crate) async fn get_config(
@@ -134,7 +120,7 @@ impl ConfigWorker {
         // Try to get config from cache first (if cache exists and content is complete)
         let cached_source = self.unified_cache.get(&group_key).and_then(|r| {
             if !r.content.is_empty() && !r.md5.is_empty() {
-                Some(r.resp_source())
+                Some(r.resp_source(&self.config_filters))
             } else {
                 None
             }
@@ -313,8 +299,7 @@ impl ConfigWorker {
         let group_key = util::group_key(&data_id, &group, &namespace);
 
         if !self.unified_cache.contains_key(&group_key) {
-            let mut cache_data =
-                CacheData::new(self.config_filters.clone(), data_id, group, namespace);
+            let mut cache_data = CacheData::new(data_id, group, namespace);
 
             // listen immediately upon initialization
             let config_resp = Self::get_config_inner_async(
@@ -327,7 +312,8 @@ impl ConfigWorker {
             .await;
             match config_resp {
                 Ok(config_resp) => {
-                    Self::fill_data_and_notify(&mut cache_data, config_resp).await;
+                    Self::fill_data_and_notify(&mut cache_data, config_resp, &self.config_filters)
+                        .await;
                 }
                 Err(e) => {
                     tracing::error!("get_config_inner_async, config_resp err={e:?}");
@@ -458,10 +444,14 @@ impl ConfigWorker {
         }
     }
 
-    async fn fill_data_and_notify(cache_data: &mut CacheData, config_resp: ConfigQueryResponse) {
+    async fn fill_data_and_notify(
+        cache_data: &mut CacheData,
+        config_resp: ConfigQueryResponse,
+        config_filters: &Arc<Vec<Box<dyn ConfigFilter>>>,
+    ) {
         if Self::fill_data(cache_data, config_resp) {
             // check md5 and then notify
-            cache_data.notify_listener().await;
+            cache_data.notify_listener(config_filters).await;
         }
     }
 
@@ -471,6 +461,7 @@ impl ConfigWorker {
         remote_client: Arc<NacosGrpcClient>,
         unified_cache: Arc<Cache<CacheData>>,
         mut notify_change_rx: tokio::sync::mpsc::Receiver<String>,
+        config_filters: Arc<Vec<Box<dyn ConfigFilter>>>,
     ) {
         loop {
             match notify_change_rx.recv().await {
@@ -513,7 +504,9 @@ impl ConfigWorker {
                                 None => false,
                             };
                             if should_notify {
-                                let source = unified_cache.get(&group_key).map(|r| r.resp_source());
+                                let source = unified_cache
+                                    .get(&group_key)
+                                    .map(|r| r.resp_source(&config_filters));
                                 if let Some(source) = source {
                                     let resp = source.into_response().await;
                                     if let Some(cache_ref) = unified_cache.get(&group_key) {
@@ -735,36 +728,5 @@ mod tests {
                 config_resp
             );
         }
-    }
-
-    #[tokio::test]
-    async fn test_attach_config_filters_to_loaded_entries() {
-        use crate::api::plugin::{ConfigFilter, ConfigReq, ConfigResp};
-        use crate::common::cache::{Cache, CacheBuilder};
-        use crate::config::cache::{CacheData, RespSource};
-
-        struct NoopFilter;
-
-        #[async_trait::async_trait]
-        impl ConfigFilter for NoopFilter {
-            async fn filter(&self, _: Option<&mut ConfigReq>, _: Option<&mut ConfigResp>) {}
-        }
-
-        let cache: Cache<CacheData> = CacheBuilder::config("ns".to_string()).build().await;
-        let key = "D+G+ns".to_string();
-        cache.insert(key.clone(), CacheData::default());
-
-        super::attach_config_filters(&cache, &Arc::new(Vec::new()));
-        assert!(matches!(
-            cache.get(&key).expect("entry should exist").resp_source(),
-            RespSource::Raw(_)
-        ));
-
-        let filters: Arc<Vec<Box<dyn ConfigFilter>>> = Arc::new(vec![Box::new(NoopFilter)]);
-        super::attach_config_filters(&cache, &filters);
-        assert!(matches!(
-            cache.get(&key).expect("entry should exist").resp_source(),
-            RespSource::Filtered(_)
-        ));
     }
 }

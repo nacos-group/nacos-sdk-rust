@@ -6,7 +6,7 @@ use std::ops::Deref;
 use std::sync::{Arc, Mutex};
 
 /// Cache Data for Config
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Default)]
 pub(crate) struct CacheData {
     pub data_id: Arc<String>,
     pub group: Arc<String>,
@@ -26,38 +26,11 @@ pub(crate) struct CacheData {
     /// who listen of config change. (runtime only, don't persist)
     #[serde(skip)]
     pub listeners: Arc<Mutex<Vec<ListenerWrapper>>>,
-
-    #[serde(skip)]
-    pub config_filters: Arc<Vec<Box<dyn ConfigFilter>>>,
-}
-
-impl Default for CacheData {
-    fn default() -> Self {
-        Self {
-            data_id: Arc::new(String::new()),
-            group: Arc::new(String::new()),
-            namespace: Arc::new(String::new()),
-            content_type: Arc::new(String::new()),
-            content: Arc::new(String::new()),
-            md5: Arc::new(String::new()),
-            encrypted_data_key: Arc::new(String::new()),
-            last_modified: 0,
-            initializing: false,
-            listeners: Arc::new(Mutex::new(Vec::new())),
-            config_filters: Arc::new(Vec::new()),
-        }
-    }
 }
 
 impl CacheData {
-    pub fn new(
-        config_filters: Arc<Vec<Box<dyn ConfigFilter>>>,
-        data_id: String,
-        group: String,
-        namespace: String,
-    ) -> Self {
+    pub fn new(data_id: String, group: String, namespace: String) -> Self {
         Self {
-            config_filters,
             data_id: Arc::new(data_id),
             group: Arc::new(group),
             namespace: Arc::new(namespace),
@@ -100,8 +73,8 @@ impl CacheData {
     ///
     /// NOTE: never call while holding a DashMap guard — it awaits (config filters),
     /// and a guard held across an await can deadlock the SDK runtime.
-    pub async fn notify_listener(&mut self) {
-        let config_resp = self.resp_source().into_response().await;
+    pub async fn notify_listener(&mut self, config_filters: &Arc<Vec<Box<dyn ConfigFilter>>>) {
+        let config_resp = self.resp_source(config_filters).into_response().await;
         self.dispatch_notify(config_resp);
     }
 
@@ -133,11 +106,17 @@ impl CacheData {
     }
 
     /// Build a response source that can be materialized without holding a cache guard.
-    pub(crate) fn resp_source(&self) -> RespSource {
-        if self.config_filters.is_empty() {
+    ///
+    /// Filters belong to the worker exit, not to the cached data, so entries
+    /// restored from disk behave like entries created at runtime.
+    pub(crate) fn resp_source(
+        &self,
+        config_filters: &Arc<Vec<Box<dyn ConfigFilter>>>,
+    ) -> RespSource {
+        if config_filters.is_empty() {
             RespSource::Raw(self.raw_response())
         } else {
-            RespSource::Filtered(self.resp_snapshot())
+            RespSource::Filtered(self.resp_snapshot(config_filters))
         }
     }
 
@@ -154,9 +133,12 @@ impl CacheData {
     }
 
     /// Clone a pre-filter response snapshot, so async filters can run lock-free.
-    pub(crate) fn resp_snapshot(&self) -> RespSnapshot {
+    pub(crate) fn resp_snapshot(
+        &self,
+        config_filters: &Arc<Vec<Box<dyn ConfigFilter>>>,
+    ) -> RespSnapshot {
         (
-            Arc::clone(&self.config_filters),
+            Arc::clone(config_filters),
             ConfigResp::new(
                 self.data_id.to_string(),
                 self.group.to_string(),
@@ -262,7 +244,7 @@ mod tests {
     fn test_cache_data_add_listener() {
         let (d, g, n) = ("D".to_string(), "G".to_string(), "N".to_string());
 
-        let mut cache_data = CacheData::new(Arc::new(Vec::new()), d, g, n);
+        let mut cache_data = CacheData::new(d, g, n);
 
         // test add listener1
         let lis1_arc = Arc::new(TestConfigChangeListener1 {});
@@ -285,7 +267,7 @@ mod tests {
     fn test_cache_data_add_listener_then_remove() {
         let (d, g, n) = ("D".to_string(), "G".to_string(), "N".to_string());
 
-        let mut cache_data = CacheData::new(Arc::new(Vec::new()), d, g, n);
+        let mut cache_data = CacheData::new(d, g, n);
 
         // test add listener1
         let lis1_arc = Arc::new(TestConfigChangeListener1 {});
@@ -324,12 +306,7 @@ mod tests {
 
     #[test]
     fn test_cache_data_serde_roundtrip() {
-        let mut data = CacheData::new(
-            Arc::new(Vec::new()),
-            "D".to_string(),
-            "G".to_string(),
-            "N".to_string(),
-        );
+        let mut data = CacheData::new("D".to_string(), "G".to_string(), "N".to_string());
         data.content = Arc::new("hello".to_string());
         data.md5 = Arc::new("m1".to_string());
         data.content_type = Arc::new("json".to_string());
@@ -339,7 +316,6 @@ mod tests {
         let json = serde_json::to_string(&data).expect("cache data should serialize");
         assert!(json.contains("\"content\":\"hello\""));
         assert!(!json.contains("listeners"));
-        assert!(!json.contains("config_filters"));
         assert!(!json.contains("initializing"));
 
         let decoded: CacheData =
@@ -368,20 +344,43 @@ mod tests {
         assert_eq!(decoded.content_type.as_str(), "text");
         assert_eq!(decoded.md5.as_str(), "m1");
         assert_eq!(decoded.last_modified, 42);
-        assert!(decoded.config_filters.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_loaded_entry_uses_worker_filters() {
+        use crate::api::plugin::{ConfigFilter, ConfigReq, ConfigResp};
+
+        struct Append(&'static str);
+
+        #[async_trait::async_trait]
+        impl ConfigFilter for Append {
+            async fn filter(
+                &self,
+                _: Option<&mut ConfigReq>,
+                config_resp: Option<&mut ConfigResp>,
+            ) {
+                if let Some(config_resp) = config_resp {
+                    config_resp.content.push_str(self.0);
+                }
+            }
+        }
+
+        let json = r#"{"data_id":"D","group":"G","namespace":"N","content_type":"text","content":"hello","md5":"m1","encrypted_data_key":"","last_modified":42}"#;
+        let data: CacheData =
+            serde_json::from_str(json).expect("legacy cache json should deserialize");
+        let filters: Arc<Vec<Box<dyn ConfigFilter>>> =
+            Arc::new(vec![Box::new(Append("-decrypted"))]);
+
+        let response = data.resp_source(&filters).into_response().await;
+        assert_eq!(response.content(), "hello-decrypted");
     }
 
     #[test]
     fn test_resp_source_without_filters_is_raw_and_shared() {
-        let mut data = CacheData::new(
-            Arc::new(Vec::new()),
-            "D".to_string(),
-            "G".to_string(),
-            "N".to_string(),
-        );
+        let mut data = CacheData::new("D".to_string(), "G".to_string(), "N".to_string());
         data.content = Arc::new("hello".to_string());
 
-        let RespSource::Raw(response) = data.resp_source() else {
+        let RespSource::Raw(response) = data.resp_source(&Arc::new(Vec::new())) else {
             panic!("a cache entry without filters must take the raw path");
         };
         assert!(response.shares_content_with(&data.content));
@@ -408,10 +407,10 @@ mod tests {
 
         let filters: Arc<Vec<Box<dyn ConfigFilter>>> =
             Arc::new(vec![Box::new(Append("-1")), Box::new(Append("-2"))]);
-        let mut data = CacheData::new(filters, "D".to_string(), "G".to_string(), "N".to_string());
+        let mut data = CacheData::new("D".to_string(), "G".to_string(), "N".to_string());
         data.content = Arc::new("base".to_string());
 
-        let response = data.resp_source().into_response().await;
+        let response = data.resp_source(&filters).into_response().await;
         assert_eq!(response.content(), "base-1-2");
     }
 
@@ -429,12 +428,7 @@ mod tests {
         }
 
         let hits = Arc::new(AtomicUsize::new(0));
-        let mut data = CacheData::new(
-            Arc::new(Vec::new()),
-            "D".to_string(),
-            "G".to_string(),
-            "N".to_string(),
-        );
+        let mut data = CacheData::new("D".to_string(), "G".to_string(), "N".to_string());
         data.md5 = Arc::new("m1".to_string());
         data.add_listener(Arc::new(CountingListener(hits.clone())));
 
@@ -521,12 +515,7 @@ mod tests {
             hits: AtomicUsize::new(0),
         });
 
-        let mut data = CacheData::new(
-            filters,
-            "D".to_string(),
-            "G".to_string(),
-            "test-ns".to_string(),
-        );
+        let mut data = CacheData::new("D".to_string(), "G".to_string(), "test-ns".to_string());
         data.content = Arc::new("c".to_string());
         data.md5 = Arc::new("m1".to_string());
         data.initializing = false;
@@ -537,10 +526,11 @@ mod tests {
         // run async filters lock-free, then dispatch synchronously.
         let cache_in_task = Arc::clone(&cache);
         let key_in_task = key.clone();
+        let filters_in_task = Arc::clone(&filters);
         let notify_task = tokio::spawn(async move {
             let snapshot = cache_in_task
                 .get(&key_in_task)
-                .map(|r| r.resp_snapshot())
+                .map(|r| r.resp_snapshot(&filters_in_task))
                 .expect("entry should exist");
             let resp = CacheData::filtered_response(snapshot).await;
             if let Some(r) = cache_in_task.get(&key_in_task) {
@@ -605,12 +595,7 @@ mod tests {
         let key = "D+G+test-ns".to_string();
         cache.insert(
             key.clone(),
-            CacheData::new(
-                Arc::new(Vec::new()),
-                "D".to_string(),
-                "G".to_string(),
-                "test-ns".to_string(),
-            ),
+            CacheData::new("D".to_string(), "G".to_string(), "test-ns".to_string()),
         );
 
         let entered = Arc::new(AtomicBool::new(false));
