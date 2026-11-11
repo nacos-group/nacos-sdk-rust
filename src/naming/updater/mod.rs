@@ -46,15 +46,14 @@ impl ServiceInfoUpdater {
         }
     }
 
-    #[instrument(fields(group_name = group_name, cluster = cluster), skip_all)]
+    #[instrument(fields(group_name = group_name), skip_all)]
     pub(crate) async fn schedule_update(
         &self,
         namespace: String,
         service_name: String,
         group_name: String,
-        cluster: String,
     ) {
-        let task_key = ServiceInfoUpdater::update_task_key(&service_name, &group_name, &cluster);
+        let task_key = ServiceInfoUpdater::update_task_key(&service_name, &group_name);
         let mut lock = self.task_map.lock().await;
 
         let is_exist = lock.contains_key(&task_key);
@@ -63,7 +62,6 @@ impl ServiceInfoUpdater {
                 service_name,
                 namespace,
                 group_name,
-                cluster,
                 self.cache.clone(),
                 self.nacos_grpc_client.clone(),
                 self.service_info_emitter.clone(),
@@ -74,14 +72,9 @@ impl ServiceInfoUpdater {
         }
     }
 
-    #[instrument(fields(group_name = group_name, cluster = cluster), skip_all)]
-    pub(crate) async fn stop_update(
-        &self,
-        service_name: String,
-        group_name: String,
-        cluster: String,
-    ) {
-        let task_key = ServiceInfoUpdater::update_task_key(&service_name, &group_name, &cluster);
+    #[instrument(fields(group_name = group_name), skip_all)]
+    pub(crate) async fn stop_update(&self, service_name: String, group_name: String) {
+        let task_key = ServiceInfoUpdater::update_task_key(&service_name, &group_name);
         let mut lock = self.task_map.lock().await;
         let ret = lock.remove(&task_key);
         if let Some(task) = ret {
@@ -89,18 +82,21 @@ impl ServiceInfoUpdater {
         }
     }
 
-    fn update_task_key(service_name: &str, group_name: &str, cluster: &str) -> String {
-        let group_service_name = ServiceInfo::get_grouped_service_name(service_name, group_name);
-        ServiceInfo::get_key(&group_service_name, cluster)
+    /// The polling task is identified by service and group only.
+    ///
+    /// The Java client runs a single update task per service and group
+    /// (`ServiceInfoUpdateService.scheduleUpdateIfAbsent`) and queries the
+    /// server without a cluster filter, so the cache always holds the full
+    /// instance set.
+    fn update_task_key(service_name: &str, group_name: &str) -> String {
+        ServiceInfo::get_key_without_clusters(service_name, group_name)
     }
 }
-
 struct ServiceInfoUpdateTask {
     running: Arc<AtomicBool>,
     service_name: String,
     namespace: String,
     group_name: String,
-    cluster: String,
     cache: Arc<Cache<ServiceInfo>>,
     nacos_grpc_client: Arc<NacosGrpcClient>,
     service_info_emitter: Arc<ServiceInfoEmitter>,
@@ -115,7 +111,6 @@ impl ServiceInfoUpdateTask {
         service_name: String,
         namespace: String,
         group_name: String,
-        cluster: String,
         cache: Arc<Cache<ServiceInfo>>,
         nacos_grpc_client: Arc<NacosGrpcClient>,
         service_info_emitter: Arc<ServiceInfoEmitter>,
@@ -125,7 +120,6 @@ impl ServiceInfoUpdateTask {
             service_name,
             namespace,
             group_name,
-            cluster,
             cache,
             nacos_grpc_client,
             service_info_emitter,
@@ -139,7 +133,6 @@ impl ServiceInfoUpdateTask {
         }
         self.running.store(true, Ordering::Release);
 
-        let cluster = self.cluster.clone();
         let group_name = self.group_name.clone();
         let namespace = self.namespace.clone();
         let service_name = self.service_name.clone();
@@ -155,8 +148,10 @@ impl ServiceInfoUpdateTask {
 
             let mut failed_count = 0;
 
+            // Query without a cluster filter so the polled result covers every
+            // instance, the same way the Java client refreshes the cache.
             let request = ServiceQueryRequest {
-                cluster,
+                cluster: String::new(),
                 group_name: Some(group_name),
                 healthy_only: false,
                 udp_port: 0,
@@ -176,7 +171,13 @@ impl ServiceInfoUpdateTask {
             let cache_key = {
                 let group_name = request.group_name.as_deref().unwrap_or_default();
                 let service_name = request.service_name.as_deref().unwrap_or_default();
-                ServiceInfoUpdater::update_task_key(service_name, group_name, &request.cluster)
+                // The cache is keyed by service and group only, never by
+                // cluster: the Java client stores the full instance set and
+                // narrows it down in memory. Using a cluster-qualified key
+                // here would never match the entry the observer wrote, so
+                // `last_ref_time` would always be missing and every poll
+                // would hit the server.
+                ServiceInfo::get_key_without_clusters(service_name, group_name)
             };
 
             info!("{log_tag}:ServiceInfoUpdateTask started");
@@ -259,5 +260,26 @@ impl ServiceInfoUpdateTask {
 
     fn stop(&self) {
         self.running.store(false, Ordering::Release);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_update_task_key_excludes_clusters() {
+        // The polling task and the cache agree on one key shape: service and
+        // group only. A cluster-qualified key would never match the entry the
+        // observer wrote, so `last_ref_time` would always be missing and every
+        // poll would hit the server.
+        assert_eq!(
+            ServiceInfoUpdater::update_task_key("svc", "DEFAULT"),
+            "DEFAULT@@svc"
+        );
+        assert_eq!(
+            ServiceInfoUpdater::update_task_key("svc", "DEFAULT"),
+            ServiceInfo::get_key_without_clusters("svc", "DEFAULT")
+        );
     }
 }

@@ -90,6 +90,13 @@ impl ServiceInfo {
         })
     }
 
+    /// Builds a service key that includes the cluster list.
+    ///
+    /// This mirrors the Java client's `ServiceInfo.getKey(name, clusters)`.
+    /// It is **not** used to key the cache: the Java client stores the full
+    /// instance set under [`ServiceInfo::get_key_without_clusters`] and
+    /// narrows it down in memory, so the cache never mixes instances from
+    /// different clusters.
     pub fn get_key(name: &str, clusters: &str) -> String {
         if !clusters.is_empty() {
             let key = format!("{}{}{}", name, SERVICE_INFO_SEPARATOR, clusters);
@@ -99,9 +106,14 @@ impl ServiceInfo {
         name.to_string()
     }
 
-    /// Get service key without clusters, aligned with Java client's getKeyWithoutClusters().
-    /// Used for listener registry subscription/unsubscription to ensure notifications
-    /// work correctly regardless of cluster information in server push messages.
+    /// Get the key used for the service info cache and the listener registry.
+    ///
+    /// Aligned with the Java client's `NamingUtils.getGroupedName(serviceName,
+    /// groupName)`, which is the key its `serviceInfoMap` is written and read
+    /// with. The cluster list is deliberately excluded: the Java client
+    /// subscribes with an empty cluster list so the cached `ServiceInfo` holds
+    /// every instance, and it filters by cluster in memory when handing the
+    /// result to the caller.
     pub fn get_key_without_clusters(service_name: &str, group_name: &str) -> String {
         Self::get_grouped_service_name(service_name, group_name)
     }

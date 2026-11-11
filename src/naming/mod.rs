@@ -19,6 +19,7 @@ use std::sync::atomic::AtomicU64;
 use tracing::{debug, info, instrument, warn};
 
 use crate::api::error::Result;
+use crate::api::naming::DEFAULT_CLUSTER_NAME;
 use crate::api::naming::{NamingEventListener, ServiceInstance};
 use crate::api::plugin::AuthPlugin;
 use crate::api::props::ClientProps;
@@ -72,6 +73,47 @@ static SEQ: AtomicU64 = AtomicU64::new(1);
 
 fn is_selectable(instance: &ServiceInstance, healthy: bool) -> bool {
     healthy == instance.healthy && instance.enabled && instance.weight > 0.0
+}
+
+/// Filters instances down to the requested clusters.
+///
+/// The Java client subscribes with an empty cluster list (`Constants.NULL`) so
+/// the server returns every instance, and then narrows the result in memory
+/// with a cluster selector. This mirrors that selector: an instance is kept
+/// when its cluster name is in `clusters`, and an empty `clusters` keeps all
+/// of them.
+pub(crate) fn filter_instances_by_clusters(
+    instances: &[ServiceInstance],
+    clusters: &[String],
+) -> Vec<ServiceInstance> {
+    if clusters.is_empty() {
+        return instances.to_vec();
+    }
+    instances
+        .iter()
+        .filter(|instance| {
+            let cluster_name = instance
+                .cluster_name
+                .as_deref()
+                .unwrap_or(DEFAULT_CLUSTER_NAME);
+            clusters.iter().any(|cluster| cluster == cluster_name)
+        })
+        .cloned()
+        .collect()
+}
+
+/// Filters a shared instance list down to the requested clusters.
+///
+/// When no cluster is requested the original list is returned as-is, so cache
+/// hits keep sharing the same allocation.
+fn filter_instances_by_clusters_arc(
+    instances: Arc<Vec<ServiceInstance>>,
+    clusters: &[String],
+) -> Arc<Vec<ServiceInstance>> {
+    if clusters.is_empty() {
+        return instances;
+    }
+    Arc::new(filter_instances_by_clusters(&instances, clusters))
 }
 
 impl NacosNamingService {
@@ -363,12 +405,13 @@ impl NacosNamingService {
         clusters: Vec<String>,
         subscribe: bool,
     ) -> Result<Arc<Vec<ServiceInstance>>> {
-        let cluster_str = clusters.join(",");
         let group_name = crate::common::util::normalize_group_name(group_name);
 
         let hosts = if subscribe {
-            let grouped_name = ServiceInfo::get_grouped_service_name(&service_name, &group_name);
-            let key = ServiceInfo::get_key(&grouped_name, &cluster_str);
+            // The cache is keyed by service and group only, never by cluster:
+            // the Java client stores the full instance set and narrows it down
+            // in memory (see `filter_instances_by_clusters`).
+            let key = ServiceInfo::get_key_without_clusters(&service_name, &group_name);
 
             let cached_hosts = self
                 .naming_cache
@@ -380,14 +423,14 @@ impl NacosNamingService {
                     hosts
                 }
                 None => self
-                    .subscribe_async(service_name, Some(group_name), clusters, None)
+                    .subscribe_async(service_name, Some(group_name), clusters.clone(), None)
                     .await
                     .ok()
                     .flatten(),
             }
         } else {
             let request = ServiceQueryRequest {
-                cluster: cluster_str,
+                cluster: clusters.join(","),
                 group_name: Some(group_name),
                 healthy_only: false,
                 udp_port: 0,
@@ -402,7 +445,10 @@ impl NacosNamingService {
             crate::common::error::handle_response(&response, "get_all_instances")?;
             response.service_info.hosts
         };
-        Ok(hosts.unwrap_or_default())
+        let hosts = hosts.unwrap_or_default();
+        // Narrow the result down to the requested clusters, the way the Java
+        // client does with its in-memory cluster selector.
+        Ok(filter_instances_by_clusters_arc(hosts, &clusters))
     }
 
     #[instrument(fields(client_id = &self.client_id, group = group_name), skip_all)]
@@ -487,9 +533,10 @@ impl NacosNamingService {
         clusters: Vec<String>,
         event_listener: Option<Arc<dyn NamingEventListener>>,
     ) -> Result<Option<Arc<Vec<ServiceInstance>>>> {
-        let clusters = clusters.join(",");
         let group_name = crate::common::util::normalize_group_name(group_name);
-        // Use key without clusters for both listener registration and cache operations (aligned with Java client)
+        // The cache is keyed by service and group only, never by cluster:
+        // the Java client stores the full instance set and narrows it down
+        // in memory (see `filter_instances_by_clusters`).
         let key = ServiceInfo::get_key_without_clusters(&service_name, &group_name);
 
         // add updater task (for polling refresh when gRPC push is not available)
@@ -498,19 +545,26 @@ impl NacosNamingService {
                 self.namespace.clone(),
                 service_name.clone(),
                 group_name.clone(),
-                clusters.clone(),
             )
             .await;
 
         // add event listener
         if let Some(event_listener) = event_listener {
-            self.observer.subscribe(key.clone(), event_listener).await;
+            self.observer
+                .subscribe(key.clone(), clusters.clone(), event_listener)
+                .await;
         }
 
-        // Create subscribe request for background execution
+        // Create subscribe request for background execution.
+        //
+        // The cluster list is deliberately left empty: the Java client always
+        // subscribes with `Constants.NULL` so the server returns every
+        // instance and the cache holds the complete set. Requesting a subset
+        // would make the cached instances depend on which cluster happened to
+        // be subscribed first.
         let request = SubscribeServiceRequest::new(
             true,
-            clusters,
+            String::new(),
             Some(service_name),
             Some(self.namespace.clone()),
             Some(group_name),
@@ -559,30 +613,34 @@ impl NacosNamingService {
 
         Ok(response.service_info.hosts)
     }
-
     #[instrument(fields(client_id = &self.client_id, group = group_name), skip_all)]
     pub(crate) async fn unsubscribe(
         &self,
         service_name: String,
         group_name: Option<String>,
-        clusters: Vec<String>,
+        // The listener is matched by identity, so the clusters it subscribed
+        // with are not needed here any more. The parameter is kept because it
+        // is part of the public API.
+        _clusters: Vec<String>,
         event_listener: Arc<dyn NamingEventListener>,
     ) -> Result<()> {
-        let clusters = clusters.join(",");
         let group_name = crate::common::util::normalize_group_name(group_name);
 
         // stop updater task
         self.service_info_updater
-            .stop_update(service_name.clone(), group_name.clone(), clusters.clone())
+            .stop_update(service_name.clone(), group_name.clone())
             .await;
 
-        // Use key without clusters for listener unregistration (aligned with Java client)
+        // The listener registry is keyed by service and group only, never by
+        // cluster (aligned with the Java client).
         let key = ServiceInfo::get_key_without_clusters(&service_name, &group_name);
         self.observer.unsubscribe(key, event_listener).await;
 
+        // The cluster list is deliberately left empty, matching the subscribe
+        // request it has to cancel out.
         let request = SubscribeServiceRequest::new(
             false,
-            clusters,
+            String::new(),
             Some(service_name),
             Some(self.namespace.clone()),
             Some(group_name),

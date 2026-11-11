@@ -728,6 +728,88 @@ mod naming_integration_tests {
             .await;
     }
 
+    /// Test: the cluster filter is applied client-side, like the Java client.
+    ///
+    /// The Java client subscribes without a cluster filter so the cached
+    /// service info holds every instance, then narrows the result down in
+    /// memory. This registers instances in two clusters and checks that a
+    /// cluster-scoped query returns only that cluster while an unscoped query
+    /// returns everything.
+    #[tokio::test]
+    async fn test_get_all_instances_filters_by_cluster() {
+        if get_server_mode() == ServerMode::ExternallyManaged {
+            return;
+        }
+
+        let server_addr = get_shared_server_addr().await;
+        let service = create_naming_service(server_addr).await;
+        let service_name = "test-multi-cluster-service".to_string();
+        let group = Some(constants::DEFAULT_GROUP.to_string());
+
+        let cluster_a = ServiceInstanceBuilder::new()
+            .ip("127.0.0.1")
+            .port(9910)
+            .cluster("CLUSTER_A")
+            .build();
+        let cluster_b = ServiceInstanceBuilder::new()
+            .ip("127.0.0.1")
+            .port(9911)
+            .cluster("CLUSTER_B")
+            .build();
+
+        service
+            .batch_register_instance(
+                service_name.clone(),
+                group.clone(),
+                vec![cluster_a.clone(), cluster_b.clone()],
+            )
+            .await
+            .expect("batch_register failed");
+
+        tokio::time::sleep(PROPAGATION_WAIT).await;
+
+        // A cluster-scoped query returns only that cluster.
+        let scoped = service
+            .get_all_instances(
+                service_name.clone(),
+                group.clone(),
+                vec!["CLUSTER_A".to_string()],
+                false,
+            )
+            .await
+            .expect("get_all_instances failed");
+        assert!(
+            scoped
+                .iter()
+                .all(|instance| { instance.cluster_name.as_deref() == Some("CLUSTER_A") }),
+            "a cluster-scoped query must only return instances of that cluster"
+        );
+        assert!(
+            scoped
+                .iter()
+                .any(|instance| instance.cluster_name.as_deref() == Some("CLUSTER_A")),
+            "the requested cluster's instance should be returned"
+        );
+
+        // An unscoped query returns every instance.
+        let all = service
+            .get_all_instances(service_name.clone(), group.clone(), vec![], false)
+            .await
+            .expect("get_all_instances failed");
+        assert!(
+            all.iter()
+                .any(|instance| instance.cluster_name.as_deref() == Some("CLUSTER_A"))
+                && all
+                    .iter()
+                    .any(|instance| instance.cluster_name.as_deref() == Some("CLUSTER_B")),
+            "an unscoped query must return the instances of every cluster"
+        );
+
+        let _ = service
+            .batch_register_instance(service_name, group, vec![])
+            .await;
+    }
+
     #[tokio::test]
     async fn test_multiple_services() {
         let server_addr = get_shared_server_addr().await;

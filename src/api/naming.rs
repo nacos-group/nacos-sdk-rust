@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use super::props::ClientProps;
 
-const DEFAULT_CLUSTER_NAME: &str = "DEFAULT";
+pub(crate) const DEFAULT_CLUSTER_NAME: &str = "DEFAULT";
 
 /// ServiceInstance for api.
 #[derive(Clone, Debug, Serialize, Deserialize)]
