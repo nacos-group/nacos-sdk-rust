@@ -163,9 +163,9 @@ fn test_filter_instances_by_clusters() {
 }
 
 #[test]
-fn test_filter_instances_by_clusters_default_cluster() {
-    // An instance without an explicit cluster name belongs to the default
-    // cluster, the same way the server treats it.
+fn test_filter_instances_by_clusters_without_cluster_name() {
+    // The Java selector compares the raw cluster name, so an instance that
+    // has none matches no cluster at all — not even the default one.
     let instances = vec![ServiceInstance {
         ip: "10.0.0.1".to_string(),
         port: 8080,
@@ -177,10 +177,14 @@ fn test_filter_instances_by_clusters_default_cluster() {
         &instances,
         &[crate::api::naming::DEFAULT_CLUSTER_NAME.to_string()],
     );
-    assert_eq!(default.len(), 1);
+    assert!(default.is_empty());
 
     let other = filter_instances_by_clusters(&instances, &["c1".to_string()]);
     assert!(other.is_empty());
+
+    // An unscoped query still returns it.
+    let all = filter_instances_by_clusters(&instances, &[]);
+    assert_eq!(all.len(), 1);
 }
 
 #[test]

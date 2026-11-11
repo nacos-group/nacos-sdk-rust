@@ -104,10 +104,14 @@ impl ServiceInfoObserver {
                     })
                 };
 
+                // The event reports the cluster scope of the listener it is
+                // delivered to, not the one the server happened to push. The
+                // Java client does the same in `NamingSelectorWrapper`, which
+                // carries the clusters the listener subscribed with.
                 let naming_event = Arc::new(NamingChangeEvent {
                     service_name: naming_event.service_name.clone(),
                     group_name: naming_event.group_name.clone(),
-                    clusters: naming_event.clusters.clone(),
+                    clusters: entry.clusters.join(","),
                     instances,
                 });
 
@@ -149,19 +153,27 @@ impl ServiceInfoObserver {
     }
 
     #[instrument(fields(unsubscribe_key = key), skip_all)]
-    pub(crate) async fn unsubscribe(&self, key: String, listener: Arc<dyn NamingEventListener>) {
+    pub(crate) async fn unsubscribe(
+        &self,
+        key: String,
+        listener: Arc<dyn NamingEventListener>,
+    ) -> bool {
         info!("unsubscribe {key:?}");
 
         let mut map = self.registry.write().await;
         let Some(listeners) = map.get_mut(&key) else {
-            return;
+            return false;
         };
 
         let Some(index) = Self::index_of_listener(listeners, &listener) else {
             warn!("listener {key:?} doesn't exist");
-            return;
+            return false;
         };
         listeners.remove(index);
+        // Report whether the service still has listeners, the way the Java
+        // client checks `changeNotifier.isSubscribed` before dropping the
+        // server-side subscription.
+        !listeners.is_empty()
     }
 }
 
@@ -341,12 +353,14 @@ mod tests {
 
         struct RecordingListener {
             received: Arc<Mutex<Option<Arc<Vec<ServiceInstance>>>>>,
+            clusters: Arc<Mutex<String>>,
             ran: Arc<AtomicBool>,
         }
 
         impl NamingEventListener for RecordingListener {
             fn event(&self, event: Arc<NamingChangeEvent>) {
                 *self.received.lock().expect("received") = event.instances.clone();
+                *self.clusters.lock().expect("clusters") = event.clusters.clone();
                 self.ran.store(true, Ordering::Release);
             }
         }
@@ -360,6 +374,7 @@ mod tests {
         let key = ServiceInfo::get_key_without_clusters("svc", "DEFAULT");
 
         let received = Arc::new(Mutex::new(None));
+        let clusters = Arc::new(Mutex::new(String::new()));
         let ran = Arc::new(AtomicBool::new(false));
         observer
             .subscribe(
@@ -367,6 +382,7 @@ mod tests {
                 vec!["c1".to_string()],
                 Arc::new(RecordingListener {
                     received: Arc::clone(&received),
+                    clusters: Arc::clone(&clusters),
                     ran: Arc::clone(&ran),
                 }),
             )
@@ -397,6 +413,15 @@ mod tests {
             "a listener must only receive the instances of the cluster it subscribed to"
         );
         assert_eq!(instances[0].ip, "10.0.0.1");
+
+        // The event reports the cluster scope of the listener it is delivered
+        // to, the way the Java client's `NamingSelectorWrapper` does — not the
+        // cluster the server happened to push.
+        assert_eq!(
+            clusters.lock().expect("clusters").clone(),
+            "c1",
+            "the event must report the cluster scope of its own listener"
+        );
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]

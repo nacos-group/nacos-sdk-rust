@@ -19,7 +19,6 @@ use std::sync::atomic::AtomicU64;
 use tracing::{debug, info, instrument, warn};
 
 use crate::api::error::Result;
-use crate::api::naming::DEFAULT_CLUSTER_NAME;
 use crate::api::naming::{NamingEventListener, ServiceInstance};
 use crate::api::plugin::AuthPlugin;
 use crate::api::props::ClientProps;
@@ -28,6 +27,7 @@ use crate::common::cache::{Cache, CacheBuilder};
 use crate::common::executor;
 use crate::common::remote::grpc::NacosGrpcClient;
 use crate::common::remote::grpc::NacosGrpcClientBuilder;
+use crate::common::remote::grpc::message::GrpcMessageData;
 use crate::common::remote::grpc::message::GrpcRequestMessage;
 use crate::common::remote::grpc::message::GrpcResponseMessage;
 use crate::common::remote::server_list::create_server_list_provider;
@@ -82,6 +82,10 @@ fn is_selectable(instance: &ServiceInstance, healthy: bool) -> bool {
 /// with a cluster selector. This mirrors that selector: an instance is kept
 /// when its cluster name is in `clusters`, and an empty `clusters` keeps all
 /// of them.
+///
+/// Like the Java selector, an instance without a cluster name matches no
+/// cluster at all: the Java filter compares the raw cluster name, so a
+/// missing name never matches a requested cluster.
 pub(crate) fn filter_instances_by_clusters(
     instances: &[ServiceInstance],
     clusters: &[String],
@@ -92,10 +96,9 @@ pub(crate) fn filter_instances_by_clusters(
     instances
         .iter()
         .filter(|instance| {
-            let cluster_name = instance
-                .cluster_name
-                .as_deref()
-                .unwrap_or(DEFAULT_CLUSTER_NAME);
+            let Some(cluster_name) = instance.cluster_name.as_deref() else {
+                return false;
+            };
             clusters.iter().any(|cluster| cluster == cluster_name)
         })
         .cloned()
@@ -117,6 +120,21 @@ fn filter_instances_by_clusters_arc(
 }
 
 impl NacosNamingService {
+    /// The redo task key of a service's subscription.
+    ///
+    /// It matches the key `AutomaticRequest::name` builds for a
+    /// `SubscribeServiceRequest`, so the executor can be asked whether the
+    /// service is still subscribed.
+    fn subscribe_task_key(namespace: &str, service_name: &str, group_name: &str) -> String {
+        format!(
+            "{}@@{}@@{}@@{}",
+            namespace,
+            group_name,
+            service_name,
+            <SubscribeServiceRequest as GrpcMessageData>::identity()
+        )
+    }
+
     pub(crate) async fn new(
         client_props: ClientProps,
         auth_plugin: Arc<dyn AuthPlugin>,
@@ -411,23 +429,14 @@ impl NacosNamingService {
             // The cache is keyed by service and group only, never by cluster:
             // the Java client stores the full instance set and narrows it down
             // in memory (see `filter_instances_by_clusters`).
-            let key = ServiceInfo::get_key_without_clusters(&service_name, &group_name);
-
-            let cached_hosts = self
-                .naming_cache
-                .get(&key)
-                .map(|cached| cached.hosts.clone());
-            match cached_hosts {
-                Some(hosts) => {
-                    info!("get_all_instances returned cached service_info, group_key={key}");
-                    hosts
-                }
-                None => self
-                    .subscribe_async(service_name, Some(group_name), clusters.clone(), None)
-                    .await
-                    .ok()
-                    .flatten(),
-            }
+            //
+            // `subscribe_async` only serves a cached entry while the service
+            // is still subscribed, so a stale entry left behind by a dropped
+            // subscription is never returned.
+            self.subscribe_async(service_name, Some(group_name), clusters.clone(), None)
+                .await
+                .ok()
+                .flatten()
         } else {
             let request = ServiceQueryRequest {
                 cluster: clusters.join(","),
@@ -539,6 +548,23 @@ impl NacosNamingService {
         // in memory (see `filter_instances_by_clusters`).
         let key = ServiceInfo::get_key_without_clusters(&service_name, &group_name);
 
+        // Whether the service is already subscribed. It has to be checked
+        // before this call registers its own redo task below.
+        //
+        // The cache is only served when the service is still subscribed. A
+        // cached entry may be left over from a subscription that was dropped,
+        // or come from the on-disk cache at startup, and in both cases the
+        // client has to talk to the server again. This is what the Java client
+        // does in `tryToSubscribe`.
+        let is_subscribed = self
+            .redo_task_executor
+            .contains_task(&Self::subscribe_task_key(
+                &self.namespace,
+                &service_name,
+                &group_name,
+            ))
+            .await;
+
         // add updater task (for polling refresh when gRPC push is not available)
         self.service_info_updater
             .schedule_update(
@@ -580,8 +606,11 @@ impl NacosNamingService {
         // add redo task to executor
         self.redo_task_executor.add_task(redo_task.clone()).await;
 
-        // Try to get service info from cache first (if load_cache_at_start is enabled)
-        if let Some(cached_info) = self.naming_cache.get(&key) {
+        // Try to get service info from cache first (if load_cache_at_start is enabled).
+        //
+        // The cache is only served when the service is still subscribed, so a
+        // stale entry left behind by a dropped subscription is never returned.
+        if is_subscribed && let Some(cached_info) = self.naming_cache.get(&key) {
             info!("subscribe returned cached service_info, group_key={key}");
 
             // Spawn the actual server request in the background to avoid blocking.
@@ -626,15 +655,23 @@ impl NacosNamingService {
     ) -> Result<()> {
         let group_name = crate::common::util::normalize_group_name(group_name);
 
+        // The listener registry is keyed by service and group only, never by
+        // cluster (aligned with the Java client).
+        let key = ServiceInfo::get_key_without_clusters(&service_name, &group_name);
+        let has_remaining_listeners = self.observer.unsubscribe(key, event_listener).await;
+
+        // The server-side subscription and the polling task are shared by all
+        // the listeners of a service, so they are only dropped once the last
+        // listener is gone. This mirrors the Java client, which checks
+        // `changeNotifier.isSubscribed` before unsubscribing.
+        if has_remaining_listeners {
+            return Ok(());
+        }
+
         // stop updater task
         self.service_info_updater
             .stop_update(service_name.clone(), group_name.clone())
             .await;
-
-        // The listener registry is keyed by service and group only, never by
-        // cluster (aligned with the Java client).
-        let key = ServiceInfo::get_key_without_clusters(&service_name, &group_name);
-        self.observer.unsubscribe(key, event_listener).await;
 
         // The cluster list is deliberately left empty, matching the subscribe
         // request it has to cancel out.

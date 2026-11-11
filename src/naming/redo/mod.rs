@@ -78,6 +78,17 @@ impl RedoTaskExecutor {
         map.remove(task_key);
     }
 
+    /// Whether a redo task is registered for the given key.
+    ///
+    /// The Java client uses the equivalent check (`isSubscribed`) to decide
+    /// whether a cached service info can be served as-is or whether the
+    /// subscription has to be re-established.
+    #[instrument(fields(task_key = task_key), skip_all)]
+    pub(crate) async fn contains_task(&self, task_key: &str) -> bool {
+        let map = self.map.read().await;
+        map.contains_key(task_key)
+    }
+
     #[instrument(fields(client_id = &self.id), skip_all)]
     pub(crate) async fn on_grpc_client_reconnect(&self) {
         let map = self.map.read().await;
