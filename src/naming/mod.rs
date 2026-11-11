@@ -429,14 +429,36 @@ impl NacosNamingService {
             // The cache is keyed by service and group only, never by cluster:
             // the Java client stores the full instance set and narrows it down
             // in memory (see `filter_instances_by_clusters`).
-            //
-            // `subscribe_async` only serves a cached entry while the service
-            // is still subscribed, so a stale entry left behind by a dropped
-            // subscription is never returned.
-            self.subscribe_async(service_name, Some(group_name), clusters.clone(), None)
-                .await
-                .ok()
-                .flatten()
+            let key = ServiceInfo::get_key_without_clusters(&service_name, &group_name);
+
+            // A cached entry may be left over from a subscription that was
+            // dropped, or come from the on-disk cache at startup, so it is
+            // only served while the service is still subscribed. This is what
+            // the Java client checks in `tryToSubscribe`.
+            let is_subscribed = self
+                .redo_task_executor
+                .contains_task(&Self::subscribe_task_key(
+                    &self.namespace,
+                    &service_name,
+                    &group_name,
+                ))
+                .await;
+
+            let cached_hosts = self
+                .naming_cache
+                .get(&key)
+                .map(|cached| cached.hosts.clone());
+            match cached_hosts {
+                Some(hosts) if is_subscribed => {
+                    info!("get_all_instances returned cached service_info, group_key={key}");
+                    hosts
+                }
+                _ => self
+                    .subscribe_async(service_name, Some(group_name), clusters.clone(), None)
+                    .await
+                    .ok()
+                    .flatten(),
+            }
         } else {
             let request = ServiceQueryRequest {
                 cluster: clusters.join(","),
