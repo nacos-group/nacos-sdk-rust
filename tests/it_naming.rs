@@ -960,6 +960,148 @@ mod naming_integration_tests {
             .await;
     }
 
+    /// Test: unsubscribing an unregistered listener is a no-op.
+    ///
+    /// The server-side subscription is shared by all the listeners of a
+    /// service, so it may only be dropped once the last listener is gone.
+    /// Unsubscribing a listener that was never registered must not drop it —
+    /// the Java client treats removing an unknown listener as a no-op.
+    #[tokio::test]
+    async fn test_unsubscribe_unknown_listener_keeps_subscription() {
+        if get_server_mode() == ServerMode::ExternallyManaged {
+            return;
+        }
+
+        let server_addr = get_shared_server_addr().await;
+        let service = create_naming_service(server_addr).await;
+        let service_name = "test-unknown-listener-service".to_string();
+        let group = Some(constants::DEFAULT_GROUP.to_string());
+
+        let kept = Arc::new(MockNamingListener::default());
+        let unknown = Arc::new(MockNamingListener::default());
+
+        service
+            .subscribe(service_name.clone(), group.clone(), vec![], kept.clone())
+            .await
+            .expect("subscribe failed");
+
+        // Unsubscribing a listener that was never registered must not affect
+        // the subscription the other listener relies on.
+        service
+            .unsubscribe(service_name.clone(), group.clone(), vec![], unknown)
+            .await
+            .expect("unsubscribe failed");
+
+        service
+            .batch_register_instance(
+                service_name.clone(),
+                group.clone(),
+                vec![
+                    ServiceInstanceBuilder::new()
+                        .ip("127.0.0.1")
+                        .port(9940)
+                        .build(),
+                ],
+            )
+            .await
+            .expect("batch_register failed");
+
+        tokio::time::sleep(PROPAGATION_WAIT).await;
+
+        assert!(
+            !kept.get_events().is_empty(),
+            "the registered listener must keep receiving pushes after an unrelated unsubscribe"
+        );
+
+        let _ = service
+            .batch_register_instance(service_name, group, vec![])
+            .await;
+    }
+
+    /// Test: unsubscribing an already-removed listener keeps the others alive.
+    ///
+    /// The second unsubscribe of the same listener finds nothing to remove.
+    /// That must be a no-op — the shared server-side subscription still
+    /// belongs to the listeners that are left.
+    #[tokio::test]
+    async fn test_unsubscribe_twice_keeps_other_listeners_alive() {
+        if get_server_mode() == ServerMode::ExternallyManaged {
+            return;
+        }
+
+        let server_addr = get_shared_server_addr().await;
+        let service = create_naming_service(server_addr).await;
+        let service_name = "test-double-unsubscribe-service".to_string();
+        let group = Some(constants::DEFAULT_GROUP.to_string());
+
+        let first = Arc::new(MockNamingListener::default());
+        let second = Arc::new(MockNamingListener::default());
+
+        service
+            .subscribe(service_name.clone(), group.clone(), vec![], first.clone())
+            .await
+            .expect("subscribe failed");
+        service
+            .subscribe(service_name.clone(), group.clone(), vec![], second.clone())
+            .await
+            .expect("subscribe failed");
+
+        service
+            .batch_register_instance(
+                service_name.clone(),
+                group.clone(),
+                vec![
+                    ServiceInstanceBuilder::new()
+                        .ip("127.0.0.1")
+                        .port(9941)
+                        .build(),
+                ],
+            )
+            .await
+            .expect("batch_register failed");
+
+        tokio::time::sleep(PROPAGATION_WAIT).await;
+
+        // Drop the first listener.
+        service
+            .unsubscribe(service_name.clone(), group.clone(), vec![], first.clone())
+            .await
+            .expect("unsubscribe failed");
+
+        // Unsubscribing it again must not affect the second listener.
+        service
+            .unsubscribe(service_name.clone(), group.clone(), vec![], first)
+            .await
+            .expect("unsubscribe failed");
+
+        service
+            .batch_register_instance(
+                service_name.clone(),
+                group.clone(),
+                vec![
+                    ServiceInstanceBuilder::new()
+                        .ip("127.0.0.1")
+                        .port(9942)
+                        .build(),
+                ],
+            )
+            .await
+            .expect("batch_register failed");
+
+        tokio::time::sleep(PROPAGATION_WAIT).await;
+
+        assert!(
+            second.get_events().len() >= 2,
+            "the remaining listener must keep receiving pushes after a duplicate unsubscribe, \
+             got {} events",
+            second.get_events().len()
+        );
+
+        let _ = service
+            .batch_register_instance(service_name, group, vec![])
+            .await;
+    }
+
     #[tokio::test]
     async fn test_multiple_services() {
         let server_addr = get_shared_server_addr().await;

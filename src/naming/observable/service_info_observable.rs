@@ -152,28 +152,29 @@ impl ServiceInfoObserver {
         }
     }
 
+    /// Removes a listener from the registry.
+    ///
+    /// Returns whether the service still has listeners left, or `None` when
+    /// the listener was not registered at all. The distinction matters:
+    /// unsubscribing a listener that was never registered must not drop the
+    /// shared server-side subscription, which other listeners still rely on.
+    /// The Java client behaves the same way — removing an unknown wrapper is a
+    /// no-op, and the subscription is only dropped once the listener set is
+    /// empty.
     #[instrument(fields(unsubscribe_key = key), skip_all)]
     pub(crate) async fn unsubscribe(
         &self,
         key: String,
         listener: Arc<dyn NamingEventListener>,
-    ) -> bool {
+    ) -> Option<bool> {
         info!("unsubscribe {key:?}");
 
         let mut map = self.registry.write().await;
-        let Some(listeners) = map.get_mut(&key) else {
-            return false;
-        };
+        let listeners = map.get_mut(&key)?;
 
-        let Some(index) = Self::index_of_listener(listeners, &listener) else {
-            warn!("listener {key:?} doesn't exist");
-            return false;
-        };
+        let index = Self::index_of_listener(listeners, &listener)?;
         listeners.remove(index);
-        // Report whether the service still has listeners, the way the Java
-        // client checks `changeNotifier.isSubscribed` before dropping the
-        // server-side subscription.
-        !listeners.is_empty()
+        Some(!listeners.is_empty())
     }
 }
 

@@ -654,15 +654,35 @@ impl NacosNamingService {
             return Ok(cached_info.hosts.clone());
         }
 
-        let response = self
+        // Subscribe to the server. When the server cannot be reached, fall
+        // back to the cached service info instead of reporting an empty
+        // result — this is what the Java client does in `tryToSubscribe`,
+        // and it is the whole point of `naming_load_cache_at_start`: serving
+        // the last known instances while the server is down.
+        let response = match self
             .request_to_server::<SubscribeServiceRequest, SubscribeServiceResponse>(request)
-            .await?;
-        crate::common::error::handle_response(&response, "subscribe")?;
+            .await
+        {
+            Ok(response) => {
+                crate::common::error::handle_response(&response, "subscribe")?;
+                debug!("subscribe the {response:?}");
+                redo_task.frozen();
+                response.service_info.hosts
+            }
+            Err(e) => {
+                warn!("subscribe failed, will use the local cache. fail message: {e}");
+                match self
+                    .naming_cache
+                    .get(&key)
+                    .map(|cached| cached.hosts.clone())
+                {
+                    Some(hosts) => hosts,
+                    None => return Err(e),
+                }
+            }
+        };
 
-        debug!("subscribe the {response:?}");
-        redo_task.frozen();
-
-        Ok(response.service_info.hosts)
+        Ok(response)
     }
     #[instrument(fields(client_id = &self.client_id, group = group_name), skip_all)]
     pub(crate) async fn unsubscribe(
@@ -680,13 +700,16 @@ impl NacosNamingService {
         // The listener registry is keyed by service and group only, never by
         // cluster (aligned with the Java client).
         let key = ServiceInfo::get_key_without_clusters(&service_name, &group_name);
-        let has_remaining_listeners = self.observer.unsubscribe(key, event_listener).await;
+        let remaining_listeners = self.observer.unsubscribe(key, event_listener).await;
 
         // The server-side subscription and the polling task are shared by all
         // the listeners of a service, so they are only dropped once the last
         // listener is gone. This mirrors the Java client, which checks
         // `changeNotifier.isSubscribed` before unsubscribing.
-        if has_remaining_listeners {
+        //
+        // A listener that was not registered is a no-op: unsubscribing it must
+        // not drop the subscription the other listeners still rely on.
+        if remaining_listeners != Some(false) {
             return Ok(());
         }
 
