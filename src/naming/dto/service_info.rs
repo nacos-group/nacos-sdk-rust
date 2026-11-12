@@ -73,11 +73,7 @@ impl ServiceInfo {
     }
 
     pub fn get_grouped_service_name(service_name: &str, group_name: &str) -> String {
-        if !group_name.is_empty() && !service_name.contains(SERVICE_INFO_SEPARATOR) {
-            let service_name = format!("{}{}{}", group_name, SERVICE_INFO_SEPARATOR, service_name);
-            return service_name;
-        }
-        service_name.to_string()
+        crate::common::util::grouped_service_name(service_name, group_name)
     }
 
     pub fn hosts_to_json(&self) -> String {

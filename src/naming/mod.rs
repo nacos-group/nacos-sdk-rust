@@ -121,18 +121,28 @@ fn filter_instances_by_clusters_arc(
 
 impl NacosNamingService {
     /// The redo task key of a service's subscription.
-    ///
-    /// It matches the key `AutomaticRequest::name` builds for a
-    /// `SubscribeServiceRequest`, so the executor can be asked whether the
-    /// service is still subscribed.
     fn subscribe_task_key(namespace: &str, service_name: &str, group_name: &str) -> String {
-        format!(
-            "{}@@{}@@{}@@{}",
+        crate::naming::redo::redo_task_key(
             namespace,
             group_name,
             service_name,
-            <SubscribeServiceRequest as GrpcMessageData>::identity()
+            <SubscribeServiceRequest as GrpcMessageData>::identity(),
         )
+    }
+
+    /// Whether the server-side subscription for this service is still active.
+    ///
+    /// The redo task registry holds one entry per active subscription, the
+    /// same way the Java client checks `isSubscribed`.
+    #[allow(dead_code)]
+    async fn is_subscribed(&self, service_name: &str, group_name: &str) -> bool {
+        self.redo_task_executor
+            .contains_task(&Self::subscribe_task_key(
+                &self.namespace,
+                service_name,
+                group_name,
+            ))
+            .await
     }
 
     pub(crate) async fn new(
@@ -190,14 +200,7 @@ impl NacosNamingService {
             .support_naming_delta_push(false)
             .support_naming_remote_metric(false)
             .add_labels(client_props.get_labels())
-            .add_label(
-                crate::api::constants::common_remote::LABEL_SOURCE.to_owned(),
-                crate::api::constants::common_remote::LABEL_SOURCE_SDK.to_owned(),
-            )
-            .add_label(
-                crate::api::constants::common_remote::LABEL_MODULE.to_owned(),
-                crate::api::constants::common_remote::LABEL_MODULE_NAMING.to_owned(),
-            )
+            .add_default_labels(crate::api::constants::common_remote::LABEL_MODULE_NAMING)
             .app_name(client_props.get_app_name())
             .register_server_request_handler::<NotifySubscriberRequest>(Arc::new(
                 server_request_handler,

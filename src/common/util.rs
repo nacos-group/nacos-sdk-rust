@@ -51,8 +51,58 @@ where
     a_sorted == b_sorted
 }
 
-/// Checks param_val not blank
-pub(crate) fn check_not_blank<'a>(param_val: &'a str, param_name: &'a str) -> Result<&'a str> {
+/// The separator the Nacos client puts between the group and the service name.
+pub(crate) const GROUPED_NAME_SEPARATOR: &str = "@@";
+
+/// Joins cluster names into the canonical form used by the Nacos client.
+///
+/// Sorted and deduplicated, matching the Java client's
+/// `NamingSelectorFactory.getUniqueClusterString`.
+pub(crate) fn unique_cluster_string(clusters: &[String]) -> String {
+    let mut sorted: Vec<&str> = clusters.iter().map(|cluster| cluster.as_str()).collect();
+    sorted.sort_unstable();
+    sorted.dedup();
+    sorted.join(",")
+}
+
+/// Builds the `group@@service` name.
+///
+/// Matches the Java client's `NamingUtils.getGroupedName`. A service name
+/// that already contains the separator is returned unchanged, and an empty
+/// group leaves the service name alone.
+pub(crate) fn grouped_service_name(service_name: &str, group_name: &str) -> String {
+    if !group_name.is_empty() && !service_name.contains(GROUPED_NAME_SEPARATOR) {
+        return format!("{group_name}{GROUPED_NAME_SEPARATOR}{service_name}");
+    }
+    service_name.to_string()
+}
+
+/// Writes `content`, truncated to `max` characters with a trailing `...`.
+///
+/// Used by the `Display` implementations of the config types, which show
+/// only a prefix of the content.
+pub(crate) fn write_truncated(
+    f: &mut std::fmt::Formatter<'_>,
+    content: &str,
+    max: usize,
+) -> std::fmt::Result {
+    if content.chars().count() > max {
+        for c in content.chars().take(max) {
+            write!(f, "{c}")?;
+        }
+        write!(f, "...")
+    } else {
+        write!(f, "{content}")
+    }
+}
+
+/// Checks that a parameter is not blank and returns it as an owned `String`.
+///
+/// Taking `impl Into<String>` folds the conversion and the check into one
+/// step, so the API entry points do not repeat `let x = x.into();` next to
+/// every check.
+pub(crate) fn check_not_blank(param_val: impl Into<String>, param_name: &str) -> Result<String> {
+    let param_val = param_val.into();
     if param_val.trim().is_empty() {
         Err(Error::InvalidParam(
             param_name.into(),
@@ -116,12 +166,39 @@ mod tests {
     }
 
     #[test]
+    fn test_check_not_blank_accepts_owned_and_borrowed() {
+        // The parameter is taken as `impl Into<String>`, so both a `&str` and
+        // an owned `String` work.
+        assert_eq!(
+            "value",
+            check_not_blank("value", "param").expect("should accept a &str")
+        );
+        assert_eq!(
+            "value",
+            check_not_blank("value".to_string(), "param").expect("should accept a String")
+        );
+    }
+
+    #[test]
     fn test_check_not_blank_fail() {
         let data_id = "";
         assert!(check_not_blank(data_id, "data_id").is_err());
 
         let data_id = "   ";
         assert!(check_not_blank(data_id, "data_id").is_err());
+    }
+
+    #[test]
+    fn test_grouped_service_name() {
+        // A group is prepended with the separator.
+        assert_eq!(
+            super::grouped_service_name("svc", "DEFAULT"),
+            "DEFAULT@@svc"
+        );
+        // A service name that already carries the separator is left alone.
+        assert_eq!(super::grouped_service_name("a@@b", "DEFAULT"), "a@@b");
+        // An empty group leaves the service name alone.
+        assert_eq!(super::grouped_service_name("svc", ""), "svc");
     }
 
     #[test]

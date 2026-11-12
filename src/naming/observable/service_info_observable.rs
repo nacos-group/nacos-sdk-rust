@@ -111,7 +111,7 @@ impl ServiceInfoObserver {
                 let naming_event = Arc::new(NamingChangeEvent {
                     service_name: naming_event.service_name.clone(),
                     group_name: naming_event.group_name.clone(),
-                    clusters: entry.clusters.join(","),
+                    clusters: crate::common::util::unique_cluster_string(&entry.clusters),
                     instances,
                 });
 
@@ -396,12 +396,10 @@ mod tests {
             ]))
             .await;
 
-        let _ = tokio::time::timeout(Duration::from_secs(2), async {
-            while !ran.load(Ordering::Acquire) {
-                tokio::time::sleep(Duration::from_millis(10)).await;
-            }
-        })
-        .await;
+        assert!(
+            crate::test_config::wait_for_flag(&ran, Duration::from_secs(2)).await,
+            "listener should have been notified"
+        );
 
         let instances = received
             .lock()

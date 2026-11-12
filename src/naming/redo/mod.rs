@@ -128,6 +128,20 @@ pub(crate) trait AutomaticRequest: Send + Sync + 'static {
     fn name(&self) -> String;
 }
 
+/// The canonical redo task key: `namespace@@group@@service@@identity`.
+///
+/// Both [`AutomaticRequest::name`] and the naming service's subscription
+/// lookup build this key, so it is defined once here — the two must not be
+/// able to drift apart, or the subscription state check silently stops
+/// working.
+pub(crate) fn redo_task_key(
+    namespace: &str,
+    group_name: &str,
+    service_name: &str,
+    identity: std::borrow::Cow<'_, str>,
+) -> String {
+    format!("{namespace}@@{group_name}@@{service_name}@@{identity}")
+}
 pub(crate) struct NamingRedoTask {
     active: Arc<AtomicBool>,
     automatic_request: Arc<dyn AutomaticRequest>,
