@@ -27,6 +27,7 @@ use crate::common::cache::{Cache, CacheBuilder};
 use crate::common::executor;
 use crate::common::remote::grpc::NacosGrpcClient;
 use crate::common::remote::grpc::NacosGrpcClientBuilder;
+use crate::common::remote::grpc::message::GrpcMessageData;
 use crate::common::remote::grpc::message::GrpcRequestMessage;
 use crate::common::remote::grpc::message::GrpcResponseMessage;
 use crate::common::remote::server_list::create_server_list_provider;
@@ -74,7 +75,76 @@ fn is_selectable(instance: &ServiceInstance, healthy: bool) -> bool {
     healthy == instance.healthy && instance.enabled && instance.weight > 0.0
 }
 
+/// Filters instances down to the requested clusters.
+///
+/// The Java client subscribes with an empty cluster list (`Constants.NULL`) so
+/// the server returns every instance, and then narrows the result in memory
+/// with a cluster selector. This mirrors that selector: an instance is kept
+/// when its cluster name is in `clusters`, and an empty `clusters` keeps all
+/// of them.
+///
+/// Like the Java selector, an instance without a cluster name matches no
+/// cluster at all: the Java filter compares the raw cluster name, so a
+/// missing name never matches a requested cluster.
+pub(crate) fn filter_instances_by_clusters(
+    instances: &[ServiceInstance],
+    clusters: &[String],
+) -> Vec<ServiceInstance> {
+    if clusters.is_empty() {
+        return instances.to_vec();
+    }
+    instances
+        .iter()
+        .filter(|instance| {
+            let Some(cluster_name) = instance.cluster_name.as_deref() else {
+                return false;
+            };
+            clusters.iter().any(|cluster| cluster == cluster_name)
+        })
+        .cloned()
+        .collect()
+}
+
+/// Filters a shared instance list down to the requested clusters.
+///
+/// When no cluster is requested the original list is returned as-is, so cache
+/// hits keep sharing the same allocation.
+fn filter_instances_by_clusters_arc(
+    instances: Arc<Vec<ServiceInstance>>,
+    clusters: &[String],
+) -> Arc<Vec<ServiceInstance>> {
+    if clusters.is_empty() {
+        return instances;
+    }
+    Arc::new(filter_instances_by_clusters(&instances, clusters))
+}
+
 impl NacosNamingService {
+    /// The redo task key of a service's subscription.
+    fn subscribe_task_key(namespace: &str, service_name: &str, group_name: &str) -> String {
+        crate::naming::redo::redo_task_key(
+            namespace,
+            group_name,
+            service_name,
+            <SubscribeServiceRequest as GrpcMessageData>::identity(),
+        )
+    }
+
+    /// Whether the server-side subscription for this service is still active.
+    ///
+    /// The redo task registry holds one entry per active subscription, the
+    /// same way the Java client checks `isSubscribed`.
+    #[allow(dead_code)]
+    async fn is_subscribed(&self, service_name: &str, group_name: &str) -> bool {
+        self.redo_task_executor
+            .contains_task(&Self::subscribe_task_key(
+                &self.namespace,
+                service_name,
+                group_name,
+            ))
+            .await
+    }
+
     pub(crate) async fn new(
         client_props: ClientProps,
         auth_plugin: Arc<dyn AuthPlugin>,
@@ -130,14 +200,7 @@ impl NacosNamingService {
             .support_naming_delta_push(false)
             .support_naming_remote_metric(false)
             .add_labels(client_props.get_labels())
-            .add_label(
-                crate::api::constants::common_remote::LABEL_SOURCE.to_owned(),
-                crate::api::constants::common_remote::LABEL_SOURCE_SDK.to_owned(),
-            )
-            .add_label(
-                crate::api::constants::common_remote::LABEL_MODULE.to_owned(),
-                crate::api::constants::common_remote::LABEL_MODULE_NAMING.to_owned(),
-            )
+            .add_default_labels(crate::api::constants::common_remote::LABEL_MODULE_NAMING)
             .app_name(client_props.get_app_name())
             .register_server_request_handler::<NotifySubscriberRequest>(Arc::new(
                 server_request_handler,
@@ -363,31 +426,45 @@ impl NacosNamingService {
         clusters: Vec<String>,
         subscribe: bool,
     ) -> Result<Arc<Vec<ServiceInstance>>> {
-        let cluster_str = clusters.join(",");
         let group_name = crate::common::util::normalize_group_name(group_name);
 
         let hosts = if subscribe {
-            let grouped_name = ServiceInfo::get_grouped_service_name(&service_name, &group_name);
-            let key = ServiceInfo::get_key(&grouped_name, &cluster_str);
+            // The cache is keyed by service and group only, never by cluster:
+            // the Java client stores the full instance set and narrows it down
+            // in memory (see `filter_instances_by_clusters`).
+            let key = ServiceInfo::get_key_without_clusters(&service_name, &group_name);
+
+            // A cached entry may be left over from a subscription that was
+            // dropped, or come from the on-disk cache at startup, so it is
+            // only served while the service is still subscribed. This is what
+            // the Java client checks in `tryToSubscribe`.
+            let is_subscribed = self
+                .redo_task_executor
+                .contains_task(&Self::subscribe_task_key(
+                    &self.namespace,
+                    &service_name,
+                    &group_name,
+                ))
+                .await;
 
             let cached_hosts = self
                 .naming_cache
                 .get(&key)
                 .map(|cached| cached.hosts.clone());
             match cached_hosts {
-                Some(hosts) => {
+                Some(hosts) if is_subscribed => {
                     info!("get_all_instances returned cached service_info, group_key={key}");
                     hosts
                 }
-                None => self
-                    .subscribe_async(service_name, Some(group_name), clusters, None)
+                _ => self
+                    .subscribe_async(service_name, Some(group_name), clusters.clone(), None)
                     .await
                     .ok()
                     .flatten(),
             }
         } else {
             let request = ServiceQueryRequest {
-                cluster: cluster_str,
+                cluster: clusters.join(","),
                 group_name: Some(group_name),
                 healthy_only: false,
                 udp_port: 0,
@@ -402,7 +479,10 @@ impl NacosNamingService {
             crate::common::error::handle_response(&response, "get_all_instances")?;
             response.service_info.hosts
         };
-        Ok(hosts.unwrap_or_default())
+        let hosts = hosts.unwrap_or_default();
+        // Narrow the result down to the requested clusters, the way the Java
+        // client does with its in-memory cluster selector.
+        Ok(filter_instances_by_clusters_arc(hosts, &clusters))
     }
 
     #[instrument(fields(client_id = &self.client_id, group = group_name), skip_all)]
@@ -487,10 +567,28 @@ impl NacosNamingService {
         clusters: Vec<String>,
         event_listener: Option<Arc<dyn NamingEventListener>>,
     ) -> Result<Option<Arc<Vec<ServiceInstance>>>> {
-        let clusters = clusters.join(",");
         let group_name = crate::common::util::normalize_group_name(group_name);
-        // Use key without clusters for both listener registration and cache operations (aligned with Java client)
+        // The cache is keyed by service and group only, never by cluster:
+        // the Java client stores the full instance set and narrows it down
+        // in memory (see `filter_instances_by_clusters`).
         let key = ServiceInfo::get_key_without_clusters(&service_name, &group_name);
+
+        // Whether the service is already subscribed. It has to be checked
+        // before this call registers its own redo task below.
+        //
+        // The cache is only served when the service is still subscribed. A
+        // cached entry may be left over from a subscription that was dropped,
+        // or come from the on-disk cache at startup, and in both cases the
+        // client has to talk to the server again. This is what the Java client
+        // does in `tryToSubscribe`.
+        let is_subscribed = self
+            .redo_task_executor
+            .contains_task(&Self::subscribe_task_key(
+                &self.namespace,
+                &service_name,
+                &group_name,
+            ))
+            .await;
 
         // add updater task (for polling refresh when gRPC push is not available)
         self.service_info_updater
@@ -498,19 +596,26 @@ impl NacosNamingService {
                 self.namespace.clone(),
                 service_name.clone(),
                 group_name.clone(),
-                clusters.clone(),
             )
             .await;
 
         // add event listener
         if let Some(event_listener) = event_listener {
-            self.observer.subscribe(key.clone(), event_listener).await;
+            self.observer
+                .subscribe(key.clone(), clusters.clone(), event_listener)
+                .await;
         }
 
-        // Create subscribe request for background execution
+        // Create subscribe request for background execution.
+        //
+        // The cluster list is deliberately left empty: the Java client always
+        // subscribes with `Constants.NULL` so the server returns every
+        // instance and the cache holds the complete set. Requesting a subset
+        // would make the cached instances depend on which cluster happened to
+        // be subscribed first.
         let request = SubscribeServiceRequest::new(
             true,
-            clusters,
+            String::new(),
             Some(service_name),
             Some(self.namespace.clone()),
             Some(group_name),
@@ -526,8 +631,11 @@ impl NacosNamingService {
         // add redo task to executor
         self.redo_task_executor.add_task(redo_task.clone()).await;
 
-        // Try to get service info from cache first (if load_cache_at_start is enabled)
-        if let Some(cached_info) = self.naming_cache.get(&key) {
+        // Try to get service info from cache first (if load_cache_at_start is enabled).
+        //
+        // The cache is only served when the service is still subscribed, so a
+        // stale entry left behind by a dropped subscription is never returned.
+        if is_subscribed && let Some(cached_info) = self.naming_cache.get(&key) {
             info!("subscribe returned cached service_info, group_key={key}");
 
             // Spawn the actual server request in the background to avoid blocking.
@@ -549,40 +657,75 @@ impl NacosNamingService {
             return Ok(cached_info.hosts.clone());
         }
 
-        let response = self
+        // Subscribe to the server. When the server cannot be reached, fall
+        // back to the cached service info instead of reporting an empty
+        // result — this is what the Java client does in `tryToSubscribe`,
+        // and it is the whole point of `naming_load_cache_at_start`: serving
+        // the last known instances while the server is down.
+        let response = match self
             .request_to_server::<SubscribeServiceRequest, SubscribeServiceResponse>(request)
-            .await?;
-        crate::common::error::handle_response(&response, "subscribe")?;
+            .await
+        {
+            Ok(response) => {
+                crate::common::error::handle_response(&response, "subscribe")?;
+                debug!("subscribe the {response:?}");
+                redo_task.frozen();
+                response.service_info.hosts
+            }
+            Err(e) => {
+                warn!("subscribe failed, will use the local cache. fail message: {e}");
+                match self
+                    .naming_cache
+                    .get(&key)
+                    .map(|cached| cached.hosts.clone())
+                {
+                    Some(hosts) => hosts,
+                    None => return Err(e),
+                }
+            }
+        };
 
-        debug!("subscribe the {response:?}");
-        redo_task.frozen();
-
-        Ok(response.service_info.hosts)
+        Ok(response)
     }
-
     #[instrument(fields(client_id = &self.client_id, group = group_name), skip_all)]
     pub(crate) async fn unsubscribe(
         &self,
         service_name: String,
         group_name: Option<String>,
-        clusters: Vec<String>,
+        // The listener is matched by identity, so the clusters it subscribed
+        // with are not needed here any more. The parameter is kept because it
+        // is part of the public API.
+        _clusters: Vec<String>,
         event_listener: Arc<dyn NamingEventListener>,
     ) -> Result<()> {
-        let clusters = clusters.join(",");
         let group_name = crate::common::util::normalize_group_name(group_name);
+
+        // The listener registry is keyed by service and group only, never by
+        // cluster (aligned with the Java client).
+        let key = ServiceInfo::get_key_without_clusters(&service_name, &group_name);
+        let remaining_listeners = self.observer.unsubscribe(key, event_listener).await;
+
+        // The server-side subscription and the polling task are shared by all
+        // the listeners of a service, so they are only dropped once the last
+        // listener is gone. This mirrors the Java client, which checks
+        // `changeNotifier.isSubscribed` before unsubscribing.
+        //
+        // A listener that was not registered is a no-op: unsubscribing it must
+        // not drop the subscription the other listeners still rely on.
+        if remaining_listeners != Some(false) {
+            return Ok(());
+        }
 
         // stop updater task
         self.service_info_updater
-            .stop_update(service_name.clone(), group_name.clone(), clusters.clone())
+            .stop_update(service_name.clone(), group_name.clone())
             .await;
 
-        // Use key without clusters for listener unregistration (aligned with Java client)
-        let key = ServiceInfo::get_key_without_clusters(&service_name, &group_name);
-        self.observer.unsubscribe(key, event_listener).await;
-
+        // The cluster list is deliberately left empty, matching the subscribe
+        // request it has to cancel out.
         let request = SubscribeServiceRequest::new(
             false,
-            clusters,
+            String::new(),
             Some(service_name),
             Some(self.namespace.clone()),
             Some(group_name),

@@ -417,20 +417,9 @@ impl FromStr for CacheKind {
 #[cfg(test)]
 mod tests {
     use crate::api::error::Error;
+    use crate::test_config::run_child_test;
 
     use super::*;
-
-    fn run_child_test(test: &str, envs: &[(&str, &str)], remove: &[&str]) {
-        let current_exe =
-            std::env::current_exe().expect("current test executable should be available");
-        let mut command = std::process::Command::new(current_exe);
-        command.args(["--exact", test]).envs(envs.iter().copied());
-        for key in remove {
-            command.env_remove(key);
-        }
-        let status = command.status().expect("child test should run");
-        assert!(status.success(), "child test {test} failed");
-    }
 
     #[tokio::test]
     async fn test_get_server_list() {

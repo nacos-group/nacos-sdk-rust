@@ -198,14 +198,7 @@ impl std::fmt::Display for CacheData {
             t = self.content_type,
         )?;
         // Truncate content for display if it exceeds 30 chars
-        if self.content.chars().count() > 30 {
-            for c in self.content.chars().take(30) {
-                write!(f, "{}", c)?;
-            }
-            write!(f, "...")?;
-        } else {
-            write!(f, "{}", self.content)?;
-        }
+        crate::common::util::write_truncated(f, &self.content, 30)?;
         write!(f, ")")
     }
 }
@@ -238,8 +231,21 @@ impl ListenerWrapper {
 mod tests {
     use super::RespSource;
     use crate::api::config::{ConfigChangeListener, ConfigResponse};
+    use crate::api::plugin::{ConfigFilter, ConfigReq, ConfigResp};
     use crate::config::cache::CacheData;
     use std::sync::Arc;
+
+    /// A filter that appends a fixed suffix to the config content.
+    struct Append(&'static str);
+
+    #[async_trait::async_trait]
+    impl ConfigFilter for Append {
+        async fn filter(&self, _: Option<&mut ConfigReq>, config_resp: Option<&mut ConfigResp>) {
+            if let Some(config_resp) = config_resp {
+                config_resp.content.push_str(self.0);
+            }
+        }
+    }
 
     #[tokio::test]
     async fn test_listener_registration_does_not_rewrite_cache() {
@@ -260,13 +266,7 @@ mod tests {
             key.clone(),
             CacheData::new("D".to_string(), "G".to_string(), "test-ns".to_string()),
         );
-        tokio::time::timeout(Duration::from_secs(2), async {
-            while !cache_file.exists() {
-                tokio::time::sleep(Duration::from_millis(20)).await;
-            }
-        })
-        .await
-        .expect("initial insert should reach disk");
+        crate::test_config::wait_for_file(&cache_file, "initial insert should reach disk").await;
         tokio::fs::remove_file(&cache_file)
             .await
             .expect("cache file should be removable");
@@ -328,25 +328,16 @@ mod tests {
         }));
 
         data.dispatch_notify(data.raw_response());
-        tokio::time::timeout(Duration::from_secs(2), async {
-            while !entered.load(Ordering::Acquire) {
-                tokio::time::sleep(Duration::from_millis(10)).await;
-            }
-        })
-        .await
-        .expect("blocking listener should start");
+        assert!(
+            crate::test_config::wait_for_flag(&entered, Duration::from_secs(2)).await,
+            "blocking listener should start"
+        );
 
         data.add_listener(Arc::new(SignalingListener(Arc::clone(&second_ran))));
         data.md5 = Arc::new("m2".to_string());
         data.dispatch_notify(data.raw_response());
 
-        let ran = tokio::time::timeout(Duration::from_secs(2), async {
-            while !second_ran.load(Ordering::Acquire) {
-                tokio::time::sleep(Duration::from_millis(10)).await;
-            }
-        })
-        .await
-        .is_ok();
+        let ran = crate::test_config::wait_for_flag(&second_ran, Duration::from_secs(2)).await;
 
         let _ = release_tx.send(());
         let _ = release_tx.send(());
@@ -488,23 +479,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_loaded_entry_uses_worker_filters() {
-        use crate::api::plugin::{ConfigFilter, ConfigReq, ConfigResp};
-
-        struct Append(&'static str);
-
-        #[async_trait::async_trait]
-        impl ConfigFilter for Append {
-            async fn filter(
-                &self,
-                _: Option<&mut ConfigReq>,
-                config_resp: Option<&mut ConfigResp>,
-            ) {
-                if let Some(config_resp) = config_resp {
-                    config_resp.content.push_str(self.0);
-                }
-            }
-        }
-
         let json = r#"{"data_id":"D","group":"G","namespace":"N","content_type":"text","content":"hello","md5":"m1","encrypted_data_key":"","last_modified":42}"#;
         let data: CacheData =
             serde_json::from_str(json).expect("legacy cache json should deserialize");
@@ -528,8 +502,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_filtered_response_shares_content_type_and_md5() {
-        use crate::api::plugin::{ConfigFilter, ConfigReq, ConfigResp};
-
         struct Noop;
 
         #[async_trait::async_trait]
@@ -553,23 +525,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_resp_source_applies_filters_in_order() {
-        use crate::api::plugin::{ConfigFilter, ConfigReq, ConfigResp};
-
-        struct Append(&'static str);
-
-        #[async_trait::async_trait]
-        impl ConfigFilter for Append {
-            async fn filter(
-                &self,
-                _: Option<&mut ConfigReq>,
-                config_resp: Option<&mut ConfigResp>,
-            ) {
-                if let Some(config_resp) = config_resp {
-                    config_resp.content.push_str(self.0);
-                }
-            }
-        }
-
         let filters: Arc<Vec<Box<dyn ConfigFilter>>> =
             Arc::new(vec![Box::new(Append("-1")), Box::new(Append("-2"))]);
         let mut data = CacheData::new("D".to_string(), "G".to_string(), "N".to_string());
@@ -638,7 +593,6 @@ mod tests {
     /// The notify flow must never hold a DashMap guard across an await.
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_notify_flow_holds_no_lock_across_await() {
-        use crate::api::plugin::{ConfigFilter, ConfigReq, ConfigResp};
         use crate::common::cache::{Cache, CacheBuilder};
         use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
         use std::time::Duration;

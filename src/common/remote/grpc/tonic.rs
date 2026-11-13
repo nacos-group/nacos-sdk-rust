@@ -457,15 +457,6 @@ mod endpoint_config_tests {
 }
 
 #[cfg(test)]
-fn run_test<T, F>(test: F) -> T
-where
-    F: FnOnce() -> T,
-{
-    crate::test_config::setup_log();
-    test()
-}
-
-#[cfg(test)]
 #[allow(clippy::disallowed_methods)] // Tests mock! has std::result::Result::unwrap
 pub mod tonic_unary_call_tests {
 
@@ -475,6 +466,7 @@ pub mod tonic_unary_call_tests {
 
     use super::assert_err_result;
     use super::*;
+    use crate::test_config::run_test;
 
     mock! {
         UnaryCallTestService {}
@@ -658,6 +650,7 @@ pub mod tonic_bi_call_tests {
 
     use super::assert_err_result;
     use super::*;
+    use crate::test_config::run_test;
 
     mock! {
         BiCallTestService {}

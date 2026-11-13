@@ -18,6 +18,13 @@ pub fn init(log_path: String, log_level: String) {
     LOG_GUARD.get_or_init(|| init_logging(log_path, log_level));
 }
 
+/// 初始化默认的日志输出：$HOME/logs/nacos，INFO 级别。
+#[cfg(feature = "tracing-log")]
+pub fn init_default() {
+    let log_path = crate::common::util::HOME_DIR.to_owned() + "/logs/nacos";
+    init(log_path, "INFO".to_string());
+}
+
 #[allow(dead_code)]
 fn init_logging(log_path: String, log_level: String) -> Vec<WorkerGuard> {
     let log_level = LevelFilter::from_str(&log_level).unwrap_or(LevelFilter::INFO);
