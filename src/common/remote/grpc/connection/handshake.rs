@@ -115,8 +115,9 @@ pub(crate) async fn negotiate(
     )));
     let mut pump_guard = PumpGuard(Some(pump));
 
+    // Layers: timeout -> oneshot receive -> setup-ack outcome.
     match tokio::time::timeout(settings.capability_negotiation_timeout, setup_ack_rx).await {
-        Ok(Ok(abilities)) => {
+        Ok(Ok(Ok(abilities))) => {
             let abilities = abilities.unwrap_or_default();
             info!("capability negotiation completed, server abilities: {abilities:?}");
             let pump = pump_guard.0.take().expect("pump handle must be present");
@@ -127,6 +128,7 @@ pub(crate) async fn negotiate(
                 pump,
             })
         }
+        Ok(Ok(Err(message))) => Err(Error::ErrResult(message)),
         Ok(Err(_)) => Err(Error::ErrResult(
             "setup ack channel closed before response".to_string(),
         )),
@@ -156,6 +158,7 @@ mod tests {
         pending: AtomicBool,
         open_calls: AtomicUsize,
         last_setup: Mutex<Option<Payload>>,
+        stream_close_reason: Option<String>,
     }
 
     impl ScriptedTransport {
@@ -166,7 +169,14 @@ mod tests {
                 pending: AtomicBool::new(pending),
                 open_calls: AtomicUsize::new(0),
                 last_setup: Mutex::new(None),
+                stream_close_reason: None,
             }
+        }
+
+        /// Makes the server stream fail immediately, before any setup ack.
+        fn with_stream_close_reason(mut self, reason: impl Into<String>) -> Self {
+            self.stream_close_reason = Some(reason.into());
+            self
         }
 
         fn open_calls(&self) -> usize {
@@ -201,6 +211,11 @@ mod tests {
             self.open_calls.fetch_add(1, Ordering::SeqCst);
             let setup = request.next().await.expect("setup payload");
             *self.last_setup.lock().expect("setup lock") = Some(setup);
+            if let Some(reason) = self.stream_close_reason.clone() {
+                return Ok(GrpcStream::new(Box::pin(futures::stream::iter(vec![Err(
+                    Error::ErrResult(reason),
+                )]))));
+            }
             if self.pending.load(Ordering::SeqCst) {
                 return Ok(GrpcStream::new(Box::pin(futures::stream::pending::<
                     Result<Payload, Error>,
@@ -392,6 +407,45 @@ mod tests {
             error.to_string().contains("capability negotiation timeout"),
             "unexpected error: {error}"
         );
+    }
+
+    #[tokio::test]
+    async fn test_stream_closed_before_setup_ack_surfaces_the_cause() {
+        let transport = Arc::new(
+            ScriptedTransport::new(vec![Ok(server_check_payload("c-1", true))], None, false)
+                .with_stream_close_reason("connection reset by peer"),
+        );
+        let (events_tx, mut events_rx) = tokio::sync::mpsc::channel(8);
+        let result = tokio::time::timeout(
+            Duration::from_secs(1),
+            negotiate(
+                transport,
+                &test_settings(100),
+                Arc::new(HashMap::new()),
+                events_tx,
+                Arc::new(std::sync::atomic::AtomicU64::new(0)),
+                test_spawner().as_ref(),
+            ),
+        )
+        .await
+        .expect("negotiation must not hang");
+        let error = result.expect_err("stream closure before ack must fail the handshake");
+        let message = error.to_string();
+        assert!(
+            message.contains("closed before setup ack"),
+            "unexpected error: {message}"
+        );
+        assert!(
+            message.contains("connection reset by peer"),
+            "closure cause is missing: {message}"
+        );
+        assert!(
+            !message.contains("setup ack channel closed before response"),
+            "generic channel-closed message was reported instead: {message}"
+        );
+
+        let event = events_rx.recv().await.expect("terminal event");
+        assert!(matches!(event, ConnectionEvent::StreamClosed(_)));
     }
 
     #[tokio::test]

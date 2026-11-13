@@ -15,12 +15,16 @@ use crate::nacos_proto::v2::Payload;
 
 use super::{ConnectionEvent, HandlerMap, now_millis, setup_ack_identity};
 
+/// Outcome of the setup-ack wait. `Ok(None)` means the ack arrived without an
+/// ability table; `Err` carries why the stream ended before an ack was seen.
+pub(crate) type SetupAck = Result<Option<HashMap<String, bool>>, String>;
+
 #[allow(dead_code)] // spawned by `handshake::negotiate`, which the supervisor calls in B4
 pub(crate) async fn run(
     mut server_stream: GrpcStream<Result<Payload, Error>>,
     local_tx: mpsc::Sender<Payload>,
     handler_map: Arc<HandlerMap>,
-    setup_ack_tx: oneshot::Sender<Option<HashMap<String, bool>>>,
+    setup_ack_tx: oneshot::Sender<SetupAck>,
     events_tx: mpsc::Sender<ConnectionEvent>,
     last_active: Arc<AtomicU64>,
 ) {
@@ -42,7 +46,7 @@ pub(crate) async fn run(
                         .ok()
                         .and_then(|message| message.into_body().ability_table);
                     if let Some(tx) = setup_ack_tx.take() {
-                        let _ = tx.send(abilities);
+                        let _ = tx.send(Ok(abilities));
                     }
                     continue;
                 }
@@ -58,10 +62,12 @@ pub(crate) async fn run(
             }
         }
     };
-    // Release the ack channel before reporting the terminal event: `negotiate`
-    // resolves its oneshot on drop and would otherwise only see "channel closed"
-    // while this task blocks on the events channel, discarding `reason`.
-    drop(setup_ack_tx.take());
+    // Hand the closure cause to `negotiate` through the still-pending ack sender
+    // before reporting the terminal event; otherwise the oneshot simply resolves
+    // on drop and the caller only sees "channel closed", losing `reason`.
+    if let Some(tx) = setup_ack_tx.take() {
+        let _ = tx.send(Err(format!("bi stream closed before setup ack: {reason}")));
+    }
     let _ = events_tx.send(ConnectionEvent::StreamClosed(reason)).await;
 }
 
@@ -120,7 +126,7 @@ mod tests {
             Arc::new(std::sync::atomic::AtomicU64::new(0)),
         )
         .await;
-        assert!(ack_rx.await.expect("ack").is_some());
+        assert!(matches!(ack_rx.await.expect("ack"), Ok(Some(_))));
         assert_eq!(calls.load(Ordering::SeqCst), 0);
         assert!(local_rx.recv().await.is_none());
         assert!(events_rx.recv().await.is_some());
