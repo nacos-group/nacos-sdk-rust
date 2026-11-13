@@ -139,37 +139,44 @@ impl ContainerNacosServer {
         let runtime = ContainerRuntime::detect()?;
         self.runtime = Some(runtime);
         self.cleanup_existing(runtime);
-        Command::new(runtime.binary())
+        let output = Command::new(runtime.binary())
             .args(["run", "-d", "--name", &self.container_name])
             .args(["-e", "MODE=standalone"])
             .args(["-p", &format!("{}:8848", self.http_port)])
             .args(["-p", &format!("{}:9848", self.grpc_port)])
             .arg(&self.image)
-            .spawn()
+            .output()
             .map_err(|e| {
                 FixtureError::Other(format!(
                     "failed to start {} container: {e}",
                     runtime.binary()
                 ))
             })?;
+        if !output.status.success() {
+            // A failed `run` may still register a Created/stopped container.
+            self.cleanup_existing(runtime);
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(FixtureError::Other(format!(
+                "{} failed to start container {}: {}",
+                runtime.binary(),
+                self.container_name,
+                stderr.trim()
+            )));
+        }
         self.wait_for_healthy(DEFAULT_STARTUP_TIMEOUT_SECS).await
     }
 
     pub async fn stop(&mut self) -> Result<()> {
-        if !self.running.load(Ordering::SeqCst) {
-            return Ok(());
+        // Best effort: `running` may be false while a failed `start()` still
+        // left a Created container that must be removed.
+        if let Some(runtime) = self.runtime {
+            let _ = Command::new(runtime.binary())
+                .args(["stop", &self.container_name])
+                .output();
+            let _ = Command::new(runtime.binary())
+                .args(["rm", "-f", &self.container_name])
+                .output();
         }
-        let Some(runtime) = self.runtime else {
-            return Ok(());
-        };
-        Command::new(runtime.binary())
-            .args(["stop", &self.container_name])
-            .output()
-            .map_err(|e| FixtureError::Other(format!("failed to stop container: {e}")))?;
-        Command::new(runtime.binary())
-            .args(["rm", "-f", &self.container_name])
-            .output()
-            .map_err(|e| FixtureError::Other(format!("failed to remove container: {e}")))?;
         self.running.store(false, Ordering::SeqCst);
         Ok(())
     }
@@ -195,9 +202,6 @@ impl ContainerNacosServer {
 
 impl Drop for ContainerNacosServer {
     fn drop(&mut self) {
-        if !self.running.load(Ordering::SeqCst) {
-            return;
-        }
         if let Some(runtime) = self.runtime {
             let _ = Command::new(runtime.binary())
                 .args(["stop", &self.container_name])
