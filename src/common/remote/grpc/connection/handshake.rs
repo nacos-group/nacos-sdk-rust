@@ -97,7 +97,12 @@ pub(crate) async fn negotiate(
             yield payload;
         }
     }));
-    let server_stream = transport.open_stream(request_stream).await?;
+    let server_stream = tokio::time::timeout(
+        settings.capability_negotiation_timeout,
+        transport.open_stream(request_stream),
+    )
+    .await
+    .map_err(|_| Error::ErrResult("open bi stream timeout".to_string()))??;
 
     let (setup_ack_tx, setup_ack_rx) = oneshot::channel();
     let pump = spawner.spawn(Box::pin(stream::run(
@@ -208,6 +213,70 @@ mod tests {
         }
     }
 
+    /// Spawner that records the spawned pump so a test can assert its terminal
+    /// state. `JoinHandle` is not cloneable and `negotiate` keeps the returned
+    /// handle in its `PumpGuard`, so the returned handle is a linked wrapper
+    /// that aborts the recorded pump task when it is dropped or aborted itself.
+    #[derive(Default)]
+    struct RecordingSpawner {
+        handles: Mutex<Vec<JoinHandle<()>>>,
+    }
+
+    impl RecordingSpawner {
+        fn new() -> Self {
+            Self::default()
+        }
+
+        fn pop_handle(&self) -> JoinHandle<()> {
+            self.handles
+                .lock()
+                .expect("handles lock")
+                .pop()
+                .expect("spawned pump handle")
+        }
+    }
+
+    impl Spawner for RecordingSpawner {
+        fn spawn(
+            &self,
+            future: std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>,
+        ) -> JoinHandle<()> {
+            let pump = tokio::spawn(future);
+            let abort = pump.abort_handle();
+            self.handles.lock().expect("handles lock").push(pump);
+            tokio::spawn(async move {
+                struct AbortOnDrop(tokio::task::AbortHandle);
+                impl Drop for AbortOnDrop {
+                    fn drop(&mut self) {
+                        self.0.abort();
+                    }
+                }
+                let _guard = AbortOnDrop(abort);
+                std::future::pending::<()>().await;
+            })
+        }
+    }
+
+    /// Transport whose `open_stream` never returns, to pin the negotiation-side
+    /// deadline around opening the bi-stream.
+    struct HangingOpenTransport {
+        server_check: Payload,
+    }
+
+    #[async_trait]
+    impl Transport for HangingOpenTransport {
+        async fn unary(&self, _payload: Payload) -> Result<Payload, Error> {
+            Ok(self.server_check.clone())
+        }
+
+        async fn open_stream(
+            &self,
+            _request: GrpcStream<Payload>,
+        ) -> Result<GrpcStream<Result<Payload, Error>>, Error> {
+            std::future::pending::<Result<GrpcStream<Result<Payload, Error>>, Error>>().await
+        }
+    }
+
     fn server_check_payload(id: &str, support: bool) -> Payload {
         let response = ServerCheckResponse {
             connection_id: Some(id.to_string()),
@@ -259,15 +328,20 @@ mod tests {
         let spawner = test_spawner();
         let (events_tx, _events_rx) = tokio::sync::mpsc::channel(8);
         let last_active = Arc::new(std::sync::atomic::AtomicU64::new(0));
-        negotiate(
-            transport,
-            settings,
-            Arc::new(HashMap::new()),
-            events_tx,
-            last_active,
-            spawner.as_ref(),
+        // Fast-fail instead of hanging forever if the setup ordering regresses.
+        tokio::time::timeout(
+            Duration::from_secs(1),
+            negotiate(
+                transport,
+                settings,
+                Arc::new(HashMap::new()),
+                events_tx,
+                last_active,
+                spawner.as_ref(),
+            ),
         )
         .await
+        .expect("negotiation must not hang")
     }
 
     #[tokio::test]
@@ -318,5 +392,63 @@ mod tests {
             error.to_string().contains("capability negotiation timeout"),
             "unexpected error: {error}"
         );
+    }
+
+    #[tokio::test]
+    async fn test_open_stream_timeout_is_reported() {
+        let transport = Arc::new(HangingOpenTransport {
+            server_check: server_check_payload("c-1", true),
+        });
+        let (events_tx, _events_rx) = tokio::sync::mpsc::channel(8);
+        let result = tokio::time::timeout(
+            Duration::from_secs(1),
+            negotiate(
+                transport,
+                &test_settings(10),
+                Arc::new(HashMap::new()),
+                events_tx,
+                Arc::new(std::sync::atomic::AtomicU64::new(0)),
+                test_spawner().as_ref(),
+            ),
+        )
+        .await
+        .expect("negotiation must not hang");
+        let error = result.expect_err("open stream timeout expected");
+        assert!(
+            error.to_string().contains("open bi stream timeout"),
+            "unexpected error: {error}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_pump_is_aborted_when_negotiation_fails() {
+        let transport = Arc::new(ScriptedTransport::new(
+            vec![Ok(server_check_payload("c-1", true))],
+            None,
+            true,
+        ));
+        let spawner = Arc::new(RecordingSpawner::new());
+        let (events_tx, _events_rx) = tokio::sync::mpsc::channel(8);
+        let result = negotiate(
+            transport,
+            &test_settings(10),
+            Arc::new(HashMap::new()),
+            events_tx,
+            Arc::new(std::sync::atomic::AtomicU64::new(0)),
+            spawner.as_ref(),
+        )
+        .await;
+        let error = result.expect_err("timeout expected");
+        assert!(
+            error.to_string().contains("capability negotiation timeout"),
+            "unexpected error: {error}"
+        );
+
+        let handle = spawner.pop_handle();
+        let join = tokio::time::timeout(Duration::from_secs(1), handle)
+            .await
+            .expect("pump handle must settle once the handshake fails")
+            .expect_err("pump task must be cancelled");
+        assert!(join.is_cancelled(), "unexpected join error: {join}");
     }
 }

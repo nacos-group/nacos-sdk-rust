@@ -58,6 +58,10 @@ pub(crate) async fn run(
             }
         }
     };
+    // Release the ack channel before reporting the terminal event: `negotiate`
+    // resolves its oneshot on drop and would otherwise only see "channel closed"
+    // while this task blocks on the events channel, discarding `reason`.
+    drop(setup_ack_tx.take());
     let _ = events_tx.send(ConnectionEvent::StreamClosed(reason)).await;
 }
 
@@ -79,9 +83,11 @@ mod tests {
 
     #[async_trait]
     impl ServerRequestHandler for CountingHandler {
-        async fn request_reply(&self, _request: Payload) -> Option<Payload> {
+        // Echoes the request back so a misrouted ack would visibly produce an
+        // outbound reply, making the `local_rx` emptiness check meaningful.
+        async fn request_reply(&self, request: Payload) -> Option<Payload> {
             self.0.fetch_add(1, Ordering::SeqCst);
-            None
+            Some(request)
         }
     }
 
