@@ -19,7 +19,7 @@
 //!
 //! These tests verify that ConfigService and NamingService work correctly
 //! with the HTTP authentication plugin enabled. Tests require a running
-//! Nacos server (rnacos or Docker-based).
+//! Nacos server >= 2.3.0 (container or external).
 //!
 //! Run with: `cargo test --test it_auth --features "auth-by-http" -- --ignored`
 

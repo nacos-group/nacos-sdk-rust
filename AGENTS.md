@@ -102,21 +102,22 @@ Environment variables use prefix `NACOS_CLIENT_` for common props, `NACOS_CLIENT
 ## Testing
 
 ### Integration Tests
-Tests use `rnacos` by default for fast local testing.
+
+Tests start `nacos/nacos-server:v2.5.4` automatically by default (podman first, then docker).
+Nacos server >= 2.3.0 is required.
 
 ```bash
-# One-time setup
-cargo install rnacos
-
-# Run with rnacos (default)
+# Default: auto-start a container
 cargo test --test it_config --test it_naming --test it_auth --features "config,naming,auth-by-http" -- --include-ignored
 
-# Run with Docker Nacos (auto-starts container)
-NACOS_SERVER=docker cargo test --test it_config --test it_naming --test it_auth --test config_cache_test --features "config,naming,auth-by-http" -- --include-ignored
+# Force a runtime
+NACOS_CONTAINER_RUNTIME=podman cargo test --test it_config --features "config" -- --include-ignored
 
-# Run with external Nacos server (connects to localhost:8848)
-NACOS_SERVER=external cargo test --test it_config --test it_naming --test it_auth --test config_cache_test --features "config,naming,auth-by-http" -- --include-ignored
+# External Nacos on 127.0.0.1:8848 (used by CI)
+NACOS_SERVER=external cargo test --test it_config --test it_naming --test it_auth --features "config,naming,auth-by-http" -- --include-ignored
 ```
+
+rnacos is not supported yet: it does not implement ability negotiation (`SetupAckRequest`).
 
 ## Key Implementation Files
 

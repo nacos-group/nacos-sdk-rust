@@ -17,7 +17,7 @@
 
 //! Integration tests for the Naming service.
 //!
-//! These tests require a running Nacos server (rnacos or Docker).
+//! These tests require a running Nacos server >= 2.3.0 (container or external).
 //! Run with: `cargo test --test it_naming --features naming`
 
 #![allow(dead_code)]

@@ -243,22 +243,16 @@ let naming_service = NamingServiceBuilder::new(props).build().await?;
 - 请 `cargo fmt --all` 格式化代码再提交
 > Run `cargo fmt --all` - this will find and fix code formatting issues.
 
-- **集成测试**：使用 `rnacos` 进行本地测试，无需启动外部服务
+- **集成测试**：默认自动启动 `nacos/nacos-server:v2.5.4` 容器（优先 podman，其次 docker），要求 Nacos 服务端 >= 2.3.0
   ```bash
-  # 安装 rnacos（一次性）
-  cargo install rnacos
-  
-  # 运行集成测试（默认使用 rnacos）
   cargo test --test it_config --test it_naming --test it_auth --features "config,naming,auth-by-http" -- --include-ignored
   ```
-- **Docker Nacos**：如需测试 Java Nacos 兼容性，设置环境变量 `NACOS_SERVER=docker`（会自动启动 Docker 容器）
+  可显式指定运行时：`NACOS_CONTAINER_RUNTIME=podman` 或 `NACOS_CONTAINER_RUNTIME=docker`
+- **外部 Nacos**（CI 使用）：`NACOS_SERVER=external`，连接 `127.0.0.1:8848`
   ```bash
-  NACOS_SERVER=docker cargo test --test it_config --test it_naming --test it_auth --test config_cache_test --features "config,naming,auth-by-http" -- --include-ignored
+  NACOS_SERVER=external cargo test --test it_config --test it_naming --test it_auth --features "config,naming,auth-by-http" -- --include-ignored
   ```
-- 或者 **本地启动**：[Nacos-Server](https://github.com/alibaba/nacos) `-Dnacos.standalone=true`
-  ```bash
-  NACOS_SERVER=external cargo test --test it_config --test it_naming --test it_auth --test config_cache_test --features "config,naming,auth-by-http" -- --include-ignored
-  ```
+- **rnacos**：暂不支持。rnacos 尚未实现 2.3+ 能力协商（SetupAck），`NACOS_SERVER=rnacos` 仅供上游支持后验证。
 
 ### 主要依赖包
 在 nacos-sdk-rust 工程里，为主要功能的实现，将会引入以下依赖包。

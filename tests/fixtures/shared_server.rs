@@ -26,7 +26,7 @@ use tokio::sync::OnceCell;
 
 use super::{NacosServerEnum, ServerMode};
 
-/// Default port for shared rnacos server (standard Nacos port).
+/// Default port for the shared Nacos server (standard Nacos port).
 pub const SHARED_SERVER_HTTP_PORT: u16 = 8848;
 
 /// Global shared server state - uses OnceCell for safe concurrent initialization.
