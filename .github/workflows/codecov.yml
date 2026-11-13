@@ -18,7 +18,7 @@ jobs:
 
     services:
       nacos:
-        image: nacos/nacos-server:v2.5.2
+        image: nacos/nacos-server:v2.5.4
         env:
           MODE: standalone
         ports:
