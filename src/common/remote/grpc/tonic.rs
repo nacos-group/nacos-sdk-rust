@@ -4,12 +4,14 @@ use std::{
     task::{Context, Poll},
 };
 
+use async_trait::async_trait;
 use futures::{Future, StreamExt};
 use tonic::transport::{Channel, Endpoint, Uri};
 use tower::Service;
 use tracing::{Instrument, Span, debug, debug_span, error};
 
 use super::config::GrpcConfiguration;
+use super::connection::{Connector, Transport};
 use super::nacos_grpc_service::{Callback, GrpcStream, NacosGrpcCall};
 use crate::api::error::Error;
 use crate::api::error::Error::NoAvailableServer;
@@ -259,6 +261,47 @@ where
         }
         .in_current_span();
         Box::pin(tonic_fut)
+    }
+}
+
+#[async_trait]
+impl Transport for Tonic {
+    async fn unary(&self, payload: Payload) -> Result<Payload, Error> {
+        let mut client = self.request_client.clone();
+        client
+            .request(payload)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(Error::TonicGrpcStatus)
+    }
+
+    async fn open_stream(
+        &self,
+        request: GrpcStream<Payload>,
+    ) -> Result<GrpcStream<Result<Payload, Error>>, Error> {
+        let mut client = self.bi_client.clone();
+        let response = client
+            .request_bi_stream(request)
+            .await
+            .map_err(Error::TonicGrpcStatus)?;
+        let stream = response
+            .into_inner()
+            .map(|item| item.map_err(Error::TonicGrpcStatus))
+            .boxed();
+        Ok(GrpcStream::new(stream))
+    }
+}
+
+#[async_trait]
+impl<S> Connector for TonicBuilder<S>
+where
+    S: Service<(), Response = Arc<dyn ServerAddress>, Error = Error> + Send + 'static,
+    S::Future: Send + 'static,
+{
+    async fn connect(&mut self) -> Result<Arc<dyn Transport>, Error> {
+        futures::future::poll_fn(|cx| self.poll_ready(cx)).await?;
+        let tonic = self.call(()).await?;
+        Ok(Arc::new(tonic))
     }
 }
 
