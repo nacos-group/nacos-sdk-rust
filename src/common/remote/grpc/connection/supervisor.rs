@@ -234,6 +234,7 @@ impl<C: Connector> Supervisor<C> {
                 break;
             };
 
+            let mut retry_delay = None;
             match connected {
                 Ok(active) => {
                     ever_ready = true;
@@ -264,6 +265,18 @@ impl<C: Connector> Supervisor<C> {
                     }
                 }
                 Err(error) => {
+                    // An unsupported server cannot become compatible by
+                    // retrying, so a startup attempt fails immediately with that
+                    // error. Once the connection has been ready at least once the
+                    // server may have been replaced, so it is logged and retried.
+                    if !ever_ready && matches!(error, Error::UnsupportedServerVersion(_)) {
+                        self.publish(ConnectionState::Stopped);
+                        if let Some(tx) = self.startup_tx.take() {
+                            let _ = tx.send(Err(error));
+                        }
+                        let _ = self.fail_queued();
+                        return;
+                    }
                     if !ever_ready {
                         startup_attempts = startup_attempts.saturating_add(1);
                         if let StartupMode::WaitForReady { max_attempts } = self.startup_mode
@@ -278,10 +291,12 @@ impl<C: Connector> Supervisor<C> {
                         }
                     }
                     retry_attempt = retry_attempt.saturating_add(1);
+                    let delay = self.settings.retry.delay(retry_attempt.saturating_sub(1));
                     error!(
-                        "connect failed (attempt {}), server: {}, cause: {}",
-                        retry_attempt, self.id, error
+                        "connect failed (attempt {}, retry in {:?}), server: {}, cause: {}",
+                        retry_attempt, delay, self.id, error
                     );
+                    retry_delay = Some(delay);
                 }
             }
 
@@ -289,7 +304,8 @@ impl<C: Connector> Supervisor<C> {
                 break;
             }
 
-            let delay = self.settings.retry.delay(retry_attempt.saturating_sub(1));
+            let delay = retry_delay
+                .unwrap_or_else(|| self.settings.retry.delay(retry_attempt.saturating_sub(1)));
             self.publish(ConnectionState::Backoff {
                 attempt: retry_attempt,
             });
@@ -353,17 +369,24 @@ mod tests {
 
     impl ScriptedConnector {
         fn once(transport: Arc<dyn Transport>) -> Self {
+            Self::with_transports(vec![transport])
+        }
+
+        /// Connects to `transports` in order, returning `Err` for every attempt
+        /// past the last scripted transport.
+        fn with_transports(transports: Vec<Arc<dyn Transport>>) -> Self {
+            Self::from_results(transports.into_iter().map(Ok).collect())
+        }
+
+        fn from_results(results: Vec<Result<Arc<dyn Transport>, Error>>) -> Self {
             Self {
-                results: Arc::new(Mutex::new(VecDeque::from([Ok(transport)]))),
+                results: Arc::new(Mutex::new(results.into())),
                 connects: Arc::new(AtomicUsize::new(0)),
             }
         }
 
         fn failing() -> Self {
-            Self {
-                results: Arc::new(Mutex::new(VecDeque::new())),
-                connects: Arc::new(AtomicUsize::new(0)),
-            }
+            Self::from_results(Vec::new())
         }
     }
 
@@ -470,9 +493,13 @@ mod tests {
     }
 
     fn server_check_payload(id: &str) -> Payload {
+        server_check_payload_with(id, true)
+    }
+
+    fn server_check_payload_with(id: &str, support_ability_negotiation: bool) -> Payload {
         let response = ServerCheckResponse {
             connection_id: Some(id.to_string()),
-            support_ability_negotiation: true,
+            support_ability_negotiation,
             ..Default::default()
         };
         GrpcMessageBuilder::new(response)
@@ -536,6 +563,20 @@ mod tests {
             tokio::time::advance(Duration::from_millis(1)).await;
         }
         panic!("condition was not met");
+    }
+
+    async fn wait_for_state(handle: &ConnectionHandle, expected: ConnectionState) {
+        for _ in 0..10_000 {
+            if handle.state() == expected {
+                return;
+            }
+            tokio::task::yield_now().await;
+            tokio::time::advance(Duration::from_millis(1)).await;
+        }
+        panic!(
+            "state {expected:?} was not reached, current: {:?}",
+            handle.state()
+        );
     }
 
     #[tokio::test(start_paused = true)]
@@ -828,6 +869,110 @@ mod tests {
             events.lock().expect("events").as_slice(),
             &["up:c-1", "down:c-1"]
         );
+        drop(handle);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_reconnect_fires_listeners_for_each_connection() {
+        let first = Arc::new(ScriptedTransport::new(server_check_payload("c-1")));
+        let second = Arc::new(ScriptedTransport::new(server_check_payload("c-2")));
+        let connector = ScriptedConnector::with_transports(vec![first.clone(), second.clone()]);
+        let events = Arc::new(Mutex::new(Vec::<String>::new()));
+        let connected = {
+            let events = events.clone();
+            Arc::new(move |id: String| events.lock().expect("events").push(format!("up:{id}")))
+        };
+        let disconnected = {
+            let events = events.clone();
+            Arc::new(move |id: String| events.lock().expect("events").push(format!("down:{id}")))
+        };
+        let (handle, waiter) = ConnectionHandle::start_with(
+            "test".to_string(),
+            connector.clone(),
+            HandlerMap::new(),
+            test_settings(),
+            StartupMode::WaitForReady { max_attempts: 1 },
+            Some(connected),
+            Some(disconnected),
+            Arc::new(LocalSpawner),
+        );
+        waiter.wait().await.expect("ready");
+        wait_until(|| events.lock().expect("events").len() == 1).await;
+        assert_eq!(events.lock().expect("events").as_slice(), &["up:c-1"]);
+
+        first.close_stream();
+        wait_until(|| events.lock().expect("events").len() == 3).await;
+        assert_eq!(
+            events.lock().expect("events").as_slice(),
+            &["up:c-1", "down:c-1", "up:c-2"]
+        );
+        assert_eq!(connector.connects.load(Ordering::SeqCst), 2);
+        drop(handle);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_backoff_state_resets_after_a_stable_connection() {
+        let first = Arc::new(ScriptedTransport::new(server_check_payload("c-1")));
+        let second = Arc::new(ScriptedTransport::new(server_check_payload("c-2")));
+        let connector = ScriptedConnector::from_results(vec![
+            Err(Error::ErrResult("connect failed".to_string())),
+            Ok(first.clone()),
+            Ok(second),
+        ]);
+        let (handle, _waiter) = ConnectionHandle::start_with(
+            "test".to_string(),
+            connector.clone(),
+            HandlerMap::new(),
+            test_settings(),
+            StartupMode::WaitForReady { max_attempts: 3 },
+            None,
+            None,
+            Arc::new(LocalSpawner),
+        );
+        wait_for_state(&handle, ConnectionState::Backoff { attempt: 1 }).await;
+        wait_for_state(
+            &handle,
+            ConnectionState::Ready {
+                connection_id: "c-1".to_string(),
+            },
+        )
+        .await;
+
+        // test settings reset the counter after 10ms of stability.
+        tokio::time::advance(Duration::from_millis(11)).await;
+        first.close_stream();
+
+        wait_for_state(&handle, ConnectionState::Backoff { attempt: 1 }).await;
+        assert_eq!(connector.connects.load(Ordering::SeqCst), 2);
+        drop(handle);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_unsupported_server_fails_startup_without_retrying() {
+        let transport = Arc::new(ScriptedTransport::new(server_check_payload_with(
+            "c-1", false,
+        )));
+        let connector = ScriptedConnector::with_transports(vec![transport]);
+        let (handle, waiter) = ConnectionHandle::start_with(
+            "test".to_string(),
+            connector.clone(),
+            HandlerMap::new(),
+            test_settings(),
+            StartupMode::WaitForReady { max_attempts: 3 },
+            None,
+            None,
+            Arc::new(LocalSpawner),
+        );
+        let error = waiter
+            .wait()
+            .await
+            .expect_err("an unsupported server must fail startup");
+        assert!(
+            matches!(error, Error::UnsupportedServerVersion(_)),
+            "unexpected error: {error}"
+        );
+        assert_eq!(connector.connects.load(Ordering::SeqCst), 1);
+        assert_eq!(handle.state(), ConnectionState::Stopped);
         drop(handle);
     }
 }

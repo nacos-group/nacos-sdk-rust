@@ -155,6 +155,8 @@ impl NacosGrpcClientBuilder {
         Self { ..self }
     }
 
+    // Only the naming service wires connection listeners; unused with `config` alone.
+    #[allow(dead_code)]
     pub(crate) fn connected_listener(
         mut self,
         listener: impl Fn(String) + Send + Sync + 'static,
@@ -163,6 +165,8 @@ impl NacosGrpcClientBuilder {
         Self { ..self }
     }
 
+    // Only the naming service wires connection listeners; unused with `config` alone.
+    #[allow(dead_code)]
     pub(crate) fn disconnected_listener(
         mut self,
         listener: impl Fn(String) + Send + Sync + 'static,

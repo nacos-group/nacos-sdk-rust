@@ -25,6 +25,7 @@ pub(crate) struct Tonic {
     request_client: RequestClient<Channel>,
     bi_client: BiRequestStreamClient<Channel>,
     server_address: Arc<dyn ServerAddress>,
+    endpoint_uri: Uri,
 }
 
 impl Tonic {
@@ -49,7 +50,7 @@ impl Tonic {
             .expect("Endpoint URI construction should not fail with valid inputs");
 
         debug!("create new endpoint :{}", endpoint_uri);
-        let endpoint = build_endpoint(&grpc_config, endpoint_uri);
+        let endpoint = build_endpoint(&grpc_config, endpoint_uri.clone());
 
         let channel = endpoint.connect_lazy();
 
@@ -61,6 +62,7 @@ impl Tonic {
             request_client,
             bi_client,
             server_address,
+            endpoint_uri,
         }
     }
 
@@ -208,6 +210,10 @@ impl Transport for Tonic {
             .map(|item| item.map_err(Error::TonicGrpcStatus))
             .boxed();
         Ok(GrpcStream::new(stream))
+    }
+
+    fn server_addr(&self) -> String {
+        self.endpoint_uri.to_string()
     }
 }
 

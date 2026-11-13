@@ -8,15 +8,16 @@ use tracing::debug;
 
 use crate::api::error::Error;
 use crate::common::remote::grpc::handlers::default_handler::DefaultHandler;
-use crate::common::remote::grpc::message::GrpcMessage;
 use crate::common::remote::grpc::message::request::SetupAckRequest;
+use crate::common::remote::grpc::message::{GrpcMessage, GrpcMessageData};
 use crate::common::remote::grpc::nacos_grpc_service::GrpcStream;
 use crate::nacos_proto::v2::Payload;
 
-use super::{ConnectionEvent, HandlerMap, now_millis, setup_ack_identity};
+use super::{ConnectionEvent, HandlerMap, now_millis};
 
 /// Outcome of the setup-ack wait. `Ok(None)` means the ack arrived without an
-/// ability table; `Err` carries why the stream ended before an ack was seen.
+/// ability table; `Err` carries why no usable ack was seen (the stream ended
+/// first, or the ack payload could not be parsed).
 pub(crate) type SetupAck = Result<Option<HashMap<String, bool>>, String>;
 
 pub(crate) async fn run(
@@ -40,12 +41,20 @@ pub(crate) async fn run(
                     debug!("server payload has no metadata, skip");
                     continue;
                 };
-                if metadata.r#type == setup_ack_identity() {
-                    let abilities = GrpcMessage::<SetupAckRequest>::from_payload(payload)
-                        .ok()
-                        .and_then(|message| message.into_body().ability_table);
-                    if let Some(tx) = setup_ack_tx.take() {
-                        let _ = tx.send(Ok(abilities));
+                if metadata.r#type == SetupAckRequest::identity().as_ref() {
+                    match GrpcMessage::<SetupAckRequest>::from_payload(payload) {
+                        Ok(message) => {
+                            if let Some(tx) = setup_ack_tx.take() {
+                                let _ = tx.send(Ok(message.into_body().ability_table));
+                            }
+                        }
+                        // A malformed ack must fail negotiation instead of being
+                        // mistaken for an empty ability table.
+                        Err(error) => {
+                            if let Some(tx) = setup_ack_tx.take() {
+                                let _ = tx.send(Err(format!("invalid SetupAckRequest: {error}")));
+                            }
+                        }
                     }
                     continue;
                 }
@@ -129,5 +138,61 @@ mod tests {
         assert_eq!(calls.load(Ordering::SeqCst), 0);
         assert!(local_rx.recv().await.is_none());
         assert!(events_rx.recv().await.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_null_ability_table_is_accepted_as_none() {
+        let ack_payload = GrpcMessageBuilder::new(SetupAckRequest {
+            ability_table: None,
+            ..Default::default()
+        })
+        .build()
+        .into_payload()
+        .expect("ack payload");
+        let server_stream = GrpcStream::new(Box::pin(futures::stream::iter(vec![Ok(ack_payload)])));
+        let (local_tx, _local_rx) = mpsc::channel(8);
+        let (ack_tx, ack_rx) = oneshot::channel();
+        let (events_tx, _events_rx) = mpsc::channel(8);
+        run(
+            server_stream,
+            local_tx,
+            Arc::new(HandlerMap::new()),
+            ack_tx,
+            events_tx,
+            Arc::new(std::sync::atomic::AtomicU64::new(0)),
+        )
+        .await;
+        assert_eq!(ack_rx.await.expect("ack"), Ok(None));
+    }
+
+    #[tokio::test]
+    async fn test_malformed_setup_ack_fails_negotiation() {
+        let mut ack_payload = GrpcMessageBuilder::new(SetupAckRequest {
+            ability_table: Some(HashMap::new()),
+            ..Default::default()
+        })
+        .build()
+        .into_payload()
+        .expect("ack payload");
+        ack_payload.body.as_mut().expect("ack body").value = b"not a setup ack".to_vec();
+        let server_stream = GrpcStream::new(Box::pin(futures::stream::iter(vec![Ok(ack_payload)])));
+        let (local_tx, _local_rx) = mpsc::channel(8);
+        let (ack_tx, ack_rx) = oneshot::channel();
+        let (events_tx, _events_rx) = mpsc::channel(8);
+        run(
+            server_stream,
+            local_tx,
+            Arc::new(HandlerMap::new()),
+            ack_tx,
+            events_tx,
+            Arc::new(std::sync::atomic::AtomicU64::new(0)),
+        )
+        .await;
+        let result = ack_rx.await.expect("ack");
+        let message = result.expect_err("a malformed ack must fail negotiation");
+        assert!(
+            message.contains("invalid SetupAckRequest"),
+            "unexpected message: {message}"
+        );
     }
 }

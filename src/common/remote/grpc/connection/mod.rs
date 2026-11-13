@@ -39,6 +39,11 @@ pub(crate) trait Transport: Send + Sync + 'static {
         &self,
         request: GrpcStream<Payload>,
     ) -> Result<GrpcStream<Result<Payload, Error>>, Error>;
+
+    /// Server address used in diagnostics. Test transports keep the default.
+    fn server_addr(&self) -> String {
+        "unknown".to_string()
+    }
 }
 
 #[async_trait]
@@ -63,10 +68,6 @@ pub(crate) fn now_millis() -> u64 {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|duration| duration.as_millis() as u64)
         .unwrap_or_default()
-}
-
-pub(crate) fn setup_ack_identity() -> &'static str {
-    "SetupAckRequest"
 }
 
 pub(crate) type ConnectionListener = Arc<dyn Fn(String) + Send + Sync + 'static>;
@@ -153,6 +154,11 @@ impl ConnectionHandle {
             .read()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .clone()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn state(&self) -> ConnectionState {
+        self.inner.state.borrow().clone()
     }
 }
 

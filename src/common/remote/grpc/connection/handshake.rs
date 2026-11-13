@@ -4,7 +4,7 @@ use std::sync::atomic::AtomicU64;
 
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
-use tracing::{debug, info};
+use tracing::{debug, error, info};
 
 use crate::api::error::Error;
 use crate::common::remote::grpc::message::request::{ConnectionSetupRequest, ServerCheckRequest};
@@ -68,6 +68,10 @@ pub(crate) async fn negotiate(
         Error::ErrResult("server check response has no connection id".to_string())
     })?;
     if !response.support_ability_negotiation {
+        error!(
+            "nacos-server {} does not support ability negotiation; >= 2.3.0 is required",
+            transport.server_addr()
+        );
         return Err(Error::UnsupportedServerVersion(
             "ability negotiation is not supported; nacos-server >= 2.3.0 is required".to_string(),
         ));
@@ -117,7 +121,11 @@ pub(crate) async fn negotiate(
         Ok(Ok(Ok(abilities))) => {
             let abilities = abilities.unwrap_or_default();
             info!("capability negotiation completed, server abilities: {abilities:?}");
-            let pump = pump_guard.0.take().expect("pump handle must be present");
+            let Some(pump) = pump_guard.0.take() else {
+                return Err(Error::ErrResult(
+                    "stream pump handle is missing after negotiation".to_string(),
+                ));
+            };
             Ok(Negotiated {
                 transport,
                 connection_id,
