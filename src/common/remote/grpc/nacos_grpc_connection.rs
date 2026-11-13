@@ -18,7 +18,7 @@ use crate::api::error::Error::GrpcBufferRequest;
 use crate::common::executor;
 use crate::common::remote::grpc::handlers::default_handler::DefaultHandler;
 use crate::common::remote::grpc::message::request::{
-    ConnectionSetupRequest, HealthCheckRequest, NacosClientAbilities, ServerCheckRequest,
+    ConnectionSetupRequest, HealthCheckRequest, ServerCheckRequest,
 };
 use crate::common::remote::grpc::message::response::{HealthCheckResponse, ServerCheckResponse};
 use crate::common::remote::grpc::message::{GrpcMessage, GrpcMessageBuilder, GrpcMessageData};
@@ -69,7 +69,7 @@ where
     client_version: String,
     namespace: String,
     labels: HashMap<String, String>,
-    client_abilities: NacosClientAbilities,
+    ability_table: HashMap<String, bool>,
     handler_map: Arc<HandlerMap>,
     mk_service: M,
     state: State<M::Future, M::Service>,
@@ -101,7 +101,7 @@ where
         client_version: String,
         namespace: String,
         labels: HashMap<String, String>,
-        client_abilities: NacosClientAbilities,
+        ability_table: HashMap<String, bool>,
     ) -> Self {
         let connection_id_watcher = watch::channel(None);
 
@@ -112,7 +112,7 @@ where
             client_version,
             namespace,
             labels,
-            client_abilities,
+            ability_table,
             state: State::Idle,
             health: Arc::new(AtomicBool::new(false)),
             last_active: Arc::new(AtomicU64::new(now_millis())),
@@ -198,7 +198,7 @@ where
         client_version: String,
         namespace: String,
         labels: HashMap<String, String>,
-        client_abilities: NacosClientAbilities,
+        ability_table: HashMap<String, bool>,
         handler_map: Arc<HandlerMap>,
         health: Arc<AtomicBool>,
         last_active: Arc<AtomicU64>,
@@ -212,7 +212,7 @@ where
             client_version,
             namespace,
             labels,
-            client_abilities,
+            ability_table,
         )
         .in_current_span()
         .await?;
@@ -256,7 +256,7 @@ where
         client_version: String,
         namespace: String,
         labels: HashMap<String, String>,
-        client_abilities: NacosClientAbilities,
+        ability_table: HashMap<String, bool>,
     ) -> Result<oneshot::Sender<String>, Error> {
         info!("setup connection");
 
@@ -264,7 +264,7 @@ where
             client_version,
             labels,
             tenant: namespace,
-            abilities: client_abilities,
+            ability_table: Some(ability_table),
             ..Default::default()
         };
 
@@ -531,7 +531,7 @@ where
                             self.client_version.clone(),
                             self.namespace.clone(),
                             self.labels.clone(),
-                            self.client_abilities.clone(),
+                            self.ability_table.clone(),
                             self.handler_map.clone(),
                             self.health.clone(),
                             self.last_active.clone(),

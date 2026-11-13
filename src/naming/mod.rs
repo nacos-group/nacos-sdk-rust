@@ -125,10 +125,6 @@ impl NacosNamingService {
             .port(client_props.get_remote_grpc_port())
             .namespace(namespace.clone())
             .client_version(client_props.get_client_version())
-            .support_remote_connection(true)
-            .support_config_remote_metrics(true)
-            .support_naming_delta_push(false)
-            .support_naming_remote_metric(false)
             .add_labels(client_props.get_labels())
             .add_label(
                 crate::api::constants::common_remote::LABEL_SOURCE.to_owned(),

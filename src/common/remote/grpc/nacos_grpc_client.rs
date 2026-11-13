@@ -3,10 +3,10 @@ use tracing::{Instrument, instrument};
 
 use crate::api::error::Error;
 use crate::api::plugin::{AuthPlugin, NoopAuthPlugin, init_auth_plugin};
+use crate::common::remote::grpc::message::GrpcMessageData;
 use crate::common::remote::grpc::message::{
     GrpcMessage, GrpcMessageBuilder, GrpcRequestMessage, GrpcResponseMessage,
 };
-use crate::common::remote::grpc::message::{GrpcMessageData, request::NacosClientAbilities};
 use crate::common::remote::server_list::{PollingServerListService, ServerListProvider};
 
 use super::handlers::client_detection_request_handler::ClientDetectionRequestHandler;
@@ -70,7 +70,6 @@ pub(crate) struct NacosGrpcClientBuilder {
     client_version: String,
     namespace: String,
     labels: HashMap<String, String>,
-    client_abilities: NacosClientAbilities,
     grpc_config: GrpcConfiguration,
     server_request_handler_map: HandlerMap,
     server_list_provider: Arc<dyn ServerListProvider>,
@@ -89,7 +88,6 @@ impl NacosGrpcClientBuilder {
             client_version: Default::default(),
             namespace: Default::default(),
             labels: Default::default(),
-            client_abilities: Default::default(),
             grpc_config: Default::default(),
             server_request_handler_map: Default::default(),
             server_list_provider,
@@ -128,26 +126,6 @@ impl NacosGrpcClientBuilder {
 
     pub(crate) fn emergency_start(mut self, emergency_start: bool) -> Self {
         self.emergency_start = emergency_start;
-        Self { ..self }
-    }
-
-    pub(crate) fn support_remote_connection(mut self, enable: bool) -> Self {
-        self.client_abilities.support_remote_connection(enable);
-        Self { ..self }
-    }
-
-    pub(crate) fn support_config_remote_metrics(mut self, enable: bool) -> Self {
-        self.client_abilities.support_config_remote_metrics(enable);
-        Self { ..self }
-    }
-
-    pub(crate) fn support_naming_delta_push(mut self, enable: bool) -> Self {
-        self.client_abilities.support_naming_delta_push(enable);
-        Self { ..self }
-    }
-
-    pub(crate) fn support_naming_remote_metric(mut self, enable: bool) -> Self {
-        self.client_abilities.support_naming_remote_metric(enable);
         Self { ..self }
     }
 
@@ -213,7 +191,7 @@ impl NacosGrpcClientBuilder {
                 self.client_version,
                 self.namespace,
                 self.labels,
-                self.client_abilities,
+                HashMap::new(),
             );
 
             if let Some(connected_listener) = self.connected_listener {

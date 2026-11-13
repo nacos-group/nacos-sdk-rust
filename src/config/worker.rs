@@ -61,10 +61,6 @@ impl ConfigWorker {
             .namespace(client_props.get_namespace())
             .app_name(client_props.get_app_name())
             .client_version(client_props.get_client_version())
-            .support_remote_connection(true)
-            .support_config_remote_metrics(true)
-            .support_naming_delta_push(false)
-            .support_naming_remote_metric(false)
             .add_label(
                 crate::api::constants::common_remote::LABEL_SOURCE.to_owned(),
                 crate::api::constants::common_remote::LABEL_SOURCE_SDK.to_owned(),

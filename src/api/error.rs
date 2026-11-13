@@ -61,6 +61,9 @@ pub enum Error {
     #[error("no available server")]
     NoAvailableServer,
 
+    #[error("unsupported nacos-server: {0}")]
+    UnsupportedServerVersion(String),
+
     #[error("Wrong server address: {0}")]
     WrongServerAddress(String),
 }
