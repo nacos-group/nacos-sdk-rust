@@ -6,6 +6,8 @@ This file provides guidance to AI coding agents when working with code in this r
 
 This is `nacos-sdk-rust`, a Rust client library for Nacos (a dynamic service discovery, configuration and service management platform). It provides async APIs for configuration management and service naming/discovery using gRPC communication with Nacos servers.
 
+Nacos Server >= 2.3.0 is required: connections perform ability negotiation at setup and older servers fail with `UnsupportedServerVersion`. An ordinary `build()` makes up to 3 connection attempts, each spending server-check time, so a failed build is not instantaneous (`emergency_start` returns immediately and reconnects in the background). Requests issued while disconnected/reconnecting fail fast with `ClientUnhealthy` instead of waiting in a queue.
+
 ## Common Commands
 
 ### Build Commands

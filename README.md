@@ -1,6 +1,11 @@
 # nacos-sdk-rust
 Nacos client in Rust
 
+> 要求 Nacos Server >= 2.3.0（连接建立时使用能力协商；旧版本会返回 `UnsupportedServerVersion`）。
+
+#### 连接与启动行为
+> 普通 `build()` 最多尝试 3 次连接，每次失败都会消耗服务端检查耗时，因此失败不是瞬时返回；`emergency_start` 则立即返回并在后台重连。断连/重连期间新发起的请求会立即以 `ClientUnhealthy` 失败，不会在队列中等待。
+
 ### Extra
 > [nacos-sdk-rust-binding-node](https://github.com/opc-source/nacos-sdk-rust-binding-node.git) : nacos-sdk-rust binding for NodeJs with napi.
 > 
