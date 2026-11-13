@@ -83,7 +83,7 @@ pub(crate) async fn negotiate(
     };
     let setup_payload = GrpcMessageBuilder::new(setup).build().into_payload()?;
 
-    let (local_tx, mut local_rx) = mpsc::channel::<Payload>(settings.backlog);
+    let (local_tx, mut local_rx) = mpsc::channel::<Payload>(settings.backlog.max(1));
     local_tx
         .send(setup_payload)
         .await

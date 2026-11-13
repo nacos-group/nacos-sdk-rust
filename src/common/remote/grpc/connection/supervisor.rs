@@ -70,6 +70,15 @@ impl ActiveConnection {
     }
 }
 
+impl Drop for ActiveConnection {
+    fn drop(&mut self) {
+        // `JoinHandle::drop` only detaches, so every path that loses an active
+        // connection (including a `select!` racing `connect_once` against
+        // shutdown) must tear the pump and health task down here.
+        self.abort();
+    }
+}
+
 pub(crate) struct Supervisor<C: Connector> {
     pub(crate) id: String,
     pub(crate) connector: C,
@@ -100,7 +109,10 @@ impl<C: Connector> Supervisor<C> {
         &mut self,
         shutdown: watch::Receiver<bool>,
     ) -> Result<ActiveConnection, Error> {
-        let transport = self.connector.connect().await?;
+        let timeout = self.settings.request_timeout;
+        let transport = tokio::time::timeout(timeout, self.connector.connect())
+            .await
+            .map_err(|_| Error::ErrResult("connect timeout".to_string()))??;
         self.publish(ConnectionState::Negotiating);
         let last_active = Arc::new(AtomicU64::new(now_millis()));
         let (events_tx, events_rx) = mpsc::channel(8);
@@ -157,11 +169,15 @@ impl<C: Connector> Supervisor<C> {
                     });
                 }
                 request = self.rx.recv() => {
-                    let Some(request) = request else {
+                    let Some(OutboundRequest {
+                        payload,
+                        mut reply,
+                    }) = request
+                    else {
                         active.abort();
                         return Ok(());
                     };
-                    if request.reply.is_closed() {
+                    if reply.is_closed() {
                         continue;
                     }
                     let transport = active.transport.clone();
@@ -169,13 +185,16 @@ impl<C: Connector> Supervisor<C> {
                     let mut cancel = active.cancel.subscribe();
                     self.spawner.spawn(Box::pin(async move {
                         let result = tokio::select! {
-                            result = transport.unary(request.payload) => result,
+                            result = transport.unary(payload) => result,
                             _ = cancel.changed() => Err(Error::ClientUnhealthy("connection lost".to_string())),
+                            // The caller gave up (deadline or dropped future): drop
+                            // the transport call instead of detaching it.
+                            _ = reply.closed() => Err(Error::ClientUnhealthy("request cancelled".to_string())),
                         };
                         if result.is_ok() {
                             last_active.store(now_millis(), Ordering::Release);
                         }
-                        let _ = request.reply.send(result);
+                        let _ = reply.send(result);
                     }));
                 }
             }
@@ -248,7 +267,7 @@ impl<C: Connector> Supervisor<C> {
                     if !ever_ready {
                         startup_attempts = startup_attempts.saturating_add(1);
                         if let StartupMode::WaitForReady { max_attempts } = self.startup_mode
-                            && startup_attempts >= max_attempts
+                            && startup_attempts >= max_attempts.max(1)
                         {
                             self.publish(ConnectionState::Stopped);
                             if let Some(tx) = self.startup_tx.take() {
@@ -310,7 +329,7 @@ mod tests {
     use std::pin::Pin;
     use std::sync::Arc;
     use std::sync::Mutex;
-    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
     use std::time::Duration;
 
     use async_trait::async_trait;
@@ -360,11 +379,33 @@ mod tests {
         }
     }
 
+    /// Connector whose `connect()` never completes, so only shutdown can end
+    /// the startup attempt.
+    struct PendingConnector;
+
+    #[async_trait]
+    impl Connector for PendingConnector {
+        async fn connect(&mut self) -> Result<Arc<dyn Transport>, Error> {
+            std::future::pending().await
+        }
+    }
+
     struct ScriptedTransport {
         unary: Mutex<VecDeque<Result<Payload, Error>>>,
         ack: Payload,
         streams: Mutex<Vec<mpsc::UnboundedSender<Result<Payload, Error>>>>,
         pending_calls: AtomicUsize,
+        abandoned_calls: AtomicBool,
+    }
+
+    /// Flags the moment the pending `unary` future is dropped, which is how a
+    /// cancelled caller becomes observable from the transport side.
+    struct AbandonedOnDrop<'a>(&'a AtomicBool);
+
+    impl Drop for AbandonedOnDrop<'_> {
+        fn drop(&mut self) {
+            self.0.store(true, Ordering::SeqCst);
+        }
     }
 
     impl ScriptedTransport {
@@ -384,6 +425,7 @@ mod tests {
                     .expect("ack payload"),
                 streams: Mutex::new(Vec::new()),
                 pending_calls: AtomicUsize::new(0),
+                abandoned_calls: AtomicBool::new(false),
             }
         }
 
@@ -405,6 +447,7 @@ mod tests {
                 Some(result) => result,
                 None => {
                     self.pending_calls.fetch_add(1, Ordering::SeqCst);
+                    let _abandoned = AbandonedOnDrop(&self.abandoned_calls);
                     futures::future::pending::<Result<Payload, Error>>().await
                 }
             }
@@ -463,6 +506,27 @@ mod tests {
         }
     }
 
+    /// Spawner that keeps abort handles for every spawned task so a test can
+    /// observe whether they were cancelled.
+    #[derive(Default)]
+    struct AbortRecordingSpawner {
+        tasks: Mutex<Vec<tokio::task::AbortHandle>>,
+    }
+
+    impl Spawner for AbortRecordingSpawner {
+        fn spawn(
+            &self,
+            future: Pin<Box<dyn Future<Output = ()> + Send + 'static>>,
+        ) -> tokio::task::JoinHandle<()> {
+            let handle = tokio::spawn(future);
+            self.tasks
+                .lock()
+                .expect("tasks lock")
+                .push(handle.abort_handle());
+            handle
+        }
+    }
+
     async fn wait_until(mut predicate: impl FnMut() -> bool) {
         for _ in 0..10_000 {
             if predicate() {
@@ -490,6 +554,42 @@ mod tests {
         let result = waiter.wait().await;
         assert!(result.is_err());
         assert_eq!(connector.connects.load(Ordering::SeqCst), 3);
+        drop(handle);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_single_attempt_budget_connects_exactly_once() {
+        let connector = ScriptedConnector::failing();
+        let (handle, waiter) = ConnectionHandle::start_with(
+            "test".to_string(),
+            connector.clone(),
+            HandlerMap::new(),
+            test_settings(),
+            StartupMode::WaitForReady { max_attempts: 1 },
+            None,
+            None,
+            Arc::new(LocalSpawner),
+        );
+        assert!(waiter.wait().await.is_err());
+        assert_eq!(connector.connects.load(Ordering::SeqCst), 1);
+        drop(handle);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_zero_budget_is_clamped_to_one_attempt() {
+        let connector = ScriptedConnector::failing();
+        let (handle, waiter) = ConnectionHandle::start_with(
+            "test".to_string(),
+            connector.clone(),
+            HandlerMap::new(),
+            test_settings(),
+            StartupMode::WaitForReady { max_attempts: 0 },
+            None,
+            None,
+            Arc::new(LocalSpawner),
+        );
+        assert!(waiter.wait().await.is_err());
+        assert_eq!(connector.connects.load(Ordering::SeqCst), 1);
         drop(handle);
     }
 
@@ -574,8 +674,126 @@ mod tests {
             .await
             .expect("request should finish")
             .expect("request task");
-        assert!(result.is_err());
+        assert!(
+            matches!(&result, Err(Error::ClientUnhealthy(message)) if message == "connection lost"),
+            "expected the in-flight cancellation path, got {result:?}"
+        );
         drop(handle);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_abandoned_request_cancels_the_transport_call() {
+        let transport = Arc::new(ScriptedTransport::new(server_check_payload("c-1")));
+        let (handle, waiter) = ConnectionHandle::start_with(
+            "test".to_string(),
+            ScriptedConnector::once(transport.clone()),
+            HandlerMap::new(),
+            test_settings(),
+            StartupMode::WaitForReady { max_attempts: 1 },
+            None,
+            None,
+            Arc::new(LocalSpawner),
+        );
+        waiter.wait().await.expect("ready");
+
+        // No scripted unary response, so the transport call pends past the
+        // caller's deadline.
+        let result = handle.send_request(Payload::default()).await;
+        assert!(
+            matches!(&result, Err(Error::ClientUnhealthy(message)) if message == "connection request timeout"),
+            "unexpected result: {result:?}"
+        );
+        assert_eq!(transport.pending_calls.load(Ordering::SeqCst), 1);
+
+        // The abandoned unary must be dropped instead of running detached.
+        wait_until(|| transport.abandoned_calls.load(Ordering::SeqCst)).await;
+        drop(handle);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_pending_connect_is_bounded_by_request_timeout() {
+        let settings = ConnectionSettings {
+            request_timeout: Duration::from_millis(10),
+            ..test_settings()
+        };
+        let (handle, waiter) = ConnectionHandle::start_with(
+            "test".to_string(),
+            PendingConnector,
+            HandlerMap::new(),
+            settings,
+            StartupMode::WaitForReady { max_attempts: 1 },
+            None,
+            None,
+            Arc::new(LocalSpawner),
+        );
+        let result = tokio::time::timeout(Duration::from_secs(1), waiter.wait())
+            .await
+            .expect("a pending connect must not hang the waiter");
+        let error = result.expect_err("pending connect must fail");
+        assert!(
+            error.to_string().contains("connect timeout"),
+            "unexpected error: {error}"
+        );
+        drop(handle);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_shutdown_during_startup_resolves_the_waiter() {
+        let settings = ConnectionSettings {
+            request_timeout: Duration::from_secs(3600),
+            ..test_settings()
+        };
+        let (handle, waiter) = ConnectionHandle::start_with(
+            "test".to_string(),
+            PendingConnector,
+            HandlerMap::new(),
+            settings,
+            StartupMode::WaitForReady { max_attempts: 3 },
+            None,
+            None,
+            Arc::new(LocalSpawner),
+        );
+        drop(handle);
+
+        let result = tokio::time::timeout(Duration::from_secs(1), waiter.wait())
+            .await
+            .expect("waiter must resolve promptly after shutdown");
+        assert!(result.is_err());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_dropping_active_connection_tears_down_pump_and_health() {
+        let spawner = AbortRecordingSpawner::default();
+        let pump = spawner.spawn(Box::pin(std::future::pending::<()>()));
+        let health = spawner.spawn(Box::pin(std::future::pending::<()>()));
+        let (events_tx, events_rx) = mpsc::channel(1);
+        drop(events_tx);
+        let (cancel, cancel_rx) = watch::channel(false);
+
+        let active = ActiveConnection {
+            transport: Arc::new(ScriptedTransport::new(server_check_payload("c-1"))),
+            connection_id: "c-1".to_string(),
+            pump,
+            health,
+            events_rx,
+            last_active: Arc::new(AtomicU64::new(now_millis())),
+            cancel,
+        };
+        drop(active);
+
+        assert!(
+            *cancel_rx.borrow(),
+            "drop must signal in-flight cancellation"
+        );
+        wait_until(|| {
+            spawner
+                .tasks
+                .lock()
+                .expect("tasks lock")
+                .iter()
+                .all(tokio::task::AbortHandle::is_finished)
+        })
+        .await;
     }
 
     #[tokio::test(start_paused = true)]

@@ -91,8 +91,8 @@ pub(crate) struct ConnectionHandle {
     inner: Arc<HandleInner>,
 }
 
-#[allow(dead_code)] // wired into NacosGrpcClient in B5
 impl ConnectionHandle {
+    #[allow(dead_code)] // first caller is NacosGrpcClient in B5
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn start_with<C: Connector + 'static>(
         id: String,
@@ -104,7 +104,7 @@ impl ConnectionHandle {
         disconnected_listener: Option<ConnectionListener>,
         spawner: Arc<dyn Spawner>,
     ) -> (Self, StartupWaiter) {
-        let (tx, rx) = tokio::sync::mpsc::channel(settings.backlog);
+        let (tx, rx) = tokio::sync::mpsc::channel(settings.backlog.max(1));
         let (state_tx, state_rx) = watch::channel(ConnectionState::Connecting);
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
         let (connection_tx, connection_rx) = watch::channel(None::<String>);
@@ -149,6 +149,7 @@ impl ConnectionHandle {
         (Self { inner }, StartupWaiter(startup_rx))
     }
 
+    #[allow(dead_code)] // first caller is NacosGrpcClient in B5
     pub(crate) fn server_abilities(&self) -> HashMap<String, bool> {
         self.inner
             .server_abilities
@@ -165,9 +166,6 @@ fn spawn_listener(
     listener: ConnectionListener,
 ) {
     let mut previous = receiver.borrow().clone();
-    if connected && let Some(id) = previous.clone() {
-        listener(id);
-    }
     spawner.spawn(Box::pin(async move {
         while receiver.changed().await.is_ok() {
             let current = receiver.borrow().clone();

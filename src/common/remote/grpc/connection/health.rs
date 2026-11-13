@@ -83,3 +83,119 @@ pub(crate) async fn run(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use async_trait::async_trait;
+
+    use super::*;
+    use crate::common::remote::grpc::nacos_grpc_service::GrpcStream;
+    use crate::nacos_proto::v2::Payload;
+
+    struct FailingTransport;
+
+    #[async_trait]
+    impl Transport for FailingTransport {
+        async fn unary(&self, _payload: Payload) -> Result<Payload, Error> {
+            Err(Error::ClientUnhealthy("health probe failed".to_string()))
+        }
+
+        async fn open_stream(
+            &self,
+            _request: GrpcStream<Payload>,
+        ) -> Result<GrpcStream<Result<Payload, Error>>, Error> {
+            Err(Error::ErrResult("open_stream is not used".to_string()))
+        }
+    }
+
+    struct OkTransport;
+
+    #[async_trait]
+    impl Transport for OkTransport {
+        async fn unary(&self, _payload: Payload) -> Result<Payload, Error> {
+            GrpcMessageBuilder::new(HealthCheckResponse::default())
+                .build()
+                .into_payload()
+        }
+
+        async fn open_stream(
+            &self,
+            _request: GrpcStream<Payload>,
+        ) -> Result<GrpcStream<Result<Payload, Error>>, Error> {
+            Err(Error::ErrResult("open_stream is not used".to_string()))
+        }
+    }
+
+    /// Health compares wall clock `now_millis()`, which paused time does not
+    /// advance, so `last_active` is aged explicitly instead of via timers.
+    fn aged_last_active() -> Arc<AtomicU64> {
+        Arc::new(AtomicU64::new(now_millis().saturating_sub(1000)))
+    }
+
+    fn health_settings() -> ConnectionSettings {
+        ConnectionSettings {
+            health_interval: Duration::from_millis(1),
+            health_retry_times: 1,
+            health_timeout: Duration::from_millis(10),
+            ..Default::default()
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_unhealthy_transport_reports_and_stops() {
+        let (events_tx, mut events_rx) = mpsc::channel(4);
+        let (_shutdown_tx, shutdown_rx) = watch::channel(false);
+        let task = tokio::spawn(run(
+            Arc::new(FailingTransport),
+            aged_last_active(),
+            events_tx,
+            shutdown_rx,
+            health_settings(),
+        ));
+
+        let event = tokio::time::timeout(Duration::from_secs(1), events_rx.recv())
+            .await
+            .expect("the health failure must be reported")
+            .expect("the event channel must stay open");
+        assert!(
+            matches!(event, ConnectionEvent::Unhealthy(_)),
+            "unexpected event: {event:?}"
+        );
+        tokio::time::timeout(Duration::from_secs(1), task)
+            .await
+            .expect("health run must return after reporting")
+            .expect("health task must not panic");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_healthy_transport_refreshes_activity_and_stops_on_shutdown() {
+        let last_active = aged_last_active();
+        let before = last_active.load(Ordering::Acquire);
+        let (events_tx, mut events_rx) = mpsc::channel(4);
+        let (shutdown_tx, shutdown_rx) = watch::channel(false);
+        let task = tokio::spawn(run(
+            Arc::new(OkTransport),
+            last_active.clone(),
+            events_tx,
+            shutdown_rx,
+            health_settings(),
+        ));
+
+        assert!(
+            tokio::time::timeout(Duration::from_millis(50), events_rx.recv())
+                .await
+                .is_err(),
+            "a healthy connection must not report Unhealthy"
+        );
+        assert!(
+            last_active.load(Ordering::Acquire) > before,
+            "a successful health check must refresh last_active"
+        );
+
+        shutdown_tx.send(true).expect("health run is still running");
+        tokio::time::timeout(Duration::from_secs(1), task)
+            .await
+            .expect("health run must return on shutdown")
+            .expect("health task must not panic");
+    }
+}
