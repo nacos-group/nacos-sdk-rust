@@ -38,3 +38,31 @@ impl Default for ConnectionSettings {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_default_settings_are_pinned() {
+        let settings = ConnectionSettings::default();
+        assert_eq!(settings.client_version, "");
+        assert_eq!(settings.namespace, "");
+        assert!(settings.labels.is_empty());
+        assert_eq!(settings.server_check_timeout, Duration::from_secs(3));
+        assert_eq!(
+            settings.capability_negotiation_timeout,
+            Duration::from_secs(5)
+        );
+        assert_eq!(settings.request_timeout, Duration::from_secs(10));
+        assert_eq!(settings.health_interval, Duration::from_secs(5));
+        assert_eq!(settings.health_retry_times, 3);
+        assert_eq!(settings.health_timeout, Duration::from_secs(3));
+        assert_eq!(settings.backlog, 1024);
+        assert_eq!(
+            settings.retry.delay_with_roll(0, 0),
+            Duration::from_millis(250)
+        );
+        assert_eq!(settings.retry.stable_reset_after(), Duration::from_secs(10));
+    }
+}

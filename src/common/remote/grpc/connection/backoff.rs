@@ -82,7 +82,7 @@ mod tests {
                 policy.delay_with_roll(attempt, half).as_millis() as u64,
                 full
             );
-            for roll in [0, 1, half / 2, half] {
+            for roll in [0, 1, half / 2, half, half + 1] {
                 let delay = policy.delay_with_roll(attempt, roll).as_millis() as u64;
                 assert!(
                     delay >= half,
