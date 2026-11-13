@@ -31,7 +31,6 @@ pub(crate) enum ConnectionState {
     Stopped,
 }
 
-#[allow(dead_code)] // wired into NacosGrpcClient in B5
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum StartupMode {
     WaitForReady { max_attempts: u32 },
@@ -40,7 +39,6 @@ pub(crate) enum StartupMode {
 
 pub(crate) struct StartupWaiter(pub(crate) Option<oneshot::Receiver<Result<(), Error>>>);
 
-#[allow(dead_code)] // wired into NacosGrpcClient in B5
 impl StartupWaiter {
     pub(crate) async fn wait(self) -> Result<(), Error> {
         match self.0 {
@@ -188,8 +186,10 @@ impl<C: Connector> Supervisor<C> {
                             result = transport.unary(payload) => result,
                             _ = cancel.changed() => Err(Error::ClientUnhealthy("connection lost".to_string())),
                             // The caller gave up (deadline or dropped future): drop
-                            // the transport call instead of detaching it.
-                            _ = reply.closed() => Err(Error::ClientUnhealthy("request cancelled".to_string())),
+                            // the transport call instead of detaching it. The
+                            // receiver is gone, so returning directly skips the
+                            // unobservable error value.
+                            _ = reply.closed() => return,
                         };
                         if result.is_ok() {
                             last_active.store(now_millis(), Ordering::Release);
@@ -576,7 +576,7 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
-    async fn test_zero_budget_is_clamped_to_one_attempt() {
+    async fn test_zero_budget_behaves_like_one_attempt() {
         let connector = ScriptedConnector::failing();
         let (handle, waiter) = ConnectionHandle::start_with(
             "test".to_string(),

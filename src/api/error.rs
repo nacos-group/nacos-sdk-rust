@@ -55,9 +55,6 @@ pub enum Error {
     #[error("tonic grpc status error: {0}")]
     TonicGrpcStatus(#[from] tonic::Status),
 
-    #[error("grpc request error: {0}")]
-    GrpcBufferRequest(#[from] tower::BoxError),
-
     #[error("no available server")]
     NoAvailableServer,
 

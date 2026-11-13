@@ -50,7 +50,6 @@ pub(crate) trait Spawner: Send + Sync + 'static {
     fn spawn(&self, future: Pin<Box<dyn Future<Output = ()> + Send + 'static>>) -> JoinHandle<()>;
 }
 
-#[allow(dead_code)] // wired into NacosGrpcClient in B5
 pub(crate) struct ExecutorSpawner;
 
 impl Spawner for ExecutorSpawner {
@@ -92,7 +91,6 @@ pub(crate) struct ConnectionHandle {
 }
 
 impl ConnectionHandle {
-    #[allow(dead_code)] // first caller is NacosGrpcClient in B5
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn start_with<C: Connector + 'static>(
         id: String,
@@ -149,7 +147,6 @@ impl ConnectionHandle {
         (Self { inner }, StartupWaiter(startup_rx))
     }
 
-    #[allow(dead_code)] // first caller is NacosGrpcClient in B5
     pub(crate) fn server_abilities(&self) -> HashMap<String, bool> {
         self.inner
             .server_abilities
@@ -184,8 +181,7 @@ fn spawn_listener(
     }));
 }
 
-#[allow(dead_code)] // wired into NacosGrpcClient in B5
-#[allow(clippy::disallowed_methods)]
+#[allow(clippy::disallowed_methods)] // mockall's generated MockSendRequest calls unwrap
 #[cfg_attr(test, mockall::automock)]
 #[async_trait]
 pub(crate) trait SendRequest: Send {

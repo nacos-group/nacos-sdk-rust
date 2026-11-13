@@ -9,11 +9,10 @@ use crate::common::remote::grpc::message::{
 };
 use crate::common::remote::server_list::{PollingServerListService, ServerListProvider};
 
+use super::connection::supervisor::StartupMode;
+use super::connection::{ConnectionHandle, ConnectionListener, ExecutorSpawner, SendRequest};
 use super::handlers::client_detection_request_handler::ClientDetectionRequestHandler;
-use super::message::request::{ClientDetectionRequest, HealthCheckRequest};
-use super::nacos_grpc_connection::{
-    ConnectedListener, DisconnectedListener, NacosGrpcConnection, SendRequest,
-};
+use super::message::request::ClientDetectionRequest;
 use super::tonic::TonicBuilder;
 use super::{config::GrpcConfiguration, nacos_grpc_service::ServerRequestHandler};
 
@@ -73,14 +72,13 @@ pub(crate) struct NacosGrpcClientBuilder {
     grpc_config: GrpcConfiguration,
     server_request_handler_map: HandlerMap,
     server_list_provider: Arc<dyn ServerListProvider>,
-    connected_listener: Option<ConnectedListener>,
-    disconnected_listener: Option<DisconnectedListener>,
+    connected_listener: Option<ConnectionListener>,
+    disconnected_listener: Option<ConnectionListener>,
     auth_plugin: Arc<dyn AuthPlugin>,
     auth_context: HashMap<String, String>,
     emergency_start: bool,
 }
 
-#[allow(dead_code)]
 impl NacosGrpcClientBuilder {
     pub(crate) fn new(server_list_provider: Arc<dyn ServerListProvider>) -> Self {
         Self {
@@ -179,50 +177,48 @@ impl NacosGrpcClientBuilder {
             Arc::new(ClientDetectionRequestHandler),
         );
 
-        let send_request = {
-            let server_list =
-                PollingServerListService::from_provider(self.server_list_provider.clone()).await;
-            let tonic_builder = TonicBuilder::new(self.grpc_config, server_list);
+        let server_list =
+            PollingServerListService::from_provider(self.server_list_provider.clone()).await;
 
-            let mut connection = NacosGrpcConnection::new(
-                id.clone(),
-                tonic_builder,
-                self.server_request_handler_map,
-                self.client_version,
-                self.namespace,
-                self.labels,
-                HashMap::new(),
-            );
-
-            if let Some(connected_listener) = self.connected_listener {
-                connection = connection.connected_listener(connected_listener);
-            }
-
-            if let Some(disconnected_listener) = self.disconnected_listener {
-                connection = connection.disconnected_listener(disconnected_listener);
-            }
-
-            let failover_connection = connection.into_failover_connection(id.clone());
-            Arc::new(failover_connection) as Arc<dyn SendRequest + Send + Sync + 'static>
+        let settings = crate::common::remote::grpc::connection::ConnectionSettings {
+            client_version: self.client_version,
+            namespace: self.namespace,
+            labels: self.labels,
+            ..Default::default()
         };
 
-        // Verify connection by sending a health check request
-        let health_check_request = GrpcMessageBuilder::new(HealthCheckRequest::default())
-            .build()
-            .into_payload()?;
-        match send_request.send_request(health_check_request).await {
-            Ok(_) => {
-                tracing::info!("health check passed, connected to Nacos server");
-            }
-            Err(e) => {
-                if self.emergency_start {
-                    tracing::warn!(
-                        "health check failed, cannot connect to Nacos server, but continuing startup in emergency mode: {}",
-                        e
-                    );
-                } else {
-                    return Err(e);
-                }
+        let (connection, waiter) = ConnectionHandle::start_with(
+            id.clone(),
+            TonicBuilder::new(self.grpc_config, server_list),
+            self.server_request_handler_map,
+            settings,
+            if self.emergency_start {
+                StartupMode::Background
+            } else {
+                StartupMode::WaitForReady { max_attempts: 3 }
+            },
+            self.connected_listener,
+            self.disconnected_listener,
+            Arc::new(ExecutorSpawner),
+        );
+
+        let send_request =
+            Arc::new(connection.clone()) as Arc<dyn SendRequest + Send + Sync + 'static>;
+
+        // The 2.3 handshake is the readiness check: `WaitForReady` has already
+        // propagated any connection failure before this point.
+        waiter.wait().await?;
+
+        if !self.emergency_start {
+            let abilities = connection.server_abilities();
+            if !abilities
+                .get("supportPersistentInstanceByGrpc")
+                .copied()
+                .unwrap_or(false)
+            {
+                tracing::warn!(
+                    "server does not advertise supportPersistentInstanceByGrpc; persistent naming operations may fail"
+                );
             }
         }
 
@@ -249,8 +245,8 @@ impl NacosGrpcClientBuilder {
 pub mod tests {
 
     use crate::common::remote::grpc::{
+        connection::MockSendRequest,
         message::{request::HealthCheckRequest, response::HealthCheckResponse},
-        nacos_grpc_connection::MockSendRequest,
     };
 
     use mockall::predicate::*;
