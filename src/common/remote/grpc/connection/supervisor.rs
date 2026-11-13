@@ -266,10 +266,15 @@ impl<C: Connector> Supervisor<C> {
                 }
                 Err(error) => {
                     // An unsupported server cannot become compatible by
-                    // retrying, so a startup attempt fails immediately with that
-                    // error. Once the connection has been ready at least once the
-                    // server may have been replaced, so it is logged and retried.
-                    if !ever_ready && matches!(error, Error::UnsupportedServerVersion(_)) {
+                    // retrying, so a waiting startup fails immediately with that
+                    // error. Background (emergency) startup keeps retrying, and
+                    // once the connection has been ready at least once the
+                    // server may have been replaced, so both are logged and
+                    // retried instead of stopping permanently.
+                    if !ever_ready
+                        && matches!(self.startup_mode, StartupMode::WaitForReady { .. })
+                        && matches!(&error, Error::UnsupportedServerVersion(_))
+                    {
                         self.publish(ConnectionState::Stopped);
                         if let Some(tx) = self.startup_tx.take() {
                             let _ = tx.send(Err(error));
@@ -402,6 +407,21 @@ mod tests {
         }
     }
 
+    /// Connector that always succeeds with a pre-2.3 server which reports no
+    /// ability negotiation.
+    #[derive(Clone, Default)]
+    struct AlwaysOldServerConnector {
+        connects: Arc<AtomicUsize>,
+    }
+
+    #[async_trait]
+    impl Connector for AlwaysOldServerConnector {
+        async fn connect(&mut self) -> Result<Arc<dyn Transport>, Error> {
+            self.connects.fetch_add(1, Ordering::SeqCst);
+            Ok(Arc::new(ScriptedTransport::new(old_server_check_payload())))
+        }
+    }
+
     /// Connector whose `connect()` never completes, so only shutdown can end
     /// the startup attempt.
     struct PendingConnector;
@@ -494,6 +514,11 @@ mod tests {
 
     fn server_check_payload(id: &str) -> Payload {
         server_check_payload_with(id, true)
+    }
+
+    /// Server-check response of a pre-2.3 server: no ability negotiation.
+    fn old_server_check_payload() -> Payload {
+        server_check_payload_with("c-old", false)
     }
 
     fn server_check_payload_with(id: &str, support_ability_negotiation: bool) -> Payload {
@@ -973,6 +998,30 @@ mod tests {
         );
         assert_eq!(connector.connects.load(Ordering::SeqCst), 1);
         assert_eq!(handle.state(), ConnectionState::Stopped);
+        drop(handle);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_background_mode_keeps_retrying_unsupported_servers() {
+        let connector = AlwaysOldServerConnector::default();
+        let (handle, waiter) = ConnectionHandle::start_with(
+            "test".to_string(),
+            connector.clone(),
+            HandlerMap::new(),
+            test_settings(),
+            StartupMode::Background,
+            None,
+            None,
+            Arc::new(LocalSpawner),
+        );
+        assert!(waiter.wait().await.is_ok());
+        wait_until(|| connector.connects.load(Ordering::SeqCst) >= 2).await;
+        assert_ne!(
+            handle.state(),
+            ConnectionState::Stopped,
+            "emergency startup must keep retrying instead of stopping"
+        );
+        assert!(connector.connects.load(Ordering::SeqCst) >= 2);
         drop(handle);
     }
 }
