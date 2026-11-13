@@ -41,17 +41,17 @@ async fn get_or_init_server() -> &'static Arc<tokio::sync::Mutex<Option<NacosSer
             eprintln!("[SharedServer] Initializing with mode: {:?}", mode);
 
             let server = match mode {
-                ServerMode::Rnacos => NacosServerEnum::Rnacos(super::rnacos::RnacosServer::new(
-                    SHARED_SERVER_HTTP_PORT,
-                )),
-                ServerMode::Docker => NacosServerEnum::Docker(
-                    super::docker_nacos::DockerNacosServer::new(SHARED_SERVER_HTTP_PORT),
+                ServerMode::Container => NacosServerEnum::Container(
+                    super::container_nacos::ContainerNacosServer::new(SHARED_SERVER_HTTP_PORT),
                 ),
                 ServerMode::ExternallyManaged => NacosServerEnum::ExternallyManaged(
                     super::externally_managed::ExternallyManagedServer::new(
                         super::DEFAULT_DOCKER_HTTP_PORT,
                     ),
                 ),
+                ServerMode::Rnacos => NacosServerEnum::Rnacos(super::rnacos::RnacosServer::new(
+                    SHARED_SERVER_HTTP_PORT,
+                )),
             };
 
             Arc::new(tokio::sync::Mutex::new(Some(server)))
@@ -70,9 +70,9 @@ pub async fn get_shared_server_addr() -> String {
 
     if let Some(ref mut server) = *guard {
         let needs_start = match server {
-            NacosServerEnum::Rnacos(s) => !s.is_running(),
-            NacosServerEnum::Docker(s) => !s.is_running(),
+            NacosServerEnum::Container(s) => !s.is_running(),
             NacosServerEnum::ExternallyManaged(s) => !s.is_running(),
+            NacosServerEnum::Rnacos(s) => !s.is_running(),
         };
 
         if needs_start {

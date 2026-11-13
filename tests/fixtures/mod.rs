@@ -1,4 +1,4 @@
-pub mod docker_nacos;
+pub mod container_nacos;
 pub mod externally_managed;
 pub mod rnacos;
 pub mod shared_server;
@@ -43,81 +43,116 @@ impl From<std::io::Error> for FixtureError {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ServerMode {
-    Rnacos,
-    Docker,
+    Container,
     ExternallyManaged,
+    Rnacos,
 }
 
 impl Default for ServerMode {
     fn default() -> Self {
-        match std::env::var("NACOS_SERVER").as_deref() {
-            Ok("docker") => ServerMode::Docker,
-            Ok("external") => ServerMode::ExternallyManaged,
-            _ => ServerMode::Rnacos,
+        parse_server_mode(std::env::var("NACOS_SERVER").ok().as_deref())
+    }
+}
+
+pub(crate) fn parse_server_mode(value: Option<&str>) -> ServerMode {
+    match value {
+        Some("external") => ServerMode::ExternallyManaged,
+        Some("rnacos") => ServerMode::Rnacos,
+        Some("container") | Some("docker") | Some("podman") | None => ServerMode::Container,
+        Some(other) => {
+            eprintln!("unknown NACOS_SERVER={other}; falling back to container mode");
+            ServerMode::Container
         }
     }
 }
 
 pub enum NacosServerEnum {
-    Rnacos(rnacos::RnacosServer),
-    Docker(docker_nacos::DockerNacosServer),
+    Container(container_nacos::ContainerNacosServer),
     ExternallyManaged(externally_managed::ExternallyManagedServer),
+    Rnacos(rnacos::RnacosServer),
 }
 
 impl NacosServerEnum {
     pub fn server_addr(&self) -> String {
         match self {
-            NacosServerEnum::Rnacos(s) => s.server_addr(),
-            NacosServerEnum::Docker(s) => s.server_addr(),
-            NacosServerEnum::ExternallyManaged(s) => s.server_addr(),
+            Self::Container(s) => s.server_addr(),
+            Self::ExternallyManaged(s) => s.server_addr(),
+            Self::Rnacos(s) => s.server_addr(),
         }
     }
 
     pub fn grpc_port(&self) -> u16 {
         match self {
-            NacosServerEnum::Rnacos(s) => s.grpc_port(),
-            NacosServerEnum::Docker(s) => s.grpc_port(),
-            NacosServerEnum::ExternallyManaged(s) => s.grpc_port(),
+            Self::Container(s) => s.grpc_port(),
+            Self::ExternallyManaged(s) => s.grpc_port(),
+            Self::Rnacos(s) => s.grpc_port(),
         }
     }
 
     pub async fn start(&mut self) -> Result<()> {
         match self {
-            NacosServerEnum::Rnacos(s) => s.start().await,
-            NacosServerEnum::Docker(s) => s.start().await,
-            NacosServerEnum::ExternallyManaged(s) => s.start().await,
+            Self::Container(s) => s.start().await,
+            Self::ExternallyManaged(s) => s.start().await,
+            Self::Rnacos(s) => s.start().await,
         }
     }
 
     pub async fn stop(&mut self) -> Result<()> {
         match self {
-            NacosServerEnum::Rnacos(s) => s.stop().await,
-            NacosServerEnum::Docker(s) => s.stop().await,
-            NacosServerEnum::ExternallyManaged(s) => s.stop().await,
+            Self::Container(s) => s.stop().await,
+            Self::ExternallyManaged(s) => s.stop().await,
+            Self::Rnacos(s) => s.stop().await,
         }
     }
 
     pub async fn health_check(&self) -> bool {
         match self {
-            NacosServerEnum::Rnacos(s) => s.health_check().await,
-            NacosServerEnum::Docker(s) => s.health_check().await,
-            NacosServerEnum::ExternallyManaged(s) => s.health_check().await,
+            Self::Container(s) => s.health_check().await,
+            Self::ExternallyManaged(s) => s.health_check().await,
+            Self::Rnacos(s) => s.health_check().await,
         }
     }
 }
 
 pub fn create_server(mode: ServerMode, http_port: u16) -> NacosServerEnum {
     match mode {
-        ServerMode::Rnacos => NacosServerEnum::Rnacos(rnacos::RnacosServer::new(http_port)),
-        ServerMode::Docker => {
-            NacosServerEnum::Docker(docker_nacos::DockerNacosServer::new(http_port))
+        ServerMode::Container => {
+            NacosServerEnum::Container(container_nacos::ContainerNacosServer::new(http_port))
         }
         ServerMode::ExternallyManaged => NacosServerEnum::ExternallyManaged(
             externally_managed::ExternallyManagedServer::new(DEFAULT_DOCKER_HTTP_PORT),
         ),
+        ServerMode::Rnacos => NacosServerEnum::Rnacos(rnacos::RnacosServer::new(http_port)),
     }
 }
 
 pub const DEFAULT_DOCKER_HTTP_PORT: u16 = 8848;
 pub const DEFAULT_STARTUP_TIMEOUT_SECS: u64 = 30;
 pub const HEALTH_CHECK_INTERVAL_MS: u64 = 500;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_server_mode_defaults_to_container() {
+        assert_eq!(parse_server_mode(None), ServerMode::Container);
+        assert_eq!(parse_server_mode(Some("container")), ServerMode::Container);
+        assert_eq!(parse_server_mode(Some("docker")), ServerMode::Container);
+        assert_eq!(parse_server_mode(Some("podman")), ServerMode::Container);
+    }
+
+    #[test]
+    fn test_parse_server_mode_external_and_rnacos() {
+        assert_eq!(
+            parse_server_mode(Some("external")),
+            ServerMode::ExternallyManaged
+        );
+        assert_eq!(parse_server_mode(Some("rnacos")), ServerMode::Rnacos);
+    }
+
+    #[test]
+    fn test_parse_server_mode_unknown_falls_back_to_container() {
+        assert_eq!(parse_server_mode(Some("unknown")), ServerMode::Container);
+    }
+}

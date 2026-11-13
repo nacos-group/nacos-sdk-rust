@@ -15,91 +15,111 @@
 // specific language governing permissions and limitations
 // under the License.
 
-use std::process::{Child, Command};
+//! Container-backed Nacos server fixture.
+//!
+//! Starts a Nacos standalone server in a container managed by either podman or
+//! docker. The runtime is auto-detected (podman preferred, then docker) unless
+//! `NACOS_CONTAINER_RUNTIME` explicitly selects one.
+
+use std::process::Command;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use super::{DEFAULT_STARTUP_TIMEOUT_SECS, FixtureError, HEALTH_CHECK_INTERVAL_MS, Result};
 
-const DEFAULT_NACOS_IMAGE: &str = "nacos/nacos-server:v2.5.2";
+const DEFAULT_NACOS_IMAGE: &str = "nacos/nacos-server:v2.5.4";
 const GRPC_PORT_OFFSET: u16 = 1000;
 
-pub struct DockerNacosServer {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ContainerRuntime {
+    Podman,
+    Docker,
+}
+
+impl ContainerRuntime {
+    pub fn detect() -> Result<Self> {
+        if let Ok(value) = std::env::var("NACOS_CONTAINER_RUNTIME") {
+            return match value.as_str() {
+                "podman" => Ok(Self::Podman),
+                "docker" => Ok(Self::Docker),
+                other => Err(FixtureError::Other(format!(
+                    "unsupported NACOS_CONTAINER_RUNTIME={other}; expected podman or docker"
+                ))),
+            };
+        }
+        for candidate in [Self::Podman, Self::Docker] {
+            if candidate.is_available() {
+                return Ok(candidate);
+            }
+        }
+        Err(FixtureError::Other(
+            "neither podman nor docker is available".to_string(),
+        ))
+    }
+
+    fn binary(self) -> &'static str {
+        match self {
+            Self::Podman => "podman",
+            Self::Docker => "docker",
+        }
+    }
+
+    fn is_available(self) -> bool {
+        Command::new(self.binary())
+            .arg("--version")
+            .output()
+            .map(|output| output.status.success())
+            .unwrap_or(false)
+    }
+}
+
+pub struct ContainerNacosServer {
     http_port: u16,
     grpc_port: u16,
     container_name: String,
-    container: Option<Child>,
+    runtime: Option<ContainerRuntime>,
     running: Arc<AtomicBool>,
     image: String,
 }
 
-impl DockerNacosServer {
+impl ContainerNacosServer {
     pub fn new(http_port: u16) -> Self {
         let grpc_port = http_port + GRPC_PORT_OFFSET;
-        let container_name = format!("nacos-test-{}", http_port);
+        let container_name = format!("nacos-test-{http_port}");
         let image =
             std::env::var("NACOS_DOCKER_IMAGE").unwrap_or_else(|_| DEFAULT_NACOS_IMAGE.to_string());
-
         Self {
             http_port,
             grpc_port,
             container_name,
-            container: None,
+            runtime: None,
             running: Arc::new(AtomicBool::new(false)),
             image,
         }
     }
 
-    pub fn is_docker_available() -> bool {
-        Command::new("docker")
-            .arg("--version")
-            .output()
-            .map(|o| o.status.success())
-            .unwrap_or(false)
-    }
-
-    fn cleanup_existing(&self) -> Result<()> {
-        let _ = Command::new("docker")
+    fn cleanup_existing(&self, runtime: ContainerRuntime) {
+        let _ = Command::new(runtime.binary())
             .args(["rm", "-f", &self.container_name])
             .output();
-        Ok(())
     }
 
     async fn wait_for_healthy(&self, timeout_secs: u64) -> Result<()> {
         let start = tokio::time::Instant::now();
         let timeout = tokio::time::Duration::from_secs(timeout_secs);
         let interval = tokio::time::Duration::from_millis(HEALTH_CHECK_INTERVAL_MS);
-
         loop {
             if start.elapsed() > timeout {
                 return Err(FixtureError::StartupTimeout);
             }
-
             if self.health_check().await {
                 self.running.store(true, Ordering::SeqCst);
                 return Ok(());
             }
-
             tokio::time::sleep(interval).await;
         }
     }
-}
 
-impl Drop for DockerNacosServer {
-    fn drop(&mut self) {
-        if self.running.load(Ordering::SeqCst) {
-            let _ = Command::new("docker")
-                .args(["stop", &self.container_name])
-                .output();
-            let _ = Command::new("docker")
-                .args(["rm", "-f", &self.container_name])
-                .output();
-        }
-        self.running.store(false, Ordering::SeqCst);
-    }
-}
-
-impl DockerNacosServer {
     pub fn is_running(&self) -> bool {
         self.running.load(Ordering::SeqCst)
     }
@@ -116,26 +136,22 @@ impl DockerNacosServer {
         if self.running.load(Ordering::SeqCst) {
             return Ok(());
         }
-
-        if !Self::is_docker_available() {
-            return Err(FixtureError::Other(
-                "Docker is not available on this system".to_string(),
-            ));
-        }
-
-        self.cleanup_existing()?;
-
-        let child = Command::new("docker")
+        let runtime = ContainerRuntime::detect()?;
+        self.runtime = Some(runtime);
+        self.cleanup_existing(runtime);
+        Command::new(runtime.binary())
             .args(["run", "-d", "--name", &self.container_name])
             .args(["-e", "MODE=standalone"])
             .args(["-p", &format!("{}:8848", self.http_port)])
             .args(["-p", &format!("{}:9848", self.grpc_port)])
             .arg(&self.image)
             .spawn()
-            .map_err(|e| FixtureError::Other(format!("Failed to start Docker container: {e}")))?;
-
-        self.container = Some(child);
-
+            .map_err(|e| {
+                FixtureError::Other(format!(
+                    "failed to start {} container: {e}",
+                    runtime.binary()
+                ))
+            })?;
         self.wait_for_healthy(DEFAULT_STARTUP_TIMEOUT_SECS).await
     }
 
@@ -143,18 +159,17 @@ impl DockerNacosServer {
         if !self.running.load(Ordering::SeqCst) {
             return Ok(());
         }
-
-        Command::new("docker")
+        let Some(runtime) = self.runtime else {
+            return Ok(());
+        };
+        Command::new(runtime.binary())
             .args(["stop", &self.container_name])
             .output()
-            .map_err(|e| FixtureError::Other(format!("Failed to stop Docker container: {e}")))?;
-
-        Command::new("docker")
+            .map_err(|e| FixtureError::Other(format!("failed to stop container: {e}")))?;
+        Command::new(runtime.binary())
             .args(["rm", "-f", &self.container_name])
             .output()
-            .map_err(|e| FixtureError::Other(format!("Failed to remove Docker container: {e}")))?;
-
-        self.container = None;
+            .map_err(|e| FixtureError::Other(format!("failed to remove container: {e}")))?;
         self.running.store(false, Ordering::SeqCst);
         Ok(())
     }
@@ -168,13 +183,48 @@ impl DockerNacosServer {
             .timeout(tokio::time::Duration::from_secs(2))
             .build()
         {
-            Ok(c) => c,
+            Ok(client) => client,
             Err(_) => return false,
         };
-
         match client.get(&url).send().await {
-            Ok(resp) => resp.status().is_success(),
+            Ok(response) => response.status().is_success(),
             Err(_) => false,
         }
+    }
+}
+
+impl Drop for ContainerNacosServer {
+    fn drop(&mut self) {
+        if !self.running.load(Ordering::SeqCst) {
+            return;
+        }
+        if let Some(runtime) = self.runtime {
+            let _ = Command::new(runtime.binary())
+                .args(["stop", &self.container_name])
+                .output();
+            let _ = Command::new(runtime.binary())
+                .args(["rm", "-f", &self.container_name])
+                .output();
+        }
+        self.running.store(false, Ordering::SeqCst);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_container_ports_and_name() {
+        let server = ContainerNacosServer::new(18848);
+        assert_eq!(server.server_addr(), "127.0.0.1:18848");
+        assert_eq!(server.grpc_port(), 19848);
+        assert_eq!(server.container_name, "nacos-test-18848");
+    }
+
+    #[test]
+    fn test_runtime_binary_names() {
+        assert_eq!(ContainerRuntime::Podman.binary(), "podman");
+        assert_eq!(ContainerRuntime::Docker.binary(), "docker");
     }
 }
