@@ -1,4 +1,5 @@
 pub(crate) mod config;
+pub(crate) mod connection;
 pub(crate) mod handlers;
 pub(crate) mod message;
 pub(crate) mod nacos_grpc_client;
