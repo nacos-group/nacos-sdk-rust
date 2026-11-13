@@ -98,6 +98,7 @@ dotenvy = "0.15"
 
 [dev-dependencies]
 tracing-subscriber = { version = "0.3", features = ["default"] }
+tokio = { version = "1", features = ["test-util"] }
 tonic-prost-build = "0.14"
 mockall = { version = "0.14" }
 

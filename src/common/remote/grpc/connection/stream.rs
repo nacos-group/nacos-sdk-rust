@@ -19,7 +19,6 @@ use super::{ConnectionEvent, HandlerMap, now_millis, setup_ack_identity};
 /// ability table; `Err` carries why the stream ended before an ack was seen.
 pub(crate) type SetupAck = Result<Option<HashMap<String, bool>>, String>;
 
-#[allow(dead_code)] // spawned by `handshake::negotiate`, which the supervisor calls in B4
 pub(crate) async fn run(
     mut server_stream: GrpcStream<Result<Payload, Error>>,
     local_tx: mpsc::Sender<Payload>,

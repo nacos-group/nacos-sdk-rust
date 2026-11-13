@@ -5,7 +5,6 @@ use super::backoff::RetryPolicy;
 
 /// Tunables for a managed connection: timeouts, health checking and the
 /// reconnect backoff policy.
-#[allow(dead_code)] // consumed by the connection supervisor
 #[derive(Clone, Debug)]
 pub(crate) struct ConnectionSettings {
     pub(crate) client_version: String,

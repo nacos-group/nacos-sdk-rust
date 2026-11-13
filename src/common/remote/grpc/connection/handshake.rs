@@ -16,7 +16,6 @@ use crate::nacos_proto::v2::Payload;
 use super::stream;
 use super::{ConnectionEvent, ConnectionSettings, HandlerMap, Spawner, Transport};
 
-#[allow(dead_code)] // consumed by the connection supervisor in B4
 pub(crate) struct Negotiated {
     pub(crate) transport: Arc<dyn Transport>,
     pub(crate) connection_id: String,
@@ -39,7 +38,6 @@ impl std::fmt::Debug for Negotiated {
 
 /// Aborts the stream pump if the handshake future is dropped (e.g. shutdown
 /// during capability negotiation) before ownership is transferred out.
-#[allow(dead_code)] // only constructed by `negotiate`, which the supervisor calls in B4
 struct PumpGuard(Option<JoinHandle<()>>);
 
 impl Drop for PumpGuard {
@@ -50,7 +48,6 @@ impl Drop for PumpGuard {
     }
 }
 
-#[allow(dead_code)] // called by the connection supervisor in B4
 pub(crate) async fn negotiate(
     transport: Arc<dyn Transport>,
     settings: &ConnectionSettings,

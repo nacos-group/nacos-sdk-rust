@@ -27,13 +27,11 @@ impl Default for RetryPolicy {
 impl RetryPolicy {
     /// How long a connection has to stay healthy before the attempt counter and
     /// the backoff delay are reset.
-    #[allow(dead_code)] // consumed by the connection supervisor
     pub(crate) fn stable_reset_after(&self) -> Duration {
         self.stable_reset_after
     }
 
     /// Randomised delay for `attempt` (0-based).
-    #[allow(dead_code)] // consumed by the connection supervisor
     pub(crate) fn delay(&self, attempt: u32) -> Duration {
         let full = self.full_delay(attempt);
         let half_ms = (full / 2).as_millis() as u64;
@@ -62,6 +60,21 @@ impl RetryPolicy {
         let exponent = attempt.min(32);
         let multiplier = self.factor.saturating_pow(exponent);
         self.base.saturating_mul(multiplier).min(self.cap)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn for_test(
+        base_ms: u64,
+        factor: u32,
+        cap_ms: u64,
+        stable_reset_after_ms: u64,
+    ) -> Self {
+        Self {
+            base: Duration::from_millis(base_ms),
+            factor,
+            cap: Duration::from_millis(cap_ms),
+            stable_reset_after: Duration::from_millis(stable_reset_after_ms),
+        }
     }
 }
 
