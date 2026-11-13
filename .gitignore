@@ -23,3 +23,6 @@ Cargo.lock
 
 /cobertura.xml
 /tarpaulin-report.html
+
+# Local git worktrees
+.worktrees/
