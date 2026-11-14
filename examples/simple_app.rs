@@ -39,7 +39,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .get_config("todo-data-id".to_string(), "LOVE".to_string())
         .await;
     match config_resp {
-        Ok(config_resp) => tracing::info!("get the config {}", config_resp),
+        Ok(config_resp) => tracing::info!("get the config {}", config_resp.as_ref()),
         Err(err) => tracing::error!("get the config {:?}", err),
     }
 
@@ -108,8 +108,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 struct SimpleConfigChangeListener;
 
 impl ConfigChangeListener for SimpleConfigChangeListener {
-    fn notify(&self, config_resp: ConfigResponse) {
-        tracing::info!("listen the config={}", config_resp);
+    fn notify(&self, config_resp: std::sync::Arc<ConfigResponse>) {
+        tracing::info!("listen the config={}", config_resp.as_ref());
     }
 }
 

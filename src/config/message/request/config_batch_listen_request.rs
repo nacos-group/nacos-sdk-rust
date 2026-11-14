@@ -1,7 +1,6 @@
 use crate::common::remote::generate_request_id;
 use nacos_macro::request;
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
 
 /// ConfigBatchListenRequest from client.
 #[request(identity = "ConfigBatchListenRequest", module = "config")]
@@ -40,22 +39,17 @@ impl ConfigBatchListenRequest {
 pub(crate) struct ConfigListenContext {
     /// DataId
     #[serde(rename = "dataId")]
-    data_id: Arc<String>,
+    data_id: String,
     /// Group
-    group: Arc<String>,
+    group: String,
     /// tenant
-    tenant: Arc<String>,
+    tenant: String,
     /// Md5
-    md5: Arc<String>,
+    md5: String,
 }
 
 impl ConfigListenContext {
-    pub fn new(
-        data_id: Arc<String>,
-        group: Arc<String>,
-        tenant: Arc<String>,
-        md5: Arc<String>,
-    ) -> Self {
+    pub fn new(data_id: String, group: String, tenant: String, md5: String) -> Self {
         ConfigListenContext {
             data_id,
             group,
@@ -72,10 +66,10 @@ mod tests {
     #[test]
     fn test_config_listen_context_wire_format() {
         let context = ConfigListenContext::new(
-            Arc::new("data_id".to_string()),
-            Arc::new("group".to_string()),
-            Arc::new("namespace".to_string()),
-            Arc::new("md5".to_string()),
+            "data_id".to_string(),
+            "group".to_string(),
+            "namespace".to_string(),
+            "md5".to_string(),
         );
         let json = serde_json::to_string(&context).expect("context should serialize");
         assert_eq!(
@@ -85,29 +79,9 @@ mod tests {
 
         let deserialized: ConfigListenContext =
             serde_json::from_str(&json).expect("context should deserialize");
-        assert_eq!(*deserialized.data_id, "data_id");
-        assert_eq!(*deserialized.group, "group");
-        assert_eq!(*deserialized.tenant, "namespace");
-        assert_eq!(*deserialized.md5, "md5");
-    }
-
-    #[test]
-    fn test_config_listen_context_shares_strings() {
-        let data_id = Arc::new("data_id".to_string());
-        let group = Arc::new("group".to_string());
-        let tenant = Arc::new("namespace".to_string());
-        let md5 = Arc::new("md5".to_string());
-
-        let context = ConfigListenContext::new(
-            Arc::clone(&data_id),
-            Arc::clone(&group),
-            Arc::clone(&tenant),
-            Arc::clone(&md5),
-        );
-
-        assert!(Arc::ptr_eq(&context.data_id, &data_id));
-        assert!(Arc::ptr_eq(&context.group, &group));
-        assert!(Arc::ptr_eq(&context.tenant, &tenant));
-        assert!(Arc::ptr_eq(&context.md5, &md5));
+        assert_eq!(deserialized.data_id, "data_id");
+        assert_eq!(deserialized.group, "group");
+        assert_eq!(deserialized.tenant, "namespace");
+        assert_eq!(deserialized.md5, "md5");
     }
 }

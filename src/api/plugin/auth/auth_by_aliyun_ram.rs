@@ -727,7 +727,7 @@ mod test {
     }
 
     impl ConfigChangeListener for TestConfigListener {
-        fn notify(&self, config_resp: ConfigResponse) {
+        fn notify(&self, config_resp: Arc<ConfigResponse>) {
             self.current_content
                 .store(Arc::new(config_resp.content().to_string()))
         }

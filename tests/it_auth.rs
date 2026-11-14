@@ -74,7 +74,7 @@ mod auth_integration_tests {
     }
 
     struct TestConfigChangeListener {
-        received: std::sync::Mutex<Vec<ConfigResponse>>,
+        received: std::sync::Mutex<Vec<Arc<ConfigResponse>>>,
     }
 
     impl TestConfigChangeListener {
@@ -84,14 +84,17 @@ mod auth_integration_tests {
             }
         }
 
-        fn get_received(&self) -> Vec<ConfigResponse> {
+        fn get_received(&self) -> Vec<Arc<ConfigResponse>> {
             self.received.lock().expect("mutex poisoned").clone()
         }
     }
 
     impl ConfigChangeListener for TestConfigChangeListener {
-        fn notify(&self, config_resp: ConfigResponse) {
-            tracing::debug!("TestConfigChangeListener received config: {}", config_resp);
+        fn notify(&self, config_resp: Arc<ConfigResponse>) {
+            tracing::debug!(
+                "TestConfigChangeListener received config: {}",
+                config_resp.as_ref()
+            );
             self.received
                 .lock()
                 .expect("mutex poisoned")

@@ -27,14 +27,17 @@ pub struct ConfigService {
 }
 
 impl ConfigService {
-    /// Get config, return the content.
+    /// Get config, returning an immutable snapshot of the content.
+    ///
+    /// On a cache hit without a `ConfigFilter` the returned `Arc` is the cached
+    /// snapshot; a filtered read or a cache miss returns a freshly built copy.
     ///
     /// Attention to [`error::Error::ConfigNotFound`], [`error::Error::ConfigQueryConflict`]
     pub async fn get_config(
         &self,
         data_id: impl Into<String>,
         group: impl Into<String>,
-    ) -> error::Result<ConfigResponse> {
+    ) -> error::Result<Arc<ConfigResponse>> {
         let data_id = crate::common::util::check_not_blank(data_id, "data_id")?;
         let group = crate::common::util::check_not_blank(group, "group")?;
         self.inner.get_config(data_id, group).await
@@ -146,29 +149,40 @@ impl ConfigService {
     }
 }
 
-/// The ConfigChangeListener receive notify of [`ConfigResponse`].
+/// The ConfigChangeListener receives a notification of [`ConfigResponse`].
+///
+/// Without a `ConfigFilter` the response is the cache's own immutable snapshot;
+/// with filters it is a freshly filtered copy whose `md5()` still reports the
+/// raw cached revision. Either way, later config changes replace the cache's
+/// snapshot and never mutate a response you already hold.
 ///
 /// Callbacks run on Tokio's blocking pool and may execute concurrently; keep
 /// them short and do not assume cross-listener ordering.
 pub trait ConfigChangeListener: Send + Sync {
-    fn notify(&self, config_resp: ConfigResponse);
+    fn notify(&self, config_resp: Arc<ConfigResponse>);
 }
 
 /// ConfigResponse for api.
-#[derive(Debug, Clone)]
+///
+/// This is a plain value type. Cloning it copies the content; pass an
+/// [`Arc<ConfigResponse>`] around when you only need shared access.
+///
+/// Its field names are also the on-disk config cache schema, so they must stay
+/// stable for backward-compatible cache reads.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ConfigResponse {
     /// Namespace/Tenant
-    namespace: Arc<String>,
+    namespace: String,
     /// DataId
-    data_id: Arc<String>,
+    data_id: String,
     /// Group
-    group: Arc<String>,
+    group: String,
     /// Content
-    content: Arc<String>,
+    content: String,
     /// Content's Type; e.g. json,properties,xml,html,text,yaml
-    content_type: Arc<String>,
+    content_type: String,
     /// Content's md5
-    md5: Arc<String>,
+    md5: String,
 }
 
 impl std::fmt::Display for ConfigResponse {
@@ -197,45 +211,12 @@ impl ConfigResponse {
         md5: impl Into<String>,
     ) -> Self {
         ConfigResponse {
-            data_id: Arc::new(data_id.into()),
-            group: Arc::new(group.into()),
-            namespace: Arc::new(namespace.into()),
-            content: Arc::new(content.into()),
-            content_type: Arc::new(content_type.into()),
-            md5: Arc::new(md5.into()),
-        }
-    }
-
-    #[cfg(test)]
-    pub(crate) fn shares_content_with(&self, other: &Arc<String>) -> bool {
-        Arc::ptr_eq(&self.content, other)
-    }
-
-    #[cfg(test)]
-    pub(crate) fn shares_content_type_with(&self, other: &Arc<String>) -> bool {
-        Arc::ptr_eq(&self.content_type, other)
-    }
-
-    #[cfg(test)]
-    pub(crate) fn shares_md5_with(&self, other: &Arc<String>) -> bool {
-        Arc::ptr_eq(&self.md5, other)
-    }
-
-    pub(crate) fn from_shared(
-        data_id: Arc<String>,
-        group: Arc<String>,
-        namespace: Arc<String>,
-        content: Arc<String>,
-        content_type: Arc<String>,
-        md5: Arc<String>,
-    ) -> Self {
-        ConfigResponse {
-            data_id,
-            group,
-            namespace,
-            content,
-            content_type,
-            md5,
+            data_id: data_id.into(),
+            group: group.into(),
+            namespace: namespace.into(),
+            content: content.into(),
+            content_type: content_type.into(),
+            md5: md5.into(),
         }
     }
 

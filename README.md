@@ -52,15 +52,15 @@ nacos-sdk = { version = "0.8", features = ["default"] }
     // example get a config
     let config_resp = config_service.get_config("todo-data-id".to_string(), "todo-group".to_string()).await;
     match config_resp {
-        Ok(config_resp) => tracing::info!("get the config {}", config_resp),
+        Ok(config_resp) => tracing::info!("get the config {}", config_resp.as_ref()),
         Err(err) => tracing::error!("get the config {:?}", err),
     }
 
     struct ExampleConfigChangeListener;
 
     impl ConfigChangeListener for ExampleConfigChangeListener {
-        fn notify(&self, config_resp: ConfigResponse) {
-            tracing::info!("listen the config={:?}", config_resp);
+        fn notify(&self, config_resp: std::sync::Arc<ConfigResponse>) {
+            tracing::info!("listen the config={}", config_resp.as_ref());
         }
     }
     
