@@ -59,6 +59,16 @@ impl CacheData {
         ));
     }
 
+    /// Whether the entry only holds a deletion tombstone.
+    pub(crate) fn is_tombstone(&self) -> bool {
+        self.snapshot.content().is_empty() && self.snapshot.md5().is_empty()
+    }
+
+    /// Whether the entry carries a complete config snapshot.
+    pub(crate) fn has_complete_snapshot(&self) -> bool {
+        !self.snapshot.content().is_empty() && !self.snapshot.md5().is_empty()
+    }
+
     /// Add listener.
     pub fn add_listener(&self, listener: Arc<dyn crate::api::config::ConfigChangeListener>) {
         if let Ok(mut mutex) = self.listeners.lock() {

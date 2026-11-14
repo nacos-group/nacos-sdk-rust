@@ -284,11 +284,7 @@ pub struct ConfigServiceBuilder {
 
 impl Default for ConfigServiceBuilder {
     fn default() -> Self {
-        ConfigServiceBuilder {
-            client_props: props::ClientProps::new(),
-            auth_plugin: None,
-            config_filters: Vec::new(),
-        }
+        Self::new(props::ClientProps::new())
     }
 }
 

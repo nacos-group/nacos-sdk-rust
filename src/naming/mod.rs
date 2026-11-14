@@ -134,7 +134,6 @@ impl NacosNamingService {
     ///
     /// The redo task registry holds one entry per active subscription, the
     /// same way the Java client checks `isSubscribed`.
-    #[allow(dead_code)]
     async fn is_subscribed(&self, service_name: &str, group_name: &str) -> bool {
         self.redo_task_executor
             .contains_task(&Self::subscribe_task_key(
@@ -143,6 +142,16 @@ impl NacosNamingService {
                 group_name,
             ))
             .await
+    }
+
+    /// The cached hosts for `key`, gated by the caller's subscription check.
+    ///
+    /// The outer [`Option`] reports whether a cache entry exists; the inner one
+    /// mirrors [`ServiceInfo::hosts`].
+    fn cached_hosts(&self, key: &str) -> Option<Option<Arc<Vec<ServiceInstance>>>> {
+        self.naming_cache
+            .get(key)
+            .map(|cached| cached.hosts.clone())
     }
 
     pub(crate) async fn new(
@@ -442,21 +451,13 @@ impl NacosNamingService {
             // dropped, or come from the on-disk cache at startup, so it is
             // only served while the service is still subscribed. This is what
             // the Java client checks in `tryToSubscribe`.
-            let is_subscribed = self
-                .redo_task_executor
-                .contains_task(&Self::subscribe_task_key(
-                    &self.namespace,
-                    &service_name,
-                    &group_name,
-                ))
-                .await;
-
             let cached_hosts = self
-                .naming_cache
-                .get(&key)
-                .map(|cached| cached.hosts.clone());
+                .is_subscribed(&service_name, &group_name)
+                .await
+                .then(|| self.cached_hosts(&key))
+                .flatten();
             match cached_hosts {
-                Some(hosts) if is_subscribed => {
+                Some(hosts) => {
                     info!("get_all_instances returned cached service_info, group_key={key}");
                     hosts
                 }
@@ -585,14 +586,7 @@ impl NacosNamingService {
         // or come from the on-disk cache at startup, and in both cases the
         // client has to talk to the server again. This is what the Java client
         // does in `tryToSubscribe`.
-        let is_subscribed = self
-            .redo_task_executor
-            .contains_task(&Self::subscribe_task_key(
-                &self.namespace,
-                &service_name,
-                &group_name,
-            ))
-            .await;
+        let is_subscribed = self.is_subscribed(&service_name, &group_name).await;
 
         // add updater task (for polling refresh when gRPC push is not available)
         self.service_info_updater
@@ -639,7 +633,7 @@ impl NacosNamingService {
         //
         // The cache is only served when the service is still subscribed, so a
         // stale entry left behind by a dropped subscription is never returned.
-        if is_subscribed && let Some(cached_info) = self.naming_cache.get(&key) {
+        if is_subscribed && let Some(hosts) = self.cached_hosts(&key) {
             info!("subscribe returned cached service_info, group_key={key}");
 
             // Spawn the actual server request in the background to avoid blocking.
@@ -658,7 +652,7 @@ impl NacosNamingService {
                 }
             });
 
-            return Ok(cached_info.hosts.clone());
+            return Ok(hosts);
         }
 
         // Subscribe to the server. When the server cannot be reached, fall
