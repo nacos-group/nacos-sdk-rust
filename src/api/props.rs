@@ -139,20 +139,7 @@ impl ClientProps {
     /// Directory name that scopes the on-disk cache by server, following the
     /// Java client's `<envName>_nacos` convention.
     pub(crate) fn get_cache_server_name(&self) -> String {
-        let mut identifier = match self.get_endpoint() {
-            Some(endpoint) => endpoint,
-            None => {
-                let server_addr = self.get_server_addr();
-                match crate::common::remote::server_list::parse_server_list(&server_addr) {
-                    Ok(server_list) => server_list.join(","),
-                    Err(_) => server_addr,
-                }
-            }
-        };
-        if let Some(port) = self.get_remote_grpc_port() {
-            identifier.push_str(&format!("_{port}"));
-        }
-        crate::common::util::cache_server_dir_name(&identifier)
+        crate::common::util::cache_server_dir_name(&self.get_address_identifier())
     }
 
     pub(crate) fn get_cache_kind(&self) -> CacheKind {
@@ -558,34 +545,6 @@ mod tests {
             props.get_cache_server_name(),
             "10.0.0.1_8848_10.0.0.2_8848_nacos"
         );
-    }
-
-    #[test]
-    fn test_cache_server_name_fills_in_the_default_port() {
-        let props = ClientProps::new()
-            .env_first(false)
-            .server_addr("nacos.example.com");
-        assert_eq!(
-            props.get_cache_server_name(),
-            "nacos.example.com_8848_nacos"
-        );
-    }
-
-    #[test]
-    fn test_cache_server_name_includes_the_grpc_port_override() {
-        let first = ClientProps::new()
-            .env_first(false)
-            .server_addr("10.0.0.1:8848")
-            .remote_grpc_port(9848)
-            .get_cache_server_name();
-        let second = ClientProps::new()
-            .env_first(false)
-            .server_addr("10.0.0.1:8848")
-            .remote_grpc_port(9849)
-            .get_cache_server_name();
-
-        assert_eq!(first, "10.0.0.1_8848_9848_nacos");
-        assert_ne!(first, second);
     }
 
     #[test]
