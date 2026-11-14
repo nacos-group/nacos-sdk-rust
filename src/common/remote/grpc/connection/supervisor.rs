@@ -103,6 +103,18 @@ impl<C: Connector> Supervisor<C> {
         let _ = self.state_tx.send(state);
     }
 
+    /// Terminates the supervisor, optionally reporting the startup failure to
+    /// the waiter and failing every queued request.
+    fn shutdown_with(&mut self, startup_error: Option<Error>) {
+        self.publish(ConnectionState::Stopped);
+        if let Some(error) = startup_error
+            && let Some(tx) = self.startup_tx.take()
+        {
+            let _ = tx.send(Err(error));
+        }
+        let _ = self.fail_queued();
+    }
+
     async fn connect_once(
         &mut self,
         shutdown: watch::Receiver<bool>,
@@ -273,11 +285,7 @@ impl<C: Connector> Supervisor<C> {
                         && matches!(self.startup_mode, StartupMode::WaitForReady { .. })
                         && matches!(&error, Error::UnsupportedServerVersion(_))
                     {
-                        self.publish(ConnectionState::Stopped);
-                        if let Some(tx) = self.startup_tx.take() {
-                            let _ = tx.send(Err(error));
-                        }
-                        let _ = self.fail_queued();
+                        self.shutdown_with(Some(error));
                         return;
                     }
                     if !ever_ready {
@@ -285,11 +293,7 @@ impl<C: Connector> Supervisor<C> {
                         if let StartupMode::WaitForReady { max_attempts } = self.startup_mode
                             && startup_attempts >= max_attempts.max(1)
                         {
-                            self.publish(ConnectionState::Stopped);
-                            if let Some(tx) = self.startup_tx.take() {
-                                let _ = tx.send(Err(error));
-                            }
-                            let _ = self.fail_queued();
+                            self.shutdown_with(Some(error));
                             return;
                         }
                     }
@@ -336,8 +340,7 @@ impl<C: Connector> Supervisor<C> {
             }
         }
 
-        self.publish(ConnectionState::Stopped);
-        let _ = self.fail_queued();
+        self.shutdown_with(None);
     }
 }
 

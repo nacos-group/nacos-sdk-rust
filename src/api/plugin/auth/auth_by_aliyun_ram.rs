@@ -147,38 +147,55 @@ impl AliyunRamAuthPlugin {
         }
     }
 
+    fn access_key_value(&self) -> String {
+        self.access_key
+            .load()
+            .as_ref()
+            .as_ref()
+            .expect("Access key should be initialized before getting login identity")
+            .clone()
+    }
+
+    fn secret_key_value(&self) -> String {
+        self.secret_key
+            .load()
+            .as_ref()
+            .as_ref()
+            .expect("Secret key should be initialized before getting login identity")
+            .clone()
+    }
+
+    fn signature_region(&self) -> Option<String> {
+        self.signature_region_id.load().as_ref().as_ref().cloned()
+    }
+
+    /// The key used to sign, plus whether V4 signing applies.
+    fn signature_key(&self) -> (String, bool) {
+        let secret_key = self.secret_key_value();
+        match self.signature_region() {
+            Some(region_id) => (
+                calculate_v4_signing_key_util::final_signing_key_string_with_default_info(
+                    &secret_key,
+                    &region_id,
+                ),
+                true,
+            ),
+            None => (secret_key, false),
+        }
+    }
+
     fn get_login_identify_for_naming(&self, resource: RequestResource) -> LoginIdentityContext {
         Self::get_sign_data(&resource)
             .map(|sign_data| {
+                let (signature_key, v4) = self.signature_key();
                 let mut res = LoginIdentityContext::default();
-                let mut signature_key = self
-                    .secret_key
-                    .load()
-                    .as_ref()
-                    .as_ref()
-                    .expect("Secret key should be initialized before getting login identity")
-                    .clone();
-                if let Some(region_id) = self.signature_region_id.load().as_ref() {
-                    signature_key =
-                        calculate_v4_signing_key_util::final_signing_key_string_with_default_info(
-                            self.secret_key.load().as_ref().as_ref().expect(
-                                "Secret key should be initialized before calculating signature",
-                            ),
-                            region_id,
-                        );
+                if v4 {
                     res = res.add_context(SIGNATURE_VERSION, V4);
                 }
                 let signature = sign_utils::sign_with_hmac_sha1(&sign_data, &signature_key);
                 res = res.add_context(SIGNATURE_FILED, signature);
                 res = res.add_context(DATA_FILED, sign_data);
-                res =
-                    res.add_context(
-                        AK_FILED,
-                        self.access_key.load().as_ref().as_ref().expect(
-                            "Access key should be initialized before getting login identity",
-                        ),
-                    );
-                res
+                res.add_context(AK_FILED, self.access_key_value())
             })
             .unwrap_or_default()
     }
@@ -205,34 +222,12 @@ impl AliyunRamAuthPlugin {
     }
 
     fn get_login_identify_for_config(&self, resource: RequestResource) -> LoginIdentityContext {
+        let (signature_key, v4) = self.signature_key();
         let mut res = LoginIdentityContext::default();
-        let mut signature_key = self
-            .secret_key
-            .load()
-            .as_ref()
-            .as_ref()
-            .expect("Secret key should be initialized before getting login identity")
-            .clone();
-        if let Some(region_id) = self.signature_region_id.load().as_ref().as_ref() {
-            signature_key =
-                calculate_v4_signing_key_util::final_signing_key_string_with_default_info(
-                    self.secret_key
-                        .load()
-                        .as_ref()
-                        .as_ref()
-                        .expect("Secret key should be initialized before calculating v4 signature"),
-                    region_id,
-                );
+        if v4 {
             res = res.add_context(SIGNATURE_VERSION, V4);
         }
-        res = res.add_context(
-            ACCESS_KEY_HEADER,
-            self.access_key
-                .load()
-                .as_ref()
-                .as_ref()
-                .expect("Access key should be initialized before getting login identity"),
-        );
+        res = res.add_context(ACCESS_KEY_HEADER, self.access_key_value());
         res = res.add_contexts(spas_adaptor::get_sign_header_for_resource(
             Self::get_resource_for_config(&resource).as_str(),
             signature_key.as_str(),

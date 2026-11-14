@@ -173,7 +173,7 @@ where
             if grpc_config.port.is_none() {
                 grpc_config.port = Some(server_address.port() + 1000);
             }
-            grpc_config.host = server_address.host();
+            grpc_config.host = server_address.host().to_owned();
 
             let tonic = Tonic::new(grpc_config, server_address);
             Ok(tonic)

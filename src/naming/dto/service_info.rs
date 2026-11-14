@@ -33,7 +33,6 @@ pub struct ServiceInfo {
     pub hosts: Option<Arc<Vec<ServiceInstance>>>,
 }
 
-const SERVICE_INFO_SEPARATOR: &str = "@@";
 impl ServiceInfo {
     pub fn ip_count(&self) -> i32 {
         match self.hosts.as_ref() {
@@ -84,22 +83,6 @@ impl ServiceInfo {
             error!("hosts to json failed. {e:?}");
             "".to_owned()
         })
-    }
-
-    /// Builds a service key that includes the cluster list.
-    ///
-    /// This mirrors the Java client's `ServiceInfo.getKey(name, clusters)`.
-    /// It is **not** used to key the cache: the Java client stores the full
-    /// instance set under [`ServiceInfo::get_key_without_clusters`] and
-    /// narrows it down in memory, so the cache never mixes instances from
-    /// different clusters.
-    pub fn get_key(name: &str, clusters: &str) -> String {
-        if !clusters.is_empty() {
-            let key = format!("{}{}{}", name, SERVICE_INFO_SEPARATOR, clusters);
-            return key;
-        }
-
-        name.to_string()
     }
 
     /// Get the key used for the service info cache and the listener registry.
@@ -212,8 +195,6 @@ mod tests {
             "DEFAULT@@svc"
         );
         assert_eq!(ServiceInfo::get_grouped_service_name("svc", ""), "svc");
-        assert_eq!(ServiceInfo::get_key("svc", ""), "svc");
-        assert_eq!(ServiceInfo::get_key("svc", "c1"), "svc@@c1");
         assert_eq!(
             ServiceInfo::get_key_without_clusters("svc", "DEFAULT"),
             "DEFAULT@@svc"

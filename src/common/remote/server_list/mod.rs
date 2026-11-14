@@ -5,7 +5,7 @@ mod service;
 pub(crate) use service::*;
 
 pub(crate) trait ServerAddress: Sync + Send + 'static {
-    fn host(&self) -> String;
+    fn host(&self) -> &str;
 
     fn port(&self) -> u16;
 

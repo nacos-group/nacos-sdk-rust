@@ -23,6 +23,14 @@ pub(crate) struct ConfigWorker {
     config_filters: Arc<Vec<Box<dyn ConfigFilter>>>,
 }
 
+/// Optional knobs shared by the publish variants.
+#[derive(Default)]
+struct PublishOptions {
+    cas_md5: Option<String>,
+    beta_ips: Option<String>,
+    params: Option<HashMap<String, String>>,
+}
+
 impl ConfigWorker {
     pub(crate) async fn new(
         client_props: ClientProps,
@@ -135,17 +143,11 @@ impl ConfigWorker {
         )
         .await?;
 
-        let content = config_resp.content.ok_or_else(|| {
-            crate::api::error::Error::ErrResult("config content missing in response".to_string())
-        })?;
-        let content_type = config_resp.content_type.ok_or_else(|| {
-            crate::api::error::Error::ErrResult(
-                "config content_type missing in response".to_string(),
-            )
-        })?;
-        let md5 = config_resp.md5.ok_or_else(|| {
-            crate::api::error::Error::ErrResult("config md5 missing in response".to_string())
-        })?;
+        let (content, content_type, md5) = Self::required_config_parts(
+            config_resp.content,
+            config_resp.content_type,
+            config_resp.md5,
+        )?;
 
         // invoke config_filter
         Ok(RespSnapshot::new(
@@ -172,8 +174,14 @@ impl ConfigWorker {
         content: String,
         content_type: Option<String>,
     ) -> crate::api::error::Result<bool> {
-        self.publish_config_inner(data_id, group, content, content_type, None, None, None)
-            .await
+        self.publish_config_inner(
+            data_id,
+            group,
+            content,
+            content_type,
+            PublishOptions::default(),
+        )
+        .await
     }
 
     #[instrument(skip_all)]
@@ -190,9 +198,10 @@ impl ConfigWorker {
             group,
             content,
             content_type,
-            Some(cas_md5),
-            None,
-            None,
+            PublishOptions {
+                cas_md5: Some(cas_md5),
+                ..Default::default()
+            },
         )
         .await
     }
@@ -211,9 +220,10 @@ impl ConfigWorker {
             group,
             content,
             content_type,
-            None,
-            Some(beta_ips),
-            None,
+            PublishOptions {
+                beta_ips: Some(beta_ips),
+                ..Default::default()
+            },
         )
         .await
     }
@@ -233,24 +243,23 @@ impl ConfigWorker {
             group,
             content,
             content_type,
-            cas_md5,
-            None,
-            Some(params),
+            PublishOptions {
+                cas_md5,
+                params: Some(params),
+                ..Default::default()
+            },
         )
         .await
     }
 
     /// Internal implementation for all publish_config variants.
-    #[allow(clippy::too_many_arguments)]
     async fn publish_config_inner(
         &self,
         data_id: String,
         group: String,
         content: String,
         content_type: Option<String>,
-        cas_md5: Option<String>,
-        beta_ips: Option<String>,
-        params: Option<HashMap<String, String>>,
+        options: PublishOptions,
     ) -> crate::api::error::Result<bool> {
         let mut conf_req = ConfigReq::new(
             data_id,
@@ -265,15 +274,9 @@ impl ConfigWorker {
 
         Self::publish_config_inner_async(
             self.remote_client.clone(),
-            conf_req.data_id,
-            conf_req.group,
-            conf_req.namespace,
-            conf_req.content,
+            conf_req,
             content_type,
-            conf_req.encrypted_data_key,
-            cas_md5,
-            beta_ips,
-            params,
+            options,
         )
         .await
     }
@@ -429,17 +432,11 @@ impl ConfigWorker {
         config_resp: ConfigQueryResponse,
     ) -> crate::api::error::Result<bool> {
         let first_fill = std::mem::take(&mut cache_data.initializing);
-        let content_type = config_resp.content_type.ok_or_else(|| {
-            crate::api::error::Error::ErrResult(
-                "config content_type missing in response".to_string(),
-            )
-        })?;
-        let content = config_resp.content.ok_or_else(|| {
-            crate::api::error::Error::ErrResult("config content missing in response".to_string())
-        })?;
-        let md5 = config_resp.md5.ok_or_else(|| {
-            crate::api::error::Error::ErrResult("config md5 missing in response".to_string())
-        })?;
+        let (content, content_type, md5) = Self::required_config_parts(
+            config_resp.content,
+            config_resp.content_type,
+            config_resp.md5,
+        )?;
         cache_data.replace_snapshot(content, content_type, md5);
         // Compatibility None < 2.1.0
         cache_data.encrypted_data_key =
@@ -645,6 +642,26 @@ impl ConfigWorker {
 }
 
 impl ConfigWorker {
+    /// Extracts the fields every usable config response must carry.
+    fn required_config_parts(
+        content: Option<String>,
+        content_type: Option<String>,
+        md5: Option<String>,
+    ) -> crate::api::error::Result<(String, String, String)> {
+        let content = content.ok_or_else(|| {
+            crate::api::error::Error::ErrResult("config content missing in response".to_string())
+        })?;
+        let content_type = content_type.ok_or_else(|| {
+            crate::api::error::Error::ErrResult(
+                "config content_type missing in response".to_string(),
+            )
+        })?;
+        let md5 = md5.ok_or_else(|| {
+            crate::api::error::Error::ErrResult("config md5 missing in response".to_string())
+        })?;
+        Ok((content, content_type, md5))
+    }
+
     async fn get_config_inner_async(
         remote_client: Arc<NacosGrpcClient>,
         data_id: String,
@@ -670,24 +687,24 @@ impl ConfigWorker {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
     async fn publish_config_inner_async(
         remote_client: Arc<NacosGrpcClient>,
-        data_id: String,
-        group: String,
-        namespace: String,
-        content: String,
+        conf_req: ConfigReq,
         content_type: Option<String>,
-        encrypted_data_key: String,
-        cas_md5: Option<String>,
-        beta_ips: Option<String>,
-        params: Option<HashMap<String, String>>,
+        options: PublishOptions,
     ) -> crate::api::error::Result<bool> {
+        let ConfigReq {
+            data_id,
+            group,
+            namespace,
+            content,
+            encrypted_data_key,
+        } = conf_req;
         let mut req =
-            ConfigPublishRequest::new(data_id, group, namespace, content).cas_md5(cas_md5);
+            ConfigPublishRequest::new(data_id, group, namespace, content).cas_md5(options.cas_md5);
 
         // Customize parameters have low priority
-        if let Some(params) = params {
+        if let Some(params) = options.params {
             req.add_addition_params(params);
         }
         if let Some(content_type) = content_type {
@@ -696,7 +713,7 @@ impl ConfigWorker {
                 content_type,
             );
         }
-        if let Some(beta_ips) = beta_ips {
+        if let Some(beta_ips) = options.beta_ips {
             req.add_addition_param(crate::api::config::constants::KEY_PARAM_BETA_IPS, beta_ips);
         }
         req.add_addition_param(

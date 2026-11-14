@@ -184,7 +184,9 @@ impl ServiceInfoUpdateTask {
 
             while running.load(Ordering::Acquire) {
                 let delay_time_millis = Duration::from_millis(
-                    (delay_time << failed_count).min(ServiceInfoUpdateTask::DEFAULT_DELAY * 60),
+                    delay_time
+                        .saturating_mul(1u64 << failed_count)
+                        .min(ServiceInfoUpdateTask::DEFAULT_DELAY * 60),
                 );
                 debug!("{log_tag}:ServiceInfoUpdateTask delay sleep {delay_time_millis:?}");
                 sleep(delay_time_millis).await;

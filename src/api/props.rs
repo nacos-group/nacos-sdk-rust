@@ -38,21 +38,36 @@ pub struct ClientProps {
 }
 
 impl ClientProps {
-    pub(crate) fn get_server_addr(&self) -> String {
+    fn env_string(&self, key: &str, fallback: &str) -> String {
         if self.env_first {
-            get_value_option(ENV_NACOS_CLIENT_COMMON_SERVER_ADDRESS)
-                .unwrap_or_else(|| self.server_addr.clone())
+            get_value_option(key).unwrap_or_else(|| fallback.to_owned())
         } else {
-            self.server_addr.clone()
+            fallback.to_owned()
         }
     }
 
-    pub(crate) fn get_endpoint(&self) -> Option<String> {
+    fn env_option(&self, key: &str, fallback: &Option<String>) -> Option<String> {
         if self.env_first {
-            get_value_option(ENV_NACOS_CLIENT_COMMON_ENDPOINT).or_else(|| self.endpoint.clone())
+            get_value_option(key).or_else(|| fallback.clone())
         } else {
-            self.endpoint.clone()
+            fallback.clone()
         }
+    }
+
+    fn env_bool(&self, key: &str, fallback: bool) -> bool {
+        if self.env_first {
+            get_value_bool(key, fallback)
+        } else {
+            fallback
+        }
+    }
+
+    pub(crate) fn get_server_addr(&self) -> String {
+        self.env_string(ENV_NACOS_CLIENT_COMMON_SERVER_ADDRESS, &self.server_addr)
+    }
+
+    pub(crate) fn get_endpoint(&self) -> Option<String> {
+        self.env_option(ENV_NACOS_CLIENT_COMMON_ENDPOINT, &self.endpoint)
     }
 
     /// The priority of the `endpoint` is higher than `server_addr`
@@ -75,54 +90,32 @@ impl ClientProps {
     }
 
     pub(crate) fn get_namespace(&self) -> String {
-        if self.env_first {
-            get_value_option(ENV_NACOS_CLIENT_COMMON_NAMESPACE)
-                .unwrap_or_else(|| self.namespace.clone())
-        } else {
-            self.namespace.clone()
-        }
+        self.env_string(ENV_NACOS_CLIENT_COMMON_NAMESPACE, &self.namespace)
     }
 
     pub(crate) fn get_app_name(&self) -> String {
-        if self.env_first {
-            get_value_option(ENV_NACOS_CLIENT_COMMON_APP_NAME)
-                .unwrap_or_else(|| self.app_name.clone())
-        } else {
-            self.app_name.clone()
-        }
+        self.env_string(ENV_NACOS_CLIENT_COMMON_APP_NAME, &self.app_name)
     }
 
     pub(crate) fn get_naming_push_empty_protection(&self) -> bool {
-        if self.env_first {
-            get_value_bool(
-                ENV_NACOS_CLIENT_NAMING_PUSH_EMPTY_PROTECTION,
-                self.naming_push_empty_protection,
-            )
-        } else {
-            self.naming_push_empty_protection
-        }
+        self.env_bool(
+            ENV_NACOS_CLIENT_NAMING_PUSH_EMPTY_PROTECTION,
+            self.naming_push_empty_protection,
+        )
     }
 
     pub(crate) fn get_naming_load_cache_at_start(&self) -> bool {
-        if self.env_first {
-            get_value_bool(
-                ENV_NACOS_CLIENT_NAMING_LOAD_CACHE_AT_START,
-                self.naming_load_cache_at_start,
-            )
-        } else {
-            self.naming_load_cache_at_start
-        }
+        self.env_bool(
+            ENV_NACOS_CLIENT_NAMING_LOAD_CACHE_AT_START,
+            self.naming_load_cache_at_start,
+        )
     }
 
     pub(crate) fn get_config_load_cache_at_start(&self) -> bool {
-        if self.env_first {
-            get_value_bool(
-                ENV_NACOS_CLIENT_CONFIG_LOAD_CACHE_AT_START,
-                self.config_load_cache_at_start,
-            )
-        } else {
-            self.config_load_cache_at_start
-        }
+        self.env_bool(
+            ENV_NACOS_CLIENT_CONFIG_LOAD_CACHE_AT_START,
+            self.config_load_cache_at_start,
+        )
     }
 
     pub(crate) fn get_cache_dir(&self) -> Option<PathBuf> {

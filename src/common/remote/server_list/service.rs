@@ -73,8 +73,8 @@ struct PollingServerAddress {
 }
 
 impl ServerAddress for PollingServerAddress {
-    fn host(&self) -> String {
-        self.host.clone()
+    fn host(&self) -> &str {
+        &self.host
     }
 
     fn port(&self) -> u16 {
