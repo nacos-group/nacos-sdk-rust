@@ -60,7 +60,7 @@ nacos-sdk = { version = "0.8", features = ["default"] }
 
     impl ConfigChangeListener for ExampleConfigChangeListener {
         fn notify(&self, config_resp: std::sync::Arc<ConfigResponse>) {
-            tracing::info!("listen the config={:?}", config_resp);
+            tracing::info!("listen the config={}", config_resp.as_ref());
         }
     }
     
