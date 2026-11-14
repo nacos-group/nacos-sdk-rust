@@ -484,14 +484,15 @@ impl ConfigWorker {
         group_key: &str,
         config_filters: &Arc<Vec<Box<dyn ConfigFilter>>>,
     ) {
-        let source = unified_cache
+        let Some(source) = unified_cache
             .get(group_key)
-            .map(|r| r.resp_source(config_filters));
-        if let Some(source) = source {
-            let resp = source.into_response().await;
-            if let Some(cache_ref) = unified_cache.get(group_key) {
-                cache_ref.dispatch_notify(resp);
-            }
+            .map(|r| r.resp_source(config_filters))
+        else {
+            return;
+        };
+        let resp = source.into_response().await;
+        if let Some(cache_ref) = unified_cache.get(group_key) {
+            cache_ref.dispatch_notify(resp);
         }
     }
 
@@ -525,11 +526,10 @@ impl ConfigWorker {
         group_key: &str,
         config_filters: &Arc<Vec<Box<dyn ConfigFilter>>>,
     ) {
-        let cleared = match unified_cache.get_mut(group_key) {
-            Some(mut cache_ref_mut) => Self::clear_deleted(&mut cache_ref_mut, group_key),
-            None => return,
-        };
-        let Some(should_notify) = cleared else {
+        let Some(should_notify) = unified_cache
+            .get_mut(group_key)
+            .and_then(|mut cache_ref_mut| Self::clear_deleted(&mut cache_ref_mut, group_key))
+        else {
             return;
         };
         unified_cache.remove_persisted(group_key).await;
@@ -564,21 +564,21 @@ impl ConfigWorker {
         group_key: &str,
         config_resp: ConfigQueryResponse,
     ) -> bool {
-        match unified_cache.get_mut(group_key) {
-            Some(mut cache_ref_mut) => match Self::fill_data(&mut cache_ref_mut, config_resp) {
-                Ok(should_notify) => {
-                    cache_ref_mut.persist();
-                    should_notify
-                }
-                Err(e) => {
-                    tracing::warn!(
-                        group_key = %group_key,
-                        "fill cache data failed, skip notify: {e:?}"
-                    );
-                    false
-                }
-            },
-            None => false,
+        let Some(mut cache_ref_mut) = unified_cache.get_mut(group_key) else {
+            return false;
+        };
+        match Self::fill_data(&mut cache_ref_mut, config_resp) {
+            Ok(should_notify) => {
+                cache_ref_mut.persist();
+                should_notify
+            }
+            Err(e) => {
+                tracing::warn!(
+                    group_key = %group_key,
+                    "fill cache data failed, skip notify: {e:?}"
+                );
+                false
+            }
         }
     }
 

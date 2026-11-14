@@ -74,15 +74,7 @@ where
                     // Hold the shard lock only for the clone; serialization and
                     // disk I/O must not block writers.
                     let snapshot = inner.get(&key).map(|entry| entry.value().clone());
-                    let bytes = tokio::task::spawn_blocking(move || {
-                        snapshot.as_ref().and_then(|value| serialize_value(value))
-                    })
-                    .await
-                    .ok()
-                    .flatten();
-                    if let Some(bytes) = bytes {
-                        store.save(&key, bytes).await;
-                    }
+                    save_value(store, key, snapshot).await;
                 }
                 .in_current_span(),
             );
@@ -187,16 +179,25 @@ where
 
         executor::spawn(
             async move {
-                let bytes = tokio::task::spawn_blocking(move || serialize_value(&snapshot))
-                    .await
-                    .ok()
-                    .flatten();
-                if let Some(bytes) = bytes {
-                    store.save(&key, bytes).await;
-                }
+                save_value(store, key, Some(snapshot)).await;
             }
             .in_current_span(),
         );
+    }
+}
+
+async fn save_value<V>(store: Arc<dyn Store<V>>, key: String, snapshot: Option<V>)
+where
+    V: serde::Serialize + Send + 'static,
+{
+    let bytes = tokio::task::spawn_blocking(move || {
+        snapshot.as_ref().and_then(|value| serialize_value(value))
+    })
+    .await
+    .ok()
+    .flatten();
+    if let Some(bytes) = bytes {
+        store.save(&key, bytes).await;
     }
 }
 
@@ -338,7 +339,8 @@ pub mod tests {
 
     #[tokio::test]
     async fn test_write_guard_persists_only_on_request() {
-        let root = std::env::temp_dir().join(format!("nacos-sdk-dirty-{}", rand::random::<u64>()));
+        let root =
+            std::env::temp_dir().join(format!("nacos-sdk-persist-{}", rand::random::<u64>()));
         let cache: Cache<String> = CacheBuilder::config("test-namespace".to_string())
             .store(CacheKind::DiskStore, Some(root.clone()))
             .build()

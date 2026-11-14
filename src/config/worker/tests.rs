@@ -1,8 +1,22 @@
+use crate::api::config::{ConfigChangeListener, ConfigResponse};
 use crate::api::plugin::ConfigFilter;
+use crate::api::props::CacheKind;
+use crate::common::cache::{Cache, CacheBuilder};
 use crate::config::cache::CacheData;
 use crate::config::message::response::ConfigQueryResponse;
 use crate::config::worker::ConfigWorker;
+use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
+
+fn response(content: Option<&str>, md5: Option<&str>) -> ConfigQueryResponse {
+    ConfigQueryResponse {
+        content: content.map(str::to_string),
+        md5: md5.map(str::to_string),
+        content_type: Some("text".to_string()),
+        ..Default::default()
+    }
+}
 
 fn cache_data() -> CacheData {
     CacheData::new(
@@ -12,26 +26,28 @@ fn cache_data() -> CacheData {
     )
 }
 
+async fn disk_cache(prefix: &str) -> (Cache<CacheData>, PathBuf) {
+    let root = std::env::temp_dir().join(format!(
+        "nacos-sdk-config-{prefix}-{}",
+        rand::random::<u64>()
+    ));
+    let cache = CacheBuilder::config("test-ns".to_string())
+        .store(CacheKind::DiskStore, Some(root.clone()))
+        .build()
+        .await;
+    (cache, root)
+}
+
 #[test]
 fn fill_data_returns_err_when_content_missing() {
-    let resp = ConfigQueryResponse {
-        content: None,
-        md5: Some("md5".to_string()),
-        content_type: Some("text".to_string()),
-        ..Default::default()
-    };
+    let resp = response(None, Some("md5"));
 
     assert!(ConfigWorker::fill_data(&mut cache_data(), resp).is_err());
 }
 
 #[test]
 fn fill_data_returns_err_when_md5_missing() {
-    let resp = ConfigQueryResponse {
-        content: Some("content".to_string()),
-        md5: None,
-        content_type: Some("text".to_string()),
-        ..Default::default()
-    };
+    let resp = response(Some("content"), None);
 
     assert!(ConfigWorker::fill_data(&mut cache_data(), resp).is_err());
 }
@@ -81,11 +97,8 @@ fn clear_deleted_gates_notification() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn handle_config_not_found_holds_no_lock_across_filter_await() {
-    use crate::api::config::{ConfigChangeListener, ConfigResponse};
     use crate::api::plugin::{ConfigReq, ConfigResp};
-    use crate::common::cache::{Cache, CacheBuilder};
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-    use std::time::Duration;
 
     struct BlockingFilter {
         entered: Arc<AtomicBool>,
@@ -191,11 +204,6 @@ async fn handle_config_not_found_holds_no_lock_across_filter_await() {
 
 #[tokio::test]
 async fn config_not_found_clears_stale_cache_and_notifies_once() {
-    use crate::api::config::{ConfigChangeListener, ConfigResponse};
-    use crate::api::props::CacheKind;
-    use crate::common::cache::{Cache, CacheBuilder};
-    use std::time::Duration;
-
     struct ChannelListener(tokio::sync::mpsc::UnboundedSender<ConfigResponse>);
 
     impl ConfigChangeListener for ChannelListener {
@@ -204,14 +212,7 @@ async fn config_not_found_clears_stale_cache_and_notifies_once() {
         }
     }
 
-    let root = std::env::temp_dir().join(format!(
-        "nacos-sdk-config-not-found-{}",
-        rand::random::<u64>()
-    ));
-    let cache: Cache<CacheData> = CacheBuilder::config("test-ns".to_string())
-        .store(CacheKind::DiskStore, Some(root.clone()))
-        .build()
-        .await;
+    let (cache, root) = disk_cache("not-found").await;
     let group_key = "data+_+group+_+test-ns".to_string();
     let cache_file = root.join("config").join("test-ns").join(&group_key);
     let filters: Arc<Vec<Box<dyn ConfigFilter>>> = Arc::new(Vec::new());
@@ -268,15 +269,7 @@ async fn config_not_found_clears_stale_cache_and_notifies_once() {
 
 #[tokio::test]
 async fn startup_prune_removes_tombstones_and_their_files() {
-    use crate::api::props::CacheKind;
-    use crate::common::cache::{Cache, CacheBuilder};
-
-    let root =
-        std::env::temp_dir().join(format!("nacos-sdk-config-prune-{}", rand::random::<u64>()));
-    let cache: Cache<CacheData> = CacheBuilder::config("test-ns".to_string())
-        .store(CacheKind::DiskStore, Some(root.clone()))
-        .build()
-        .await;
+    let (cache, root) = disk_cache("prune").await;
     let dir = root.join("config").join("test-ns");
 
     let tombstone_key = "gone+_+group+_+test-ns".to_string();
@@ -318,16 +311,7 @@ async fn wait_for_file_removed(path: &std::path::Path) {
 
 #[tokio::test]
 async fn fill_cache_entry_persists_the_new_revision() {
-    use crate::api::props::CacheKind;
-    use crate::common::cache::{Cache, CacheBuilder};
-    use std::time::Duration;
-
-    let root =
-        std::env::temp_dir().join(format!("nacos-sdk-config-fill-{}", rand::random::<u64>()));
-    let cache: Cache<CacheData> = CacheBuilder::config("test-ns".to_string())
-        .store(CacheKind::DiskStore, Some(root.clone()))
-        .build()
-        .await;
+    let (cache, root) = disk_cache("fill").await;
     let key = "data+_+group+_+test-ns".to_string();
     let cache_file = root.join("config").join("test-ns").join(&key);
 
@@ -338,13 +322,11 @@ async fn fill_cache_entry_persists_the_new_revision() {
     cache.insert(key.clone(), data);
     crate::test_config::wait_for_file(&cache_file, "initial insert should reach disk").await;
 
-    let resp = ConfigQueryResponse {
-        content: Some("new".to_string()),
-        md5: Some("new-md5".to_string()),
-        content_type: Some("text".to_string()),
-        ..Default::default()
-    };
-    assert!(ConfigWorker::fill_cache_entry(&cache, &key, resp));
+    assert!(ConfigWorker::fill_cache_entry(
+        &cache,
+        &key,
+        response(Some("new"), Some("new-md5"))
+    ));
 
     tokio::time::timeout(Duration::from_secs(2), async {
         loop {
@@ -376,20 +358,11 @@ async fn fill_cache_entry_persists_the_new_revision() {
 async fn failed_initial_fill_does_not_swallow_next_notification() {
     let mut data = cache_data();
     let filters: Arc<Vec<Box<dyn ConfigFilter>>> = Arc::new(Vec::new());
-    let malformed = ConfigQueryResponse {
-        content: None,
-        ..Default::default()
-    };
-    ConfigWorker::fill_data_and_notify(&mut data, malformed, &filters).await;
+    ConfigWorker::fill_data_and_notify(&mut data, response(None, None), &filters).await;
 
-    let valid = ConfigQueryResponse {
-        content: Some("content".to_string()),
-        md5: Some("md5".to_string()),
-        content_type: Some("text".to_string()),
-        ..Default::default()
-    };
     assert!(
-        ConfigWorker::fill_data(&mut data, valid).expect("valid response should fill the cache"),
+        ConfigWorker::fill_data(&mut data, response(Some("content"), Some("md5")))
+            .expect("valid response should fill the cache"),
         "first successful fill after a rejected initial response must notify"
     );
 }
