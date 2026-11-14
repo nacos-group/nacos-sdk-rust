@@ -220,7 +220,7 @@ fn main() {
 struct ServerConfigChangeListener;
 
 impl ConfigChangeListener for ServerConfigChangeListener {
-    fn notify(&self, config_resp: ConfigResponse) {
-        tracing::info!("Config changed: {}", config_resp);
+    fn notify(&self, config_resp: std::sync::Arc<ConfigResponse>) {
+        tracing::info!("listen the config={}", config_resp.as_ref());
     }
 }
