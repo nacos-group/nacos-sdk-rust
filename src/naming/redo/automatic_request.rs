@@ -41,12 +41,11 @@ macro_rules! impl_automatic_request {
                 let namespace = self.namespace.as_deref().unwrap_or("");
                 let service_name = self.service_name.as_deref().unwrap_or("");
                 let group_name = self.group_name.as_deref().unwrap_or("");
-                format!(
-                    "{}@@{}@@{}@@{}",
+                crate::naming::redo::redo_task_key(
                     namespace,
                     group_name,
                     service_name,
-                    <$request>::identity()
+                    <$request>::identity(),
                 )
             }
         }

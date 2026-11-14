@@ -79,6 +79,7 @@ fn test_instance_request_wire_format() {
     )
     .expect("expected JSON should parse");
     assert_eq!(serde_json::Value::Object(object), expected);
+
     let persistent = PersistentInstanceRequest::deregister(
         instance,
         Some("svc".to_string()),
@@ -113,6 +114,77 @@ fn test_instance_request_identity() {
         PersistentInstanceRequest::identity(),
         "PersistentInstanceRequest"
     );
+}
+
+#[test]
+fn test_filter_instances_by_clusters() {
+    // The Java client subscribes with an empty cluster list (Constants.NULL)
+    // and filters the returned instances in memory, so the cache always holds
+    // the full instance set. This mirrors NamingSelectorFactory's cluster
+    // selector: an instance matches when its clusterName is in the requested
+    // set.
+    let instances = vec![
+        ServiceInstance {
+            ip: "10.0.0.1".to_string(),
+            port: 8080,
+            cluster_name: Some("c1".to_string()),
+            ..Default::default()
+        },
+        ServiceInstance {
+            ip: "10.0.0.2".to_string(),
+            port: 8080,
+            cluster_name: Some("c2".to_string()),
+            ..Default::default()
+        },
+        ServiceInstance {
+            ip: "10.0.0.3".to_string(),
+            port: 8080,
+            cluster_name: Some("DEFAULT".to_string()),
+            ..Default::default()
+        },
+    ];
+
+    // No cluster requested keeps every instance.
+    let all = filter_instances_by_clusters(&instances, &[]);
+    assert_eq!(all.len(), 3);
+
+    // A single requested cluster keeps only that cluster.
+    let c1 = filter_instances_by_clusters(&instances, &["c1".to_string()]);
+    assert_eq!(c1.len(), 1);
+    assert_eq!(c1[0].ip, "10.0.0.1");
+
+    // Several requested clusters keep the union.
+    let c1_c2 = filter_instances_by_clusters(&instances, &["c1".to_string(), "c2".to_string()]);
+    assert_eq!(c1_c2.len(), 2);
+
+    // An unknown cluster matches nothing.
+    let unknown = filter_instances_by_clusters(&instances, &["nope".to_string()]);
+    assert!(unknown.is_empty());
+}
+
+#[test]
+fn test_filter_instances_by_clusters_without_cluster_name() {
+    // The Java selector compares the raw cluster name, so an instance that
+    // has none matches no cluster at all — not even the default one.
+    let instances = vec![ServiceInstance {
+        ip: "10.0.0.1".to_string(),
+        port: 8080,
+        cluster_name: None,
+        ..Default::default()
+    }];
+
+    let default = filter_instances_by_clusters(
+        &instances,
+        &[crate::api::naming::DEFAULT_CLUSTER_NAME.to_string()],
+    );
+    assert!(default.is_empty());
+
+    let other = filter_instances_by_clusters(&instances, &["c1".to_string()]);
+    assert!(other.is_empty());
+
+    // An unscoped query still returns it.
+    let all = filter_instances_by_clusters(&instances, &[]);
+    assert_eq!(all.len(), 1);
 }
 
 #[test]

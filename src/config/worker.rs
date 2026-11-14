@@ -61,14 +61,7 @@ impl ConfigWorker {
             .namespace(client_props.get_namespace())
             .app_name(client_props.get_app_name())
             .client_version(client_props.get_client_version())
-            .add_label(
-                crate::api::constants::common_remote::LABEL_SOURCE.to_owned(),
-                crate::api::constants::common_remote::LABEL_SOURCE_SDK.to_owned(),
-            )
-            .add_label(
-                crate::api::constants::common_remote::LABEL_MODULE.to_owned(),
-                crate::api::constants::common_remote::LABEL_MODULE_CONFIG.to_owned(),
-            )
+            .add_default_labels(crate::api::constants::common_remote::LABEL_MODULE_CONFIG)
             .add_labels(client_props.get_labels())
             .register_server_request_handler::<ConfigChangeNotifyRequest>(Arc::new(
                 ConfigChangeNotifyHandler { notify_change_tx },

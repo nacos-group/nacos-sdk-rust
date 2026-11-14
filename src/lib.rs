@@ -198,21 +198,20 @@ mod test_props {
         const BOOL_ENV: &str = "NACOS_CLIENT_TEST_PARSE_BOOL";
 
         let Ok(case) = std::env::var(CHILD_CASE_ENV) else {
-            let current_exe =
-                std::env::current_exe().expect("current test executable should be available");
             for (case, port, bool_value) in [
                 ("valid", "1234", "false"),
                 ("invalid", "not-a-port", "not-a-bool"),
                 ("overflow", "70000", "TRUE"),
             ] {
-                let status = std::process::Command::new(&current_exe)
-                    .args(["--exact", "test_props::test_get_value_parse_from_env"])
-                    .env(CHILD_CASE_ENV, case)
-                    .env(PORT_ENV, port)
-                    .env(BOOL_ENV, bool_value)
-                    .status()
-                    .expect("parse environment test should run");
-                assert!(status.success(), "child case {case} should pass");
+                crate::test_config::run_child_test(
+                    "test_props::test_get_value_parse_from_env",
+                    &[
+                        (CHILD_CASE_ENV, case),
+                        (PORT_ENV, port),
+                        (BOOL_ENV, bool_value),
+                    ],
+                    &[],
+                );
             }
             return;
         };
@@ -256,5 +255,61 @@ mod test_config {
                 .with_max_level(LevelFilter::INFO)
                 .try_init();
         });
+    }
+
+    /// Runs a test with the logging initialized.
+    pub(crate) fn run_test<T, F>(test: F) -> T
+    where
+        F: FnOnce() -> T,
+    {
+        setup_log();
+        test()
+    }
+
+    /// Waits until `path` exists on disk, failing the test on timeout.
+    ///
+    /// The cache writes to disk in the background, so a test that wants to
+    /// inspect the file has to wait for it to appear.
+    pub(crate) async fn wait_for_file(path: &std::path::Path, msg: &str) {
+        tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            while !path.exists() {
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .expect(msg);
+    }
+
+    /// Waits until `flag` is set, returning whether it was set in time.
+    ///
+    /// Listener callbacks run on a background thread, so a test has to wait
+    /// for the callback to have run.
+    pub(crate) async fn wait_for_flag(
+        flag: &std::sync::atomic::AtomicBool,
+        timeout: std::time::Duration,
+    ) -> bool {
+        tokio::time::timeout(timeout, async {
+            while !flag.load(std::sync::atomic::Ordering::Acquire) {
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .is_ok()
+    }
+
+    /// Runs a test in a child process with the given environment.
+    ///
+    /// Used by tests that need a fresh process, because the properties are
+    /// read once into a process-wide snapshot.
+    pub(crate) fn run_child_test(test: &str, envs: &[(&str, &str)], remove: &[&str]) {
+        let current_exe =
+            std::env::current_exe().expect("current test executable should be available");
+        let mut command = std::process::Command::new(current_exe);
+        command.args(["--exact", test]).envs(envs.iter().copied());
+        for key in remove {
+            command.env_remove(key);
+        }
+        let status = command.status().expect("child test should run");
+        assert!(status.success(), "child test {test} failed");
     }
 }

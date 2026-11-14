@@ -35,10 +35,8 @@ impl ConfigService {
         data_id: impl Into<String>,
         group: impl Into<String>,
     ) -> error::Result<ConfigResponse> {
-        let data_id: String = data_id.into();
-        let group: String = group.into();
-        crate::common::util::check_not_blank(&data_id, "data_id")?;
-        crate::common::util::check_not_blank(&group, "group")?;
+        let data_id = crate::common::util::check_not_blank(data_id, "data_id")?;
+        let group = crate::common::util::check_not_blank(group, "group")?;
         self.inner.get_config(data_id, group).await
     }
 
@@ -50,12 +48,9 @@ impl ConfigService {
         content: impl Into<String>,
         content_type: Option<String>,
     ) -> error::Result<bool> {
-        let data_id: String = data_id.into();
-        let group: String = group.into();
-        let content: String = content.into();
-        crate::common::util::check_not_blank(&data_id, "data_id")?;
-        crate::common::util::check_not_blank(&group, "group")?;
-        crate::common::util::check_not_blank(&content, "content")?;
+        let data_id = crate::common::util::check_not_blank(data_id, "data_id")?;
+        let group = crate::common::util::check_not_blank(group, "group")?;
+        let content = crate::common::util::check_not_blank(content, "content")?;
         self.inner
             .publish_config(data_id, group, content, content_type)
             .await
@@ -70,14 +65,10 @@ impl ConfigService {
         content_type: Option<String>,
         cas_md5: impl Into<String>,
     ) -> error::Result<bool> {
-        let data_id: String = data_id.into();
-        let group: String = group.into();
-        let content: String = content.into();
-        let cas_md5: String = cas_md5.into();
-        crate::common::util::check_not_blank(&data_id, "data_id")?;
-        crate::common::util::check_not_blank(&group, "group")?;
-        crate::common::util::check_not_blank(&content, "content")?;
-        crate::common::util::check_not_blank(&cas_md5, "cas_md5")?;
+        let data_id = crate::common::util::check_not_blank(data_id, "data_id")?;
+        let group = crate::common::util::check_not_blank(group, "group")?;
+        let content = crate::common::util::check_not_blank(content, "content")?;
+        let cas_md5 = crate::common::util::check_not_blank(cas_md5, "cas_md5")?;
         self.inner
             .publish_config_cas(data_id, group, content, content_type, cas_md5)
             .await
@@ -92,14 +83,10 @@ impl ConfigService {
         content_type: Option<String>,
         beta_ips: impl Into<String>,
     ) -> error::Result<bool> {
-        let data_id: String = data_id.into();
-        let group: String = group.into();
-        let content: String = content.into();
-        let beta_ips: String = beta_ips.into();
-        crate::common::util::check_not_blank(&data_id, "data_id")?;
-        crate::common::util::check_not_blank(&group, "group")?;
-        crate::common::util::check_not_blank(&content, "content")?;
-        crate::common::util::check_not_blank(&beta_ips, "beta_ips")?;
+        let data_id = crate::common::util::check_not_blank(data_id, "data_id")?;
+        let group = crate::common::util::check_not_blank(group, "group")?;
+        let content = crate::common::util::check_not_blank(content, "content")?;
+        let beta_ips = crate::common::util::check_not_blank(beta_ips, "beta_ips")?;
         self.inner
             .publish_config_beta(data_id, group, content, content_type, beta_ips)
             .await
@@ -115,12 +102,9 @@ impl ConfigService {
         cas_md5: Option<String>,
         params: HashMap<String, String>,
     ) -> error::Result<bool> {
-        let data_id: String = data_id.into();
-        let group: String = group.into();
-        let content: String = content.into();
-        crate::common::util::check_not_blank(&data_id, "data_id")?;
-        crate::common::util::check_not_blank(&group, "group")?;
-        crate::common::util::check_not_blank(&content, "content")?;
+        let data_id = crate::common::util::check_not_blank(data_id, "data_id")?;
+        let group = crate::common::util::check_not_blank(group, "group")?;
+        let content = crate::common::util::check_not_blank(content, "content")?;
         self.inner
             .publish_config_param(data_id, group, content, content_type, cas_md5, params)
             .await
@@ -132,10 +116,8 @@ impl ConfigService {
         data_id: impl Into<String>,
         group: impl Into<String>,
     ) -> error::Result<bool> {
-        let data_id: String = data_id.into();
-        let group: String = group.into();
-        crate::common::util::check_not_blank(&data_id, "data_id")?;
-        crate::common::util::check_not_blank(&group, "group")?;
+        let data_id = crate::common::util::check_not_blank(data_id, "data_id")?;
+        let group = crate::common::util::check_not_blank(group, "group")?;
         self.inner.remove_config(data_id, group).await
     }
 
@@ -146,10 +128,8 @@ impl ConfigService {
         group: impl Into<String>,
         listener: Arc<dyn ConfigChangeListener>,
     ) -> error::Result<()> {
-        let data_id: String = data_id.into();
-        let group: String = group.into();
-        crate::common::util::check_not_blank(&data_id, "data_id")?;
-        crate::common::util::check_not_blank(&group, "group")?;
+        let data_id = crate::common::util::check_not_blank(data_id, "data_id")?;
+        let group = crate::common::util::check_not_blank(group, "group")?;
         self.inner.add_listener(data_id, group, listener).await
     }
 
@@ -160,10 +140,8 @@ impl ConfigService {
         group: impl Into<String>,
         listener: Arc<dyn ConfigChangeListener>,
     ) -> error::Result<()> {
-        let data_id: String = data_id.into();
-        let group: String = group.into();
-        crate::common::util::check_not_blank(&data_id, "data_id")?;
-        crate::common::util::check_not_blank(&group, "group")?;
+        let data_id = crate::common::util::check_not_blank(data_id, "data_id")?;
+        let group = crate::common::util::check_not_blank(group, "group")?;
         self.inner.remove_listener(data_id, group, listener).await
     }
 }
@@ -204,14 +182,7 @@ impl std::fmt::Display for ConfigResponse {
             m = self.md5,
         )?;
         // Truncate content for display if it exceeds 30 chars
-        if self.content.chars().count() > 30 {
-            for c in self.content.chars().take(30) {
-                write!(f, "{}", c)?;
-            }
-            write!(f, "...")?;
-        } else {
-            write!(f, "{}", self.content)?;
-        }
+        crate::common::util::write_truncated(f, &self.content, 30)?;
         write!(f, ")")
     }
 }
@@ -391,12 +362,7 @@ impl ConfigServiceBuilder {
     /// Builds a new [`ConfigService`].
     pub async fn build(self) -> error::Result<ConfigService> {
         #[cfg(feature = "tracing-log")]
-        {
-            // $HOME/logs/nacos
-            let log_path = crate::common::util::HOME_DIR.to_owned() + "/logs/nacos";
-            let log_level = "INFO".to_string();
-            crate::common::log::init(log_path, log_level);
-        }
+        crate::common::log::init_default();
 
         let auth_plugin = match self.auth_plugin {
             None => Arc::new(plugin::NoopAuthPlugin::default()),

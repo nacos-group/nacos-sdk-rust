@@ -112,13 +112,21 @@ impl NacosGrpcClientBuilder {
         Self { namespace, ..self }
     }
 
-    pub(crate) fn add_label(mut self, key: String, value: String) -> Self {
-        self.labels.insert(key, value);
+    pub(crate) fn add_labels(mut self, labels: HashMap<String, String>) -> Self {
+        self.labels.extend(labels);
         Self { ..self }
     }
 
-    pub(crate) fn add_labels(mut self, labels: HashMap<String, String>) -> Self {
-        self.labels.extend(labels);
+    /// Adds the `source` and `module` labels every client sends.
+    pub(crate) fn add_default_labels(mut self, module: &str) -> Self {
+        self.labels.insert(
+            crate::api::constants::common_remote::LABEL_SOURCE.to_owned(),
+            crate::api::constants::common_remote::LABEL_SOURCE_SDK.to_owned(),
+        );
+        self.labels.insert(
+            crate::api::constants::common_remote::LABEL_MODULE.to_owned(),
+            module.to_owned(),
+        );
         Self { ..self }
     }
 

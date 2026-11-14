@@ -310,13 +310,9 @@ trait Store<V>: Send + Sync {
 pub mod tests {
     use std::time::Duration;
 
-    use crate::{api::props::CacheKind, common::cache::Cache, test_config};
+    use crate::{api::props::CacheKind, common::cache::Cache};
 
     use super::CacheBuilder;
-
-    fn setup() {
-        test_config::setup_log();
-    }
 
     #[tokio::test]
     async fn test_cache_accepts_str_keys() {
@@ -345,13 +341,7 @@ pub mod tests {
         let cache_file = root.join("config").join("test-namespace").join("key");
 
         cache.insert("key".to_string(), "value".to_string());
-        tokio::time::timeout(Duration::from_secs(2), async {
-            while !cache_file.exists() {
-                tokio::time::sleep(Duration::from_millis(20)).await;
-            }
-        })
-        .await
-        .expect("initial insert should reach disk");
+        crate::test_config::wait_for_file(&cache_file, "initial insert should reach disk").await;
 
         tokio::fs::remove_file(&cache_file)
             .await
@@ -410,13 +400,8 @@ pub mod tests {
         );
 
         let cache_file = root.join("config").join("test-namespace").join("slow");
-        tokio::time::timeout(Duration::from_secs(2), async {
-            while !cache_file.exists() {
-                tokio::time::sleep(Duration::from_millis(20)).await;
-            }
-        })
-        .await
-        .expect("cache entry should eventually reach disk");
+        crate::test_config::wait_for_file(&cache_file, "cache entry should eventually reach disk")
+            .await;
 
         let _ = tokio::fs::remove_dir_all(&root).await;
     }
@@ -483,7 +468,7 @@ pub mod tests {
 
     #[tokio::test]
     pub async fn test_cache() {
-        setup();
+        crate::test_config::setup_log();
 
         let cache: Cache<String> = CacheBuilder::naming("test-naming".to_string())
             .load_cache_at_start(true)

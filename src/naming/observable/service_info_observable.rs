@@ -16,6 +16,7 @@ use crate::{
 };
 
 use super::service_info_diff::{ServiceInfoDiff, is_outdated_data};
+use crate::naming::filter_instances_by_clusters;
 
 pub(crate) fn create(
     id: String,
@@ -28,7 +29,17 @@ pub(crate) fn create(
     (service_info_observer, Arc::new(service_info_emitter))
 }
 
-type ListenerRegistry = Arc<RwLock<HashMap<String, Vec<Arc<dyn NamingEventListener>>>>>;
+/// A registered listener together with the clusters it asked for.
+///
+/// The Java client keeps this pairing in `NamingSelectorWrapper`: the server
+/// pushes every instance, and each listener only receives the ones matching
+/// its own cluster selector.
+struct ListenerEntry {
+    listener: Arc<dyn NamingEventListener>,
+    clusters: Vec<String>,
+}
+
+type ListenerRegistry = Arc<RwLock<HashMap<String, Vec<ListenerEntry>>>>;
 pub(crate) struct ServiceInfoObserver {
     registry: ListenerRegistry,
 }
@@ -46,11 +57,11 @@ impl ServiceInfoObserver {
 
 impl ServiceInfoObserver {
     fn index_of_listener(
-        vec: &[Arc<dyn NamingEventListener>],
+        vec: &[ListenerEntry],
         target: &Arc<dyn NamingEventListener>,
     ) -> Option<usize> {
         vec.iter()
-            .position(|subscriber| Arc::ptr_eq(subscriber, target))
+            .position(|entry| Arc::ptr_eq(&entry.listener, target))
     }
 }
 
@@ -58,7 +69,8 @@ impl ServiceInfoObserver {
     async fn observe(mut receiver: Receiver<(ServiceInfo, Span)>, registry: ListenerRegistry) {
         info!("service info observe task start!");
         while let Some((service_info, span)) = receiver.recv().await {
-            // Use key without clusters to match listener registration (aligned with Java client)
+            // The cache and the listener registry are keyed by service and
+            // group only, never by cluster (aligned with the Java client).
             let key =
                 ServiceInfo::get_key_without_clusters(&service_info.name, &service_info.group_name);
 
@@ -79,11 +91,31 @@ impl ServiceInfoObserver {
                 instances: service_info.hosts,
             };
 
-            let naming_event = Arc::new(naming_event);
+            for entry in listeners {
+                // The server pushes every instance, so each listener only gets
+                // the ones matching the clusters it subscribed to. This is the
+                // same narrowing the Java client does with its per-listener
+                // cluster selector.
+                let instances = if entry.clusters.is_empty() {
+                    naming_event.instances.clone()
+                } else {
+                    naming_event.instances.as_ref().map(|instances| {
+                        Arc::new(filter_instances_by_clusters(instances, &entry.clusters))
+                    })
+                };
 
-            for listener in listeners {
-                let naming_event = naming_event.clone();
-                let listener = listener.clone();
+                // The event reports the cluster scope of the listener it is
+                // delivered to, not the one the server happened to push. The
+                // Java client does the same in `NamingSelectorWrapper`, which
+                // carries the clusters the listener subscribed with.
+                let naming_event = Arc::new(NamingChangeEvent {
+                    service_name: naming_event.service_name.clone(),
+                    group_name: naming_event.group_name.clone(),
+                    clusters: crate::common::util::unique_cluster_string(&entry.clusters),
+                    instances,
+                });
+
+                let listener = entry.listener.clone();
                 info!("notify listener: {key:?}, notify data: {naming_event:?}");
                 // User callbacks are synchronous and may block, so keep them off
                 // the SDK runtime.
@@ -98,7 +130,12 @@ impl ServiceInfoObserver {
     }
 
     #[instrument(fields(subscribe_key = key), skip_all)]
-    pub(crate) async fn subscribe(&self, key: String, listener: Arc<dyn NamingEventListener>) {
+    pub(crate) async fn subscribe(
+        &self,
+        key: String,
+        clusters: Vec<String>,
+        listener: Arc<dyn NamingEventListener>,
+    ) {
         info!("subscribe {key:?}");
         let mut map = self.registry.write().await;
         let listeners = map.get_mut(&key);
@@ -108,27 +145,36 @@ impl ServiceInfoObserver {
                 warn!("listener has already exist, remove old listener and then add new listener.");
                 listeners.remove(index);
             }
-            listeners.push(listener);
+            listeners.push(ListenerEntry { listener, clusters });
         } else {
-            let listeners = vec![listener];
+            let listeners = vec![ListenerEntry { listener, clusters }];
             map.insert(key, listeners);
         }
     }
 
+    /// Removes a listener from the registry.
+    ///
+    /// Returns whether the service still has listeners left, or `None` when
+    /// the listener was not registered at all. The distinction matters:
+    /// unsubscribing a listener that was never registered must not drop the
+    /// shared server-side subscription, which other listeners still rely on.
+    /// The Java client behaves the same way — removing an unknown wrapper is a
+    /// no-op, and the subscription is only dropped once the listener set is
+    /// empty.
     #[instrument(fields(unsubscribe_key = key), skip_all)]
-    pub(crate) async fn unsubscribe(&self, key: String, listener: Arc<dyn NamingEventListener>) {
+    pub(crate) async fn unsubscribe(
+        &self,
+        key: String,
+        listener: Arc<dyn NamingEventListener>,
+    ) -> Option<bool> {
         info!("unsubscribe {key:?}");
 
         let mut map = self.registry.write().await;
-        let Some(listeners) = map.get_mut(&key) else {
-            return;
-        };
+        let listeners = map.get_mut(&key)?;
 
-        let Some(index) = Self::index_of_listener(listeners, &listener) else {
-            warn!("listener {key:?} doesn't exist");
-            return;
-        };
+        let index = Self::index_of_listener(listeners, &listener)?;
         listeners.remove(index);
+        Some(!listeners.is_empty())
     }
 }
 
@@ -279,6 +325,104 @@ mod tests {
         }
     }
 
+    fn service_info_with_clusters(ips: &[(&str, &str)]) -> ServiceInfo {
+        let hosts = ips
+            .iter()
+            .map(|(ip, cluster)| ServiceInstance {
+                ip: ip.to_string(),
+                port: 8848,
+                cluster_name: Some(cluster.to_string()),
+                healthy: true,
+                weight: 1.0,
+                ..Default::default()
+            })
+            .collect();
+        ServiceInfo {
+            name: "svc".to_string(),
+            group_name: "DEFAULT".to_string(),
+            hosts: Some(Arc::new(hosts)),
+            ..Default::default()
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn test_listener_receives_only_its_own_cluster() {
+        use crate::api::naming::{NamingChangeEvent, NamingEventListener};
+        use std::sync::Mutex;
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::time::Duration;
+
+        struct RecordingListener {
+            received: Arc<Mutex<Option<Arc<Vec<ServiceInstance>>>>>,
+            clusters: Arc<Mutex<String>>,
+            ran: Arc<AtomicBool>,
+        }
+
+        impl NamingEventListener for RecordingListener {
+            fn event(&self, event: Arc<NamingChangeEvent>) {
+                *self.received.lock().expect("received") = event.instances.clone();
+                *self.clusters.lock().expect("clusters") = event.clusters.clone();
+                self.ran.store(true, Ordering::Release);
+            }
+        }
+
+        let cache = Arc::new(
+            CacheBuilder::naming("test-observer".to_string())
+                .build()
+                .await,
+        );
+        let (observer, emitter) = create("test-observer".to_string(), cache, false);
+        let key = ServiceInfo::get_key_without_clusters("svc", "DEFAULT");
+
+        let received = Arc::new(Mutex::new(None));
+        let clusters = Arc::new(Mutex::new(String::new()));
+        let ran = Arc::new(AtomicBool::new(false));
+        observer
+            .subscribe(
+                key,
+                vec!["c1".to_string()],
+                Arc::new(RecordingListener {
+                    received: Arc::clone(&received),
+                    clusters: Arc::clone(&clusters),
+                    ran: Arc::clone(&ran),
+                }),
+            )
+            .await;
+
+        emitter
+            .emit(service_info_with_clusters(&[
+                ("10.0.0.1", "c1"),
+                ("10.0.0.2", "c2"),
+            ]))
+            .await;
+
+        assert!(
+            crate::test_config::wait_for_flag(&ran, Duration::from_secs(2)).await,
+            "listener should have been notified"
+        );
+
+        let instances = received
+            .lock()
+            .expect("received")
+            .clone()
+            .expect("instances");
+        assert_eq!(
+            instances.len(),
+            1,
+            "a listener must only receive the instances of the cluster it subscribed to"
+        );
+        assert_eq!(instances[0].ip, "10.0.0.1");
+
+        // The event reports the cluster scope of the listener it is delivered
+        // to, the way the Java client's `NamingSelectorWrapper` does — not the
+        // cluster the server happened to push.
+        assert_eq!(
+            clusters.lock().expect("clusters").clone(),
+            "c1",
+            "the event must report the cluster scope of its own listener"
+        );
+    }
+
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_blocking_listener_does_not_starve_other_listeners() {
         use crate::api::naming::{NamingChangeEvent, NamingEventListener};
@@ -321,6 +465,7 @@ mod tests {
         observer
             .subscribe(
                 key.clone(),
+                Vec::new(),
                 Arc::new(BlockingListener {
                     entered: Arc::clone(&entered),
                     release: Mutex::new(release_rx),
@@ -337,7 +482,11 @@ mod tests {
         .expect("blocking listener should start");
 
         observer
-            .subscribe(key, Arc::new(SignalingListener(Arc::clone(&second_ran))))
+            .subscribe(
+                key,
+                Vec::new(),
+                Arc::new(SignalingListener(Arc::clone(&second_ran))),
+            )
             .await;
         emitter
             .emit(service_info(&["127.0.0.1", "127.0.0.2"]))
@@ -412,6 +561,29 @@ mod tests {
                 .expect("hosts")
                 .len(),
             2
+        );
+    }
+
+    #[tokio::test]
+    async fn test_cache_entry_is_found_by_the_cluster_independent_key() {
+        // The cache is written under a cluster-independent key, so a reader
+        // using the same key always finds the entry — no matter which cluster
+        // the pushed service info happened to carry. This is the regression
+        // guard for the cache key mismatch.
+        let cache = Arc::new(CacheBuilder::naming("test-ns".to_string()).build().await);
+        let (sender, _receiver) = channel(16);
+        let emitter = ServiceInfoEmitter::new(sender, Arc::clone(&cache), false);
+
+        let mut pushed = service_info(&["127.0.0.1"]);
+        pushed.clusters = "c1".to_string();
+
+        emitter.emit(pushed).await;
+
+        let key = ServiceInfo::get_key_without_clusters("svc", "DEFAULT");
+        assert_eq!(key, "DEFAULT@@svc");
+        assert!(
+            cache.get(&key).is_some(),
+            "the cache entry must be reachable through the cluster-independent key"
         );
     }
 }

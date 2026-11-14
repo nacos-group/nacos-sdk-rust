@@ -195,15 +195,13 @@ impl AliyunRamAuthPlugin {
     }
 
     fn get_grouped_service_name(resource: &RequestResource) -> Option<String> {
-        resource.resource.as_ref().map(|service_name| {
-            if service_name.contains("@@") {
-                service_name.clone()
-            } else if let Some(group) = &resource.group {
-                format!("{}@@{}", group, service_name)
-            } else {
-                service_name.clone()
-            }
-        })
+        resource
+            .resource
+            .as_ref()
+            .map(|service_name| match &resource.group {
+                Some(group) => crate::common::util::grouped_service_name(service_name, group),
+                None => service_name.clone(),
+            })
     }
 
     fn get_login_identify_for_config(&self, resource: RequestResource) -> LoginIdentityContext {

@@ -96,8 +96,6 @@ pub mod tests {
     use tower::Service;
     use tracing::debug;
 
-    use crate::test_config;
-
     use super::PollingServerListService;
     use crate::common::remote::server_list::ServerListProvider;
 
@@ -116,21 +114,7 @@ pub mod tests {
         assert!(result.is_err());
     }
 
-    fn setup() {
-        test_config::setup_log();
-    }
-
-    fn teardown() {}
-
-    fn run_test<T, F>(test: F) -> T
-    where
-        F: FnOnce() -> T,
-    {
-        setup();
-        let ret = test();
-        teardown();
-        ret
-    }
+    use crate::test_config::run_test;
 
     #[tokio::test]
     pub async fn test_poll_server_list() {
