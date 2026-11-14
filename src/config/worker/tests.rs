@@ -38,6 +38,14 @@ async fn disk_cache(prefix: &str) -> (Cache<CacheData>, PathBuf) {
     (cache, root)
 }
 
+struct ChannelListener(tokio::sync::mpsc::UnboundedSender<ConfigResponse>);
+
+impl ConfigChangeListener for ChannelListener {
+    fn notify(&self, config_resp: ConfigResponse) {
+        let _ = self.0.send(config_resp);
+    }
+}
+
 #[test]
 fn fill_data_returns_err_when_content_missing() {
     let resp = response(None, Some("md5"));
@@ -149,9 +157,13 @@ async fn handle_config_not_found_holds_no_lock_across_filter_await() {
         ConfigWorker::handle_config_not_found(&cache_in_task, &key_in_task, &filters_in_task).await;
     });
 
-    while !entered.load(Ordering::Acquire) {
-        tokio::task::yield_now().await;
-    }
+    tokio::time::timeout(Duration::from_secs(2), async {
+        while !entered.load(Ordering::Acquire) {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("deletion should reach the config filter");
 
     // While the deletion notification is suspended in the filter, the shard must
     // stay writable and iterable. Probe from the blocking pool so a regression
@@ -204,14 +216,6 @@ async fn handle_config_not_found_holds_no_lock_across_filter_await() {
 
 #[tokio::test]
 async fn config_not_found_clears_stale_cache_and_notifies_once() {
-    struct ChannelListener(tokio::sync::mpsc::UnboundedSender<ConfigResponse>);
-
-    impl ConfigChangeListener for ChannelListener {
-        fn notify(&self, config_resp: ConfigResponse) {
-            let _ = self.0.send(config_resp);
-        }
-    }
-
     let (cache, root) = disk_cache("not-found").await;
     let group_key = "data+_+group+_+test-ns".to_string();
     let cache_file = root.join("config").join("test-ns").join(&group_key);
@@ -265,6 +269,32 @@ async fn config_not_found_clears_stale_cache_and_notifies_once() {
     );
 
     let _ = tokio::fs::remove_dir_all(&root).await;
+}
+
+#[tokio::test]
+async fn deletion_notifies_listener_that_never_saw_the_config() {
+    let cache: Cache<CacheData> = CacheBuilder::config("test-ns".to_string()).build().await;
+    let key = "data+_+group+_+test-ns".to_string();
+    let filters: Arc<Vec<Box<dyn ConfigFilter>>> = Arc::new(Vec::new());
+
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    let mut data = CacheData::new("data".into(), "group".into(), "test-ns".into());
+    data.content = Arc::new("stale".to_string());
+    data.md5 = Arc::new("stale-md5".to_string());
+    data.initializing = false;
+    // The listener registers for an already-cached entry, so its last_md5 stays
+    // empty until something is dispatched.
+    data.add_listener(Arc::new(ChannelListener(tx)));
+    cache.insert(key.clone(), data);
+
+    ConfigWorker::handle_config_not_found(&cache, &key, &filters).await;
+
+    let deleted = tokio::time::timeout(Duration::from_secs(2), rx.recv())
+        .await
+        .expect("a subscribed listener must learn about the deletion")
+        .expect("listener channel should stay open");
+    assert_eq!(deleted.content(), "");
+    assert_eq!(deleted.md5(), "");
 }
 
 #[tokio::test]
