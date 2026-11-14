@@ -147,11 +147,10 @@ impl ServiceInstanceBuilder {
 /// let notifications = listener.get_notifications();
 /// ```
 pub struct MockConfigListener {
-    pub notifications: std::sync::Mutex<Vec<ConfigResponse>>,
+    pub notifications: std::sync::Mutex<Vec<Arc<ConfigResponse>>>,
 }
 
 impl MockConfigListener {
-    /// Creates a new empty listener.
     pub fn new() -> Self {
         Self {
             notifications: std::sync::Mutex::new(Vec::new()),
@@ -159,13 +158,13 @@ impl MockConfigListener {
     }
 
     /// Returns a snapshot of all received notifications.
-    pub fn get_notifications(&self) -> Vec<ConfigResponse> {
+    pub fn get_notifications(&self) -> Vec<Arc<ConfigResponse>> {
         self.notifications.lock().expect("mutex poisoned").clone()
     }
 }
 
 impl ConfigChangeListener for MockConfigListener {
-    fn notify(&self, config_resp: ConfigResponse) {
+    fn notify(&self, config_resp: Arc<ConfigResponse>) {
         self.notifications
             .lock()
             .expect("mutex poisoned")
