@@ -526,11 +526,7 @@ impl ConfigWorker {
         config_filters: &Arc<Vec<Box<dyn ConfigFilter>>>,
     ) {
         let cleared = match unified_cache.get_mut(group_key) {
-            Some(mut cache_ref_mut) => {
-                let cleared = Self::clear_deleted(&mut cache_ref_mut, group_key);
-                cache_ref_mut.skip_persist();
-                cleared
-            }
+            Some(mut cache_ref_mut) => Self::clear_deleted(&mut cache_ref_mut, group_key),
             None => return,
         };
         let Some(should_notify) = cleared else {
@@ -559,6 +555,30 @@ impl ConfigWorker {
         );
         for key in empty_keys {
             unified_cache.remove(&key);
+        }
+    }
+
+    /// Fill a cached entry from a server response and persist the new revision.
+    fn fill_cache_entry(
+        unified_cache: &Cache<CacheData>,
+        group_key: &str,
+        config_resp: ConfigQueryResponse,
+    ) -> bool {
+        match unified_cache.get_mut(group_key) {
+            Some(mut cache_ref_mut) => match Self::fill_data(&mut cache_ref_mut, config_resp) {
+                Ok(should_notify) => {
+                    cache_ref_mut.persist();
+                    should_notify
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        group_key = %group_key,
+                        "fill cache data failed, skip notify: {e:?}"
+                    );
+                    false
+                }
+            },
+            None => false,
         }
     }
 
@@ -604,21 +624,8 @@ impl ConfigWorker {
 
                     match config_resp {
                         Ok(config_resp) => {
-                            let should_notify = match unified_cache.get_mut(&group_key) {
-                                Some(mut cache_ref_mut) => {
-                                    match Self::fill_data(&mut cache_ref_mut, config_resp) {
-                                        Ok(should_notify) => should_notify,
-                                        Err(e) => {
-                                            tracing::warn!(
-                                                group_key = %group_key,
-                                                "fill cache data failed, skip notify: {e:?}"
-                                            );
-                                            false
-                                        }
-                                    }
-                                }
-                                None => false,
-                            };
+                            let should_notify =
+                                Self::fill_cache_entry(&unified_cache, &group_key, config_resp);
                             if should_notify {
                                 Self::dispatch_cached(&unified_cache, &group_key, &config_filters)
                                     .await;

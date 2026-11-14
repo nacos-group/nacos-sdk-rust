@@ -317,6 +317,62 @@ async fn wait_for_file_removed(path: &std::path::Path) {
 }
 
 #[tokio::test]
+async fn fill_cache_entry_persists_the_new_revision() {
+    use crate::api::props::CacheKind;
+    use crate::common::cache::{Cache, CacheBuilder};
+    use std::time::Duration;
+
+    let root =
+        std::env::temp_dir().join(format!("nacos-sdk-config-fill-{}", rand::random::<u64>()));
+    let cache: Cache<CacheData> = CacheBuilder::config("test-ns".to_string())
+        .store(CacheKind::DiskStore, Some(root.clone()))
+        .build()
+        .await;
+    let key = "data+_+group+_+test-ns".to_string();
+    let cache_file = root.join("config").join("test-ns").join(&key);
+
+    let mut data = CacheData::new("data".into(), "group".into(), "test-ns".into());
+    data.content = Arc::new("old".to_string());
+    data.md5 = Arc::new("old-md5".to_string());
+    data.initializing = false;
+    cache.insert(key.clone(), data);
+    crate::test_config::wait_for_file(&cache_file, "initial insert should reach disk").await;
+
+    let resp = ConfigQueryResponse {
+        content: Some("new".to_string()),
+        md5: Some("new-md5".to_string()),
+        content_type: Some("text".to_string()),
+        ..Default::default()
+    };
+    assert!(ConfigWorker::fill_cache_entry(&cache, &key, resp));
+
+    tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            let bytes = tokio::fs::read(&cache_file)
+                .await
+                .expect("cache file should exist");
+            if String::from_utf8_lossy(&bytes).contains("new-md5") {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("the filled revision should be persisted");
+
+    assert_eq!(
+        cache
+            .get(&key)
+            .expect("entry should exist")
+            .content
+            .as_str(),
+        "new"
+    );
+
+    let _ = tokio::fs::remove_dir_all(&root).await;
+}
+
+#[tokio::test]
 async fn failed_initial_fill_does_not_swallow_next_notification() {
     let mut data = cache_data();
     let filters: Arc<Vec<Box<dyn ConfigFilter>>> = Arc::new(Vec::new());

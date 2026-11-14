@@ -18,7 +18,7 @@
 - 修复：服务端返回 300（配置不存在）时清空本地缓存中的旧内容与 md5、删除对应的磁盘快照（与 Java 客户端 `saveSnapshot(null)` 一致），并以空 content、空 md5 通知此前订阅过该配置的 listener；启动时清理遗留的空缓存项。避免 list-watch 每 60 秒重复拉取已删除配置、持续打印 `ConfigNotFound`，同时不再继续返回已删除配置的旧内容
 - 性能：服务实例变更日志仅在日志启用时才序列化实例数据
 - 性能：未配置 `ConfigFilter` 时 config 缓存命中不再复制配置内容，naming 缓存命中的实例列表改为共享，选择单个实例时只克隆最终选中的实例
-- 性能：缓存序列化移出调用线程，并且只在写守卫被实际修改后才落盘；注册/注销 listener 不再重写磁盘缓存
+- 性能：缓存序列化移出调用线程，并且只在显式请求持久化时落盘；注册/注销 listener 不再重写磁盘缓存
 - 性能：config/naming 用户监听回调改由阻塞线程池执行，避免同步回调阻塞 SDK 运行时
 - 增强：gRPC 请求默认 10 秒响应头超时（覆盖连接建立与等待响应头，不限制双向流生命周期；暂不支持自定义）
 - 破坏性变更：移除已废弃的 `ClientProps::max_retries` 与 `Error::MaxRetriesExceeded`
@@ -41,7 +41,7 @@
 - Fix: a server-side 300 (config not found) now clears the stale cached content and md5, deletes the on-disk snapshot (matching the Java client's `saveSnapshot(null)`), and notifies listeners that had previously observed the config with an empty content and md5; empty entries left behind are pruned at startup. The list-watch loop no longer re-fetches deleted configs every 60 seconds (no more repeated `ConfigNotFound` errors) and deleted configs are no longer served from the cache
 - Performance: service-instance diff logs serialize instance data only when logging is enabled
 - Performance: without a configured `ConfigFilter`, config cache hits no longer copy the config content; naming cache hits share the instance list, and single-instance selection clones only the chosen instance
-- Performance: cache serialization runs off the caller thread and only writes after a write guard is actually mutated; listener add/remove no longer rewrites the disk cache
+- Performance: cache serialization runs off the caller thread and only writes to disk when persistence is explicitly requested; listener add/remove no longer rewrites the disk cache
 - Performance: config/naming user listener callbacks run on the blocking pool so synchronous callbacks cannot stall the SDK runtime
 - Enhance: gRPC requests now have a default 10-second response-header timeout (covers connection establishment and response headers, not the bi-stream lifetime; not user-configurable yet)
 - Change: remove the deprecated `ClientProps::max_retries` and `Error::MaxRetriesExceeded`

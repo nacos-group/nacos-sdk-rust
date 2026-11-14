@@ -60,7 +60,6 @@ where
         self.inner.get_mut(key).map(|dash_map_ref_mut| CacheRefMut {
             dash_map_ref_mut,
             store: self.store.clone(),
-            dirty: false,
         })
     }
 
@@ -149,7 +148,6 @@ where
 {
     dash_map_ref_mut: RefMut<'a, String, V>,
     store: Option<Arc<dyn Store<V>>>,
-    dirty: bool,
 }
 
 impl<V> Deref for CacheRefMut<'_, V>
@@ -168,7 +166,6 @@ where
     V: serde::Serialize + Send + Sync + Clone + 'static,
 {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        self.dirty = true;
         self.dash_map_ref_mut.value_mut()
     }
 }
@@ -177,37 +174,29 @@ impl<V> CacheRefMut<'_, V>
 where
     V: serde::Serialize + Send + Sync + Clone + 'static,
 {
-    /// Mutate without writing the value back to the store on drop.
-    pub(crate) fn skip_persist(&mut self) {
-        self.dirty = false;
-    }
-}
-
-impl<V> Drop for CacheRefMut<'_, V>
-where
-    V: serde::Serialize + Send + Sync + Clone + 'static,
-{
-    fn drop(&mut self) {
-        if !self.dirty {
+    /// Write the current value to the store in the background.
+    ///
+    /// Mutations are never persisted implicitly: a caller that wants the disk
+    /// cache updated must request it explicitly.
+    pub(crate) fn persist(self) {
+        let Some(store) = self.store else {
             return;
-        }
-        if let Some(store) = self.store.take() {
-            let snapshot = self.dash_map_ref_mut.value().clone();
-            let key = self.dash_map_ref_mut.key().clone();
+        };
+        let snapshot = self.dash_map_ref_mut.value().clone();
+        let key = self.dash_map_ref_mut.key().clone();
 
-            executor::spawn(
-                async move {
-                    let bytes = tokio::task::spawn_blocking(move || serialize_value(&snapshot))
-                        .await
-                        .ok()
-                        .flatten();
-                    if let Some(bytes) = bytes {
-                        store.save(&key, bytes).await;
-                    }
+        executor::spawn(
+            async move {
+                let bytes = tokio::task::spawn_blocking(move || serialize_value(&snapshot))
+                    .await
+                    .ok()
+                    .flatten();
+                if let Some(bytes) = bytes {
+                    store.save(&key, bytes).await;
                 }
-                .in_current_span(),
-            );
-        }
+            }
+            .in_current_span(),
+        );
     }
 }
 
@@ -348,7 +337,7 @@ pub mod tests {
     }
 
     #[tokio::test]
-    async fn test_unmodified_write_guard_does_not_rewrite_disk() {
+    async fn test_write_guard_persists_only_on_request() {
         let root = std::env::temp_dir().join(format!("nacos-sdk-dirty-{}", rand::random::<u64>()));
         let cache: Cache<String> = CacheBuilder::config("test-namespace".to_string())
             .store(CacheKind::DiskStore, Some(root.clone()))
@@ -364,14 +353,24 @@ pub mod tests {
             .expect("cache file should be removable");
 
         {
-            let _guard = cache.get_mut("key").expect("entry should exist");
+            let mut guard = cache.get_mut("key").expect("entry should exist");
+            *guard = "modified".to_string();
         }
-
         tokio::time::sleep(Duration::from_millis(300)).await;
         assert!(
             !cache_file.exists(),
-            "dropping an unmodified write guard must not rewrite the cache file"
+            "dropping a modified write guard must not rewrite the cache file"
         );
+
+        {
+            let guard = cache.get_mut("key").expect("entry should exist");
+            guard.persist();
+        }
+        crate::test_config::wait_for_file(&cache_file, "explicit persist should reach disk").await;
+        let bytes = tokio::fs::read(&cache_file)
+            .await
+            .expect("cache file should exist");
+        assert_eq!("\"modified\"", String::from_utf8_lossy(&bytes));
 
         let _ = tokio::fs::remove_dir_all(&root).await;
     }
