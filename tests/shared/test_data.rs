@@ -151,6 +151,7 @@ pub struct MockConfigListener {
 }
 
 impl MockConfigListener {
+    /// Creates a new empty listener.
     pub fn new() -> Self {
         Self {
             notifications: std::sync::Mutex::new(Vec::new()),
