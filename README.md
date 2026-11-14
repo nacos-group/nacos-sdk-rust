@@ -179,7 +179,7 @@ let naming_service = NamingServiceBuilder::new(props).build().await?;
 
 ### 关闭磁盘缓存（纯内存缓存）
 
-默认情况下缓存会落盘（`$HOME/nacos/{config,naming}/{namespace}`），用于上面的应急启动场景。
+默认情况下缓存会落盘（`$HOME/nacos/{config,naming}/<server>_nacos/{namespace}`），按服务端隔离，用于上面的应急启动场景。
 如果不希望写任何磁盘文件（例如只读文件系统、无状态 Serverless、或容器中不希望残留文件），
 可以通过 `CacheKind::None` 关闭磁盘缓存，配置与注册数据仅保存在内存中。
 

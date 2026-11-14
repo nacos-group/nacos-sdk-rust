@@ -260,11 +260,15 @@ mod tests {
         let root =
             std::env::temp_dir().join(format!("nacos-sdk-listeners-{}", rand::random::<u64>()));
         let cache: Cache<CacheData> = CacheBuilder::config("test-ns".to_string())
-            .store(CacheKind::DiskStore, Some(root.clone()))
+            .store(CacheKind::DiskStore, Some(root.clone()), "test-server")
             .build()
             .await;
         let key = "D+G+test-ns".to_string();
-        let cache_file = root.join("config").join("test-ns").join(&key);
+        let cache_file = root
+            .join("config")
+            .join("test-server")
+            .join("test-ns")
+            .join(&key);
 
         cache.insert(
             key.clone(),

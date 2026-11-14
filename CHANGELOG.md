@@ -10,6 +10,7 @@
 - 变更：普通 `build()` 每次失败尝试都要消耗服务端检查耗时（共 3 次尝试），因此连接失败不是瞬时返回
 - 破坏性变更：API 入口的必填字符串参数统一改为 `impl Into<String>`（如 `data_id`、`group`、`content`、`cas_md5`、`beta_ips`、`service_name`）；`ConfigResponse` 与 `ServiceInstance` 的 getter 改为返回 `&str` / `Option<&str>`
 - 破坏性变更：`get_all_instances` / `select_instances` 返回 `Arc<Vec<ServiceInstance>>`，`select_one_healthy_instance` 返回 `Arc<ServiceInstance>`，`NamingChangeEvent.instances` 改为 `Option<Arc<Vec<ServiceInstance>>>`
+- 破坏性变更：磁盘缓存按服务端隔离，路径改为 `<cache_dir>/<module>/<server>_nacos/<namespace>`，避免加载其他实例的缓存；旧版未隔离的缓存不再加载（可手动删除）。服务端标识优先取 endpoint、否则取归一化后的 server_addr（补全默认端口），特殊字符替换为 `_`，并包含 `remote_grpc_port` 覆盖；超长标识截断并附加哈希
 - 增强：上述入口可直接传入 `&str` / `&String`，无需手动 `to_string()`
 - 破坏性变更：`AuthPlugin::get_login_identity` 改为返回 `Arc<LoginIdentityContext>`，HTTP token 认证直接共享已登录身份，不再克隆整份身份 map（header 条目仍会复制进每次请求；该 trait 文档已声明后续可能变更）
 - 修复：`ConfigFilter` 改由 worker 在出口统一应用，不再随每条缓存数据保存；从磁盘恢复的配置缓存（`config_load_cache_at_start`）也会继续经过 filter（如解密）
@@ -33,6 +34,7 @@
 - Change: an ordinary `build()` spends server-check time on every failed attempt (3 attempts total), so a failed build is not instantaneous
 - Change: required string parameters of API entries now accept `impl Into<String>` (e.g. `data_id`, `group`, `content`, `cas_md5`, `beta_ips`, `service_name`); `ConfigResponse` and `ServiceInstance` getters now return `&str` / `Option<&str>`
 - Change: `get_all_instances` / `select_instances` return `Arc<Vec<ServiceInstance>>`, `select_one_healthy_instance` returns `Arc<ServiceInstance>`, and `NamingChangeEvent.instances` is now `Option<Arc<Vec<ServiceInstance>>>`
+- Breaking: the disk cache is now scoped per server at `<cache_dir>/<module>/<server>_nacos/<namespace>`, so a client never loads another server's cache; caches written by earlier versions are no longer loaded (they can be deleted manually). The identifier is the endpoint when set, otherwise the normalized server_addr list (default ports filled in); characters outside `[A-Za-z0-9._-]` are replaced by `_`, an overridden `remote_grpc_port` is included, and over-long identifiers are truncated with a hash suffix
 - Enhance: those entries accept `&str` / `&String` directly, no manual `to_string()`
 - Change: `AuthPlugin::get_login_identity` now returns `Arc<LoginIdentityContext>`, so HTTP token auth shares the logged-in identity instead of cloning the whole identity map (entries are still copied into each request; the trait is documented as subject to change)
 - Fix: `ConfigFilter` is now applied by the worker at the response exits instead of being stored with each cache entry; config cache entries restored from disk (`config_load_cache_at_start`) still run filters such as decryption

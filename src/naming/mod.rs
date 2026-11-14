@@ -173,9 +173,10 @@ impl NacosNamingService {
                  nothing will be loaded at startup"
             );
         }
+        let cache_server_name = client_props.get_cache_server_name();
         let naming_cache: Cache<ServiceInfo> = CacheBuilder::naming(namespace.clone())
             .load_cache_at_start(naming_load_cache_at_start)
-            .store(cache_kind, client_props.get_cache_dir())
+            .store(cache_kind, client_props.get_cache_dir(), &cache_server_name)
             .build()
             .await;
         let naming_cache = Arc::new(naming_cache);

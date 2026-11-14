@@ -64,17 +64,18 @@ mod cache_integration_tests {
         std::env::home_dir().unwrap_or_else(std::env::temp_dir)
     }
 
-    fn cache_dir_for_namespace(namespace: &str) -> PathBuf {
+    fn cache_dir_for_namespace(server_addr: &str, namespace: &str) -> PathBuf {
         let mut path = home_dir();
         path.push("nacos");
         path.push("config");
+        path.push(format!("{}_nacos", server_addr.replace(['/', ':'], "_")));
         path.push(namespace);
         path
     }
 
     /// Removes a cache file for the given data_id, group, and namespace.
-    fn remove_cache_file(data_id: &str, group: &str, namespace: &str) {
-        let cache_dir = cache_dir_for_namespace(namespace);
+    fn remove_cache_file(server_addr: &str, data_id: &str, group: &str, namespace: &str) {
+        let cache_dir = cache_dir_for_namespace(server_addr, namespace);
         let cache_key = format!("{data_id}+_+{group}+_+{namespace}");
         let cache_file = cache_dir.join(&cache_key);
         if cache_file.exists() {
@@ -110,7 +111,12 @@ mod cache_integration_tests {
         let namespace = "public".to_string();
 
         // Cleanup any leftover cache files before test
-        remove_cache_file(&test_data_id, &test_group, &namespace);
+        remove_cache_file(
+            &server.server_addr(),
+            &test_data_id,
+            &test_group,
+            &namespace,
+        );
 
         // First client - publish config to populate cache
         let service1 = create_config_service(&server.server_addr(), false).await;
@@ -165,7 +171,12 @@ mod cache_integration_tests {
             .expect("remove_config should succeed");
 
         // Remove cache files
-        remove_cache_file(&test_data_id, &test_group, &namespace);
+        remove_cache_file(
+            &server.server_addr(),
+            &test_data_id,
+            &test_group,
+            &namespace,
+        );
 
         server
             .stop()
@@ -177,7 +188,7 @@ mod cache_integration_tests {
     ///
     /// This test verifies that:
     /// - Cache files are created in the expected directory structure
-    /// - The directory path follows the pattern: $HOME/nacos/config/{namespace}/
+    /// - The directory path follows the pattern: $HOME/nacos/config/{server}_nacos/{namespace}/
     /// - Cache files use the group_key naming convention
     #[tokio::test]
     #[ignore] // Requires running Nacos server: cargo test --test it_cache -- --ignored
@@ -196,7 +207,12 @@ mod cache_integration_tests {
         let namespace = "public".to_string();
 
         // Cleanup any leftover cache files
-        remove_cache_file(&test_data_id, &test_group, &namespace);
+        remove_cache_file(
+            &server.server_addr(),
+            &test_data_id,
+            &test_group,
+            &namespace,
+        );
 
         let service = create_config_service(&server.server_addr(), true).await;
 
@@ -230,7 +246,12 @@ mod cache_integration_tests {
             .remove_config(test_data_id.clone(), test_group.clone())
             .await;
 
-        remove_cache_file(&test_data_id, &test_group, &namespace);
+        remove_cache_file(
+            &server.server_addr(),
+            &test_data_id,
+            &test_group,
+            &namespace,
+        );
 
         server
             .stop()
@@ -261,7 +282,12 @@ mod cache_integration_tests {
         let namespace = "public".to_string();
 
         // Cleanup any leftover cache files
-        remove_cache_file(&test_data_id, &test_group, &namespace);
+        remove_cache_file(
+            &server.server_addr(),
+            &test_data_id,
+            &test_group,
+            &namespace,
+        );
 
         // Phase 1: Create service, publish config, populate cache, then drop it
         {
@@ -327,7 +353,12 @@ mod cache_integration_tests {
         }
 
         // Remove cache files
-        remove_cache_file(&test_data_id, &test_group, &namespace);
+        remove_cache_file(
+            &server.server_addr(),
+            &test_data_id,
+            &test_group,
+            &namespace,
+        );
 
         server
             .stop()
@@ -357,7 +388,12 @@ mod cache_integration_tests {
         let namespace = "public".to_string();
 
         // Cleanup any leftover cache files
-        remove_cache_file(&test_data_id, &test_group, &namespace);
+        remove_cache_file(
+            &server.server_addr(),
+            &test_data_id,
+            &test_group,
+            &namespace,
+        );
 
         let service = create_config_service(&server.server_addr(), true).await;
 
@@ -424,7 +460,7 @@ mod cache_integration_tests {
 
         // Cleanup any leftover cache files
         for (data_id, _) in &configs {
-            remove_cache_file(data_id, &test_group, &namespace);
+            remove_cache_file(&server.server_addr(), data_id, &test_group, &namespace);
         }
 
         // Publish all configs
@@ -477,7 +513,7 @@ mod cache_integration_tests {
                 .await
                 .expect("remove_config should succeed");
 
-            remove_cache_file(data_id, &test_group, &namespace);
+            remove_cache_file(&server.server_addr(), data_id, &test_group, &namespace);
         }
 
         server
@@ -512,6 +548,7 @@ mod cache_integration_tests {
         let test_data_id = format!("no-disk-cache-test-{}", rand::random::<u32>());
         let test_content = "content that must not be persisted".to_string();
         let cache_key = format!("{test_data_id}+_+{test_group}+_+{namespace}");
+        let server_name = format!("{}_nacos", server.server_addr().replace(['/', ':'], "_"));
 
         // Publish the config first, so add_listener caches real content.
         {
@@ -540,7 +577,7 @@ mod cache_integration_tests {
         // Case 1: CacheKind::None, listening must not touch the disk.
         let root =
             std::env::temp_dir().join(format!("nacos-sdk-no-disk-{}", rand::random::<u64>()));
-        let cache_dir = root.join("config").join(&namespace);
+        let cache_dir = root.join("config").join(&server_name).join(&namespace);
 
         let disabled_props = ClientProps::new()
             .server_addr(server.server_addr().to_string())
@@ -584,7 +621,7 @@ mod cache_integration_tests {
         // Case 2: same flow with CacheKind::DiskStore does write to disk.
         let disk_root =
             std::env::temp_dir().join(format!("nacos-sdk-disk-{}", rand::random::<u64>()));
-        let disk_cache_dir = disk_root.join("config").join(&namespace);
+        let disk_cache_dir = disk_root.join("config").join(&server_name).join(&namespace);
 
         let disk_props = ClientProps::new()
             .server_addr(server.server_addr().to_string())

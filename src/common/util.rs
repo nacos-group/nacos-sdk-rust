@@ -121,9 +121,61 @@ pub(crate) fn check_not_blank(param_val: impl Into<String>, param_name: &str) ->
     }
 }
 
+const CACHE_SERVER_NAME_MAX_LEN: usize = 200;
+
+/// Builds the per-server segment of the on-disk cache path, following the
+/// Java client's `<envName>_nacos` convention.
+pub(crate) fn cache_server_dir_name(identifier: &str) -> String {
+    let mut name: String = identifier
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-') {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    if name.len() > CACHE_SERVER_NAME_MAX_LEN {
+        name.truncate(CACHE_SERVER_NAME_MAX_LEN);
+        name.push_str(&format!("_{:08x}", fnv1a_32(identifier.as_bytes())));
+    }
+    name.push_str("_nacos");
+    name
+}
+
+fn fnv1a_32(bytes: &[u8]) -> u32 {
+    let mut hash = 0x811c_9dc5u32;
+    for byte in bytes {
+        hash ^= u32::from(*byte);
+        hash = hash.wrapping_mul(0x0100_0193);
+    }
+    hash
+}
+
 #[cfg(test)]
 mod tests {
-    use crate::common::util::{check_not_blank, unordered_eq};
+    use crate::common::util::{cache_server_dir_name, check_not_blank, unordered_eq};
+
+    #[test]
+    fn test_cache_server_dir_name_is_path_safe() {
+        let name = cache_server_dir_name("http://h:8080/nacos?namespace=public");
+        assert_eq!(name, "http___h_8080_nacos_namespace_public_nacos");
+        assert!(
+            name.chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+        );
+    }
+
+    #[test]
+    fn test_cache_server_dir_name_caps_long_identifiers() {
+        let first = cache_server_dir_name(&"服".repeat(300));
+        let second = cache_server_dir_name(&"服".repeat(301));
+
+        assert!(first.len() <= 215, "capped name is too long: {first}");
+        assert!(first.ends_with("_nacos"));
+        assert_ne!(first, second);
+    }
 
     #[test]
     fn test_unordered_eq_same_order() {
