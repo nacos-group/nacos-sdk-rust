@@ -92,7 +92,6 @@ where
         ret
     }
 
-    #[allow(dead_code)]
     pub(crate) fn remove(&self, key: &str) -> Option<V> {
         let ret = self.inner.remove(key)?;
 
@@ -109,6 +108,13 @@ where
         }
 
         Some(ret.1)
+    }
+
+    /// Remove the persisted copy while keeping the in-memory entry.
+    pub(crate) async fn remove_persisted(&self, key: &str) {
+        if let Some(store) = &self.store {
+            store.remove(key).await;
+        }
     }
 
     pub(crate) fn contains_key(&self, key: &str) -> bool {
@@ -164,6 +170,16 @@ where
     fn deref_mut(&mut self) -> &mut Self::Target {
         self.dirty = true;
         self.dash_map_ref_mut.value_mut()
+    }
+}
+
+impl<V> CacheRefMut<'_, V>
+where
+    V: serde::Serialize + Send + Sync + Clone + 'static,
+{
+    /// Mutate without writing the value back to the store on drop.
+    pub(crate) fn skip_persist(&mut self) {
+        self.dirty = false;
     }
 }
 

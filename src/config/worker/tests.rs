@@ -55,17 +55,26 @@ fn clear_deleted_gates_notification() {
     with_content.content = Arc::new("content".to_string());
     with_content.md5 = Arc::new("md5".to_string());
 
-    assert!(ConfigWorker::clear_deleted(&mut with_content, "group-key"));
+    assert_eq!(
+        Some(true),
+        ConfigWorker::clear_deleted(&mut with_content, "group-key")
+    );
     assert!(with_content.content.is_empty());
     assert!(with_content.md5.is_empty());
-    assert!(!ConfigWorker::clear_deleted(&mut with_content, "group-key"));
+    assert_eq!(
+        None,
+        ConfigWorker::clear_deleted(&mut with_content, "group-key")
+    );
 
     let mut first_fill = cache_data();
     first_fill.initializing = true;
     first_fill.content = Arc::new("content".to_string());
     first_fill.md5 = Arc::new("md5".to_string());
 
-    assert!(!ConfigWorker::clear_deleted(&mut first_fill, "group-key"));
+    assert_eq!(
+        Some(false),
+        ConfigWorker::clear_deleted(&mut first_fill, "group-key")
+    );
     assert!(first_fill.content.is_empty());
     assert!(first_fill.md5.is_empty());
 }
@@ -242,7 +251,7 @@ async fn config_not_found_clears_stale_cache_and_notifies_once() {
         assert_eq!(entry.content.as_str(), "");
         assert_eq!(entry.md5.as_str(), "");
     }
-    wait_for_persisted_empty_md5(&cache_file).await;
+    wait_for_file_removed(&cache_file).await;
 
     // Next list-watch round: the cached md5 already matches the server, so a
     // repeated not-found must be a no-op.
@@ -257,20 +266,54 @@ async fn config_not_found_clears_stale_cache_and_notifies_once() {
     let _ = tokio::fs::remove_dir_all(&root).await;
 }
 
-async fn wait_for_persisted_empty_md5(path: &std::path::Path) {
+#[tokio::test]
+async fn startup_prune_removes_tombstones_and_their_files() {
+    use crate::api::props::CacheKind;
+    use crate::common::cache::{Cache, CacheBuilder};
+
+    let root =
+        std::env::temp_dir().join(format!("nacos-sdk-config-prune-{}", rand::random::<u64>()));
+    let cache: Cache<CacheData> = CacheBuilder::config("test-ns".to_string())
+        .store(CacheKind::DiskStore, Some(root.clone()))
+        .build()
+        .await;
+    let dir = root.join("config").join("test-ns");
+
+    let tombstone_key = "gone+_+group+_+test-ns".to_string();
+    let mut tombstone = CacheData::new("gone".into(), "group".into(), "test-ns".into());
+    tombstone.content = Arc::new(String::new());
+    tombstone.md5 = Arc::new(String::new());
+    cache.insert(tombstone_key.clone(), tombstone);
+
+    let live_key = "live+_+group+_+test-ns".to_string();
+    let mut live = CacheData::new("live".into(), "group".into(), "test-ns".into());
+    live.content = Arc::new("value".to_string());
+    live.md5 = Arc::new("m1".to_string());
+    cache.insert(live_key.clone(), live);
+
+    let tombstone_file = dir.join(&tombstone_key);
+    let live_file = dir.join(&live_key);
+    crate::test_config::wait_for_file(&tombstone_file, "tombstone should reach disk").await;
+    crate::test_config::wait_for_file(&live_file, "live entry should reach disk").await;
+
+    ConfigWorker::drop_empty_entries(&cache);
+
+    assert!(cache.get(&tombstone_key).is_none());
+    assert!(cache.get(&live_key).is_some());
+    wait_for_file_removed(&tombstone_file).await;
+    assert!(tokio::fs::metadata(&live_file).await.is_ok());
+
+    let _ = tokio::fs::remove_dir_all(&root).await;
+}
+
+async fn wait_for_file_removed(path: &std::path::Path) {
     tokio::time::timeout(std::time::Duration::from_secs(2), async {
-        loop {
-            let bytes = tokio::fs::read(path)
-                .await
-                .expect("cache file should exist");
-            if String::from_utf8_lossy(&bytes).contains(r#""md5":"""#) {
-                return;
-            }
+        while tokio::fs::metadata(path).await.is_ok() {
             tokio::time::sleep(std::time::Duration::from_millis(20)).await;
         }
     })
     .await
-    .expect("cleared cache entry should be persisted");
+    .expect("deleted cache entry should be removed from disk");
 }
 
 #[tokio::test]

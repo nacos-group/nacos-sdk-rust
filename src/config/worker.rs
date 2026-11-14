@@ -48,6 +48,9 @@ impl ConfigWorker {
             .build()
             .await;
         let unified_cache = Arc::new(unified_cache);
+        if config_load_cache_at_start {
+            Self::drop_empty_entries(&unified_cache);
+        }
         let config_filters = Arc::new(config_filters);
 
         // group_key: String
@@ -495,34 +498,67 @@ impl ConfigWorker {
     /// A missing config is reported by the server with an empty md5. Converge the
     /// local entry to the same state; keeping the stale md5 makes every list-watch
     /// round flag the key as changed and re-fetch it forever.
-    fn clear_deleted(cache_data: &mut CacheData, group_key: &str) -> bool {
+    ///
+    /// Returns `None` when there was nothing to clear, otherwise whether listeners
+    /// should be notified.
+    fn clear_deleted(cache_data: &mut CacheData, group_key: &str) -> Option<bool> {
         let first_fill = std::mem::take(&mut cache_data.initializing);
-        let had_content = !cache_data.content.is_empty() || !cache_data.md5.is_empty();
-        if had_content {
-            cache_data.content = Arc::new(String::new());
-            cache_data.md5 = Arc::new(String::new());
-            cache_data.encrypted_data_key = Arc::new(String::new());
-            tracing::warn!(
-                group_key = %group_key,
-                "config no longer exists on server, cleared the stale cache entry"
-            );
+        if cache_data.content.is_empty() && cache_data.md5.is_empty() {
+            return None;
         }
-        had_content && !first_fill
+        cache_data.content = Arc::new(String::new());
+        cache_data.md5 = Arc::new(String::new());
+        cache_data.encrypted_data_key = Arc::new(String::new());
+        tracing::warn!(
+            group_key = %group_key,
+            "config no longer exists on server, cleared the stale cache entry"
+        );
+        Some(!first_fill)
     }
 
     /// Keep the entry (and its listeners) so a re-created config is still
-    /// observed, but drop the deleted content and notify the change.
+    /// observed, but drop the deleted content and notify the change. The snapshot
+    /// file is deleted like the Java client's `saveSnapshot(null)`, so the next
+    /// startup does not load the deleted config back.
     async fn handle_config_not_found(
         unified_cache: &Cache<CacheData>,
         group_key: &str,
         config_filters: &Arc<Vec<Box<dyn ConfigFilter>>>,
     ) {
-        let should_notify = match unified_cache.get_mut(group_key) {
-            Some(mut cache_ref_mut) => Self::clear_deleted(&mut cache_ref_mut, group_key),
+        let cleared = match unified_cache.get_mut(group_key) {
+            Some(mut cache_ref_mut) => {
+                let cleared = Self::clear_deleted(&mut cache_ref_mut, group_key);
+                cache_ref_mut.skip_persist();
+                cleared
+            }
             None => return,
         };
+        let Some(should_notify) = cleared else {
+            return;
+        };
+        unified_cache.remove_persisted(group_key).await;
         if should_notify {
             Self::dispatch_cached(unified_cache, group_key, config_filters).await;
+        }
+    }
+
+    /// Drop entries restored from disk that only hold a deletion tombstone.
+    fn drop_empty_entries(unified_cache: &Cache<CacheData>) {
+        let mut empty_keys = Vec::new();
+        unified_cache.for_each(|key, data| {
+            if data.content.is_empty() && data.md5.is_empty() {
+                empty_keys.push(key.clone());
+            }
+        });
+        if empty_keys.is_empty() {
+            return;
+        }
+        tracing::info!(
+            count = empty_keys.len(),
+            "removing empty config cache entries left by deleted configs"
+        );
+        for key in empty_keys {
+            unified_cache.remove(&key);
         }
     }
 

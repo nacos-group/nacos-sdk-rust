@@ -15,7 +15,7 @@
 - 修复：`ConfigFilter` 改由 worker 在出口统一应用，不再随每条缓存数据保存；从磁盘恢复的配置缓存（`config_load_cache_at_start`）也会继续经过 filter（如解密）
 - 修复：naming redo 调度不再在自动重试请求执行期间持有读锁，重试进行中注册/注销不再被阻塞
 - 修复：配置响应缺少 content/content_type/md5 字段时，拉取路径返回错误、推送路径告警并跳过通知，不再 panic 导致通知任务退出
-- 修复：服务端返回 300（配置不存在）时清空本地缓存中的旧内容与 md5，并以空 content、空 md5 通知此前订阅过该配置的 listener；避免 list-watch 每 60 秒重复拉取已删除配置、持续打印 `ConfigNotFound`，同时不再继续返回已删除配置的旧内容
+- 修复：服务端返回 300（配置不存在）时清空本地缓存中的旧内容与 md5、删除对应的磁盘快照（与 Java 客户端 `saveSnapshot(null)` 一致），并以空 content、空 md5 通知此前订阅过该配置的 listener；启动时清理遗留的空缓存项。避免 list-watch 每 60 秒重复拉取已删除配置、持续打印 `ConfigNotFound`，同时不再继续返回已删除配置的旧内容
 - 性能：服务实例变更日志仅在日志启用时才序列化实例数据
 - 性能：未配置 `ConfigFilter` 时 config 缓存命中不再复制配置内容，naming 缓存命中的实例列表改为共享，选择单个实例时只克隆最终选中的实例
 - 性能：缓存序列化移出调用线程，并且只在写守卫被实际修改后才落盘；注册/注销 listener 不再重写磁盘缓存
@@ -38,7 +38,7 @@
 - Fix: `ConfigFilter` is now applied by the worker at the response exits instead of being stored with each cache entry; config cache entries restored from disk (`config_load_cache_at_start`) still run filters such as decryption
 - Fix: the naming redo scheduler no longer holds a read lock while automatic retry requests run, so registrations and deregistrations are not blocked during a retry
 - Fix: config responses missing content/content_type/md5 now make the fetch path return an error and the push path warn and skip notification, instead of panicking and killing the notify task
-- Fix: a server-side 300 (config not found) now clears the stale cached content and md5 and notifies listeners that had previously observed the config, using an empty content and md5; the list-watch loop no longer re-fetches deleted configs every 60 seconds (no more repeated `ConfigNotFound` errors) and deleted configs are no longer served from the cache
+- Fix: a server-side 300 (config not found) now clears the stale cached content and md5, deletes the on-disk snapshot (matching the Java client's `saveSnapshot(null)`), and notifies listeners that had previously observed the config with an empty content and md5; empty entries left behind are pruned at startup. The list-watch loop no longer re-fetches deleted configs every 60 seconds (no more repeated `ConfigNotFound` errors) and deleted configs are no longer served from the cache
 - Performance: service-instance diff logs serialize instance data only when logging is enabled
 - Performance: without a configured `ConfigFilter`, config cache hits no longer copy the config content; naming cache hits share the instance list, and single-instance selection clones only the chosen instance
 - Performance: cache serialization runs off the caller thread and only writes after a write guard is actually mutated; listener add/remove no longer rewrites the disk cache
