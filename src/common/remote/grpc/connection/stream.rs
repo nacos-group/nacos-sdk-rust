@@ -11,9 +11,10 @@ use crate::common::remote::grpc::handlers::default_handler::DefaultHandler;
 use crate::common::remote::grpc::message::request::SetupAckRequest;
 use crate::common::remote::grpc::message::{GrpcMessage, GrpcMessageData};
 use crate::common::remote::grpc::nacos_grpc_service::GrpcStream;
+use crate::common::util::now_millis;
 use crate::nacos_proto::v2::Payload;
 
-use super::{ConnectionEvent, HandlerMap, now_millis};
+use super::{ConnectionEvent, HandlerMap};
 
 /// Outcome of the setup-ack wait. `Ok(None)` means the ack arrived without an
 /// ability table; `Err` carries why no usable ack was seen (the stream ended

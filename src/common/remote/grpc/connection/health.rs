@@ -9,9 +9,10 @@ use crate::api::error::Error;
 use crate::common::remote::grpc::message::request::HealthCheckRequest;
 use crate::common::remote::grpc::message::response::HealthCheckResponse;
 use crate::common::remote::grpc::message::{GrpcMessage, GrpcMessageBuilder};
+use crate::common::util::now_millis;
 
 use super::config::ConnectionSettings;
-use super::{ConnectionEvent, Transport, now_millis};
+use super::{ConnectionEvent, Transport};
 
 pub(crate) async fn run(
     transport: Arc<dyn Transport>,

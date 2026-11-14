@@ -5,6 +5,9 @@ pub(crate) mod health;
 pub(crate) mod stream;
 pub(crate) mod supervisor;
 
+#[cfg(test)]
+pub(crate) mod test_support;
+
 use std::collections::HashMap;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -24,6 +27,14 @@ pub(crate) use config::ConnectionSettings;
 use supervisor::{ConnectionState, OutboundRequest, StartupMode, StartupWaiter, Supervisor};
 
 pub(crate) type HandlerMap = HashMap<String, Arc<dyn ServerRequestHandler>>;
+
+pub(crate) mod error_messages {
+    pub(crate) const NOT_READY: &str = "connection is not ready";
+    pub(crate) const SUPERVISOR_STOPPED: &str = "connection supervisor stopped";
+    pub(crate) const CONNECTION_LOST: &str = "connection lost";
+    pub(crate) const REQUEST_TIMEOUT: &str = "connection request timeout";
+    pub(crate) const REQUEST_CANCELLED: &str = "connection request cancelled";
+}
 
 #[derive(Debug)]
 pub(crate) enum ConnectionEvent {
@@ -63,13 +74,6 @@ impl Spawner for ExecutorSpawner {
     }
 }
 
-pub(crate) fn now_millis() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|duration| duration.as_millis() as u64)
-        .unwrap_or_default()
-}
-
 pub(crate) type ConnectionListener = Arc<dyn Fn(String) + Send + Sync + 'static>;
 
 struct HandleInner {
@@ -106,7 +110,6 @@ impl ConnectionHandle {
         let (tx, rx) = tokio::sync::mpsc::channel(settings.backlog.max(1));
         let (state_tx, state_rx) = watch::channel(ConnectionState::Connecting);
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
-        let (connection_tx, connection_rx) = watch::channel(None::<String>);
         let (startup_tx, startup_rx) = match startup_mode {
             StartupMode::WaitForReady { .. } => {
                 let (tx, rx) = oneshot::channel();
@@ -116,10 +119,10 @@ impl ConnectionHandle {
         };
 
         if let Some(listener) = connected_listener {
-            spawn_listener(&spawner, connection_rx.clone(), true, listener);
+            spawn_listener(&spawner, state_tx.subscribe(), true, listener);
         }
         if let Some(listener) = disconnected_listener {
-            spawn_listener(&spawner, connection_rx, false, listener);
+            spawn_listener(&spawner, state_tx.subscribe(), false, listener);
         }
 
         let server_abilities = Arc::new(RwLock::new(HashMap::new()));
@@ -130,7 +133,6 @@ impl ConnectionHandle {
             settings: settings.clone(),
             rx,
             state_tx,
-            connection_tx,
             startup_tx,
             startup_mode,
             spawner: spawner.clone(),
@@ -164,7 +166,7 @@ impl ConnectionHandle {
 
 fn spawn_listener(
     spawner: &Arc<dyn Spawner>,
-    mut receiver: watch::Receiver<Option<String>>,
+    mut receiver: watch::Receiver<ConnectionState>,
     connected: bool,
     listener: ConnectionListener,
 ) {
@@ -172,15 +174,16 @@ fn spawn_listener(
     spawner.spawn(Box::pin(async move {
         while receiver.changed().await.is_ok() {
             let current = receiver.borrow().clone();
-            if previous.is_some() != current.is_some() {
-                let id = if connected {
-                    current.as_ref()
-                } else {
-                    previous.as_ref()
-                };
-                if let Some(id) = id {
-                    listener(id.clone());
+            if connected {
+                if let ConnectionState::Ready { connection_id } = &current
+                    && !matches!(previous, ConnectionState::Ready { .. })
+                {
+                    listener(connection_id.clone());
                 }
+            } else if let ConnectionState::Ready { connection_id } = &previous
+                && !matches!(current, ConnectionState::Ready { .. })
+            {
+                listener(connection_id.clone());
             }
             previous = current;
         }
@@ -205,19 +208,19 @@ impl SendRequest for ConnectionHandle {
                     ConnectionState::Ready { .. } => return Ok(()),
                     ConnectionState::Stopped => {
                         return Err(Error::ClientUnhealthy(
-                            "connection supervisor stopped".to_string(),
+                            error_messages::SUPERVISOR_STOPPED.to_string(),
                         ));
                     }
                     _ => {}
                 }
                 state.changed().await.map_err(|_| {
-                    Error::ClientUnhealthy("connection supervisor stopped".to_string())
+                    Error::ClientUnhealthy(error_messages::SUPERVISOR_STOPPED.to_string())
                 })?;
             }
         };
         tokio::time::timeout_at(deadline, ready)
             .await
-            .map_err(|_| Error::ClientUnhealthy("connection is not ready".to_string()))??;
+            .map_err(|_| Error::ClientUnhealthy(error_messages::NOT_READY.to_string()))??;
 
         let (reply, response) = oneshot::channel();
         tokio::time::timeout_at(
@@ -229,11 +232,11 @@ impl SendRequest for ConnectionHandle {
         )
         .await
         .map_err(|_| Error::ClientUnhealthy("connection request queue is full".to_string()))?
-        .map_err(|_| Error::ClientUnhealthy("connection supervisor stopped".to_string()))?;
+        .map_err(|_| Error::ClientUnhealthy(error_messages::SUPERVISOR_STOPPED.to_string()))?;
 
         tokio::time::timeout_at(deadline, response)
             .await
-            .map_err(|_| Error::ClientUnhealthy("connection request timeout".to_string()))?
-            .map_err(|_| Error::ClientUnhealthy("connection request cancelled".to_string()))?
+            .map_err(|_| Error::ClientUnhealthy(error_messages::REQUEST_TIMEOUT.to_string()))?
+            .map_err(|_| Error::ClientUnhealthy(error_messages::REQUEST_CANCELLED.to_string()))?
     }
 }

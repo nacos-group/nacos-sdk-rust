@@ -154,8 +154,9 @@ mod tests {
     use futures::StreamExt;
 
     use super::*;
-    use crate::common::remote::grpc::message::request::SetupAckRequest;
-    use crate::common::remote::grpc::message::response::ServerCheckResponse;
+    use crate::common::remote::grpc::connection::test_support::{
+        server_check_payload, setup_ack_payload, test_spawner,
+    };
 
     struct ScriptedTransport {
         unary: Mutex<VecDeque<Result<Payload, Error>>>,
@@ -297,48 +298,12 @@ mod tests {
         }
     }
 
-    fn server_check_payload(id: &str, support: bool) -> Payload {
-        let response = ServerCheckResponse {
-            connection_id: Some(id.to_string()),
-            support_ability_negotiation: support,
-            ..Default::default()
-        };
-        GrpcMessageBuilder::new(response)
-            .build()
-            .into_payload()
-            .expect("server check payload")
-    }
-
-    fn setup_ack_payload(table: HashMap<String, bool>) -> Payload {
-        let ack = SetupAckRequest {
-            ability_table: Some(table),
-            ..Default::default()
-        };
-        GrpcMessageBuilder::new(ack)
-            .build()
-            .into_payload()
-            .expect("setup ack payload")
-    }
-
     fn test_settings(timeout_ms: u64) -> ConnectionSettings {
         ConnectionSettings {
             server_check_timeout: Duration::from_millis(timeout_ms),
             capability_negotiation_timeout: Duration::from_millis(timeout_ms),
             ..Default::default()
         }
-    }
-
-    fn test_spawner() -> Arc<dyn Spawner> {
-        struct LocalSpawner;
-        impl Spawner for LocalSpawner {
-            fn spawn(
-                &self,
-                future: std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>,
-            ) -> tokio::task::JoinHandle<()> {
-                tokio::spawn(future)
-            }
-        }
-        Arc::new(LocalSpawner)
     }
 
     async fn run(
