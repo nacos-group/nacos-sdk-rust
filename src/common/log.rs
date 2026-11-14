@@ -7,25 +7,19 @@ use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{EnvFilter, Layer, fmt};
 
 /// 定义一个全局的 OnceLock 来持有 guards
-#[allow(dead_code)]
 pub static LOG_GUARD: std::sync::OnceLock<Vec<WorkerGuard>> = std::sync::OnceLock::new();
 
 /// 初始化日志
-#[allow(dead_code)]
 pub fn init(log_path: String, log_level: String) {
-    // let log_path = crate::util::HOME_DIR.as_path().to_str().unwrap().to_owned();
-    // crate::util::log::init(log_path, "INFO".to_string());
     LOG_GUARD.get_or_init(|| init_logging(log_path, log_level));
 }
 
 /// 初始化默认的日志输出：$HOME/logs/nacos，INFO 级别。
-#[cfg(feature = "tracing-log")]
 pub fn init_default() {
     let log_path = crate::common::util::HOME_DIR.to_owned() + "/logs/nacos";
     init(log_path, "INFO".to_string());
 }
 
-#[allow(dead_code)]
 fn init_logging(log_path: String, log_level: String) -> Vec<WorkerGuard> {
     let log_level = LevelFilter::from_str(&log_level).unwrap_or(LevelFilter::INFO);
     let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("INFO"));

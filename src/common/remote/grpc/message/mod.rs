@@ -116,12 +116,7 @@ where
             );
             let ret: Result<ErrorResponse> = ErrorResponse::from_proto_any(&body_any);
             let error_response = try_convert_payload!(ret, body_any, "ErrorResponse");
-            return Err(ErrResponse(
-                error_response.request_id,
-                error_response.result_code,
-                error_response.error_code,
-                error_response.message,
-            ));
+            return Err(error_response.into());
         }
 
         // empty r_type - try direct conversion
@@ -148,12 +143,7 @@ where
 
         let ret: Result<ErrorResponse> = ErrorResponse::from_proto_any(&body_any);
         if let Ok(error_response) = ret {
-            return Err(ErrResponse(
-                error_response.request_id,
-                error_response.result_code,
-                error_response.error_code,
-                error_response.message,
-            ));
+            return Err(error_response.into());
         }
 
         // both conversions failed - return original error
@@ -162,6 +152,17 @@ where
             ret.unwrap_err()
         );
         Err(error)
+    }
+}
+
+impl From<ErrorResponse> for crate::api::error::Error {
+    fn from(response: ErrorResponse) -> Self {
+        ErrResponse(
+            response.request_id,
+            response.result_code,
+            response.error_code,
+            response.message,
+        )
     }
 }
 

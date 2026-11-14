@@ -248,10 +248,7 @@ impl ServiceInfoEmitter {
         old_service: Option<CacheRef<'_, ServiceInfo>>,
         new_service: &ServiceInfo,
     ) -> bool {
-        let key = ServiceInfo::get_key(
-            &ServiceInfo::get_grouped_service_name(&new_service.name, &new_service.group_name),
-            &new_service.clusters,
-        );
+        let key = ServiceInfo::get_key_without_clusters(&new_service.name, &new_service.group_name);
 
         // Handle initial service registration
         let old_service = match old_service {

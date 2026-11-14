@@ -291,6 +291,26 @@ impl NacosNamingService {
 }
 
 impl NacosNamingService {
+    fn instance_request<R, F>(
+        &self,
+        service_name: String,
+        group_name: Option<String>,
+        service_instance: ServiceInstance,
+        build: F,
+    ) -> R
+    where
+        F: FnOnce(ServiceInstance, Option<String>, Option<String>, Option<String>) -> R,
+    {
+        let namespace = Some(self.namespace.clone());
+        let group_name = crate::common::util::normalize_group_name(group_name);
+        build(
+            service_instance,
+            Some(service_name),
+            namespace,
+            Some(group_name),
+        )
+    }
+
     async fn register_ephemeral_instance_async(
         &self,
         service_name: String,
@@ -300,15 +320,12 @@ impl NacosNamingService {
         info!(
             "register ephemeral instance: service_name: {service_name}, group_name: {group_name:?}"
         );
-        let namespace = Some(self.namespace.clone());
-        let group_name = crate::common::util::normalize_group_name(group_name);
-        let request = InstanceRequest::register(
+        let request = self.instance_request(
+            service_name,
+            group_name,
             service_instance,
-            Some(service_name),
-            namespace,
-            Some(group_name),
+            InstanceRequest::register,
         );
-
         self.execute_by_register_with_redo::<InstanceRequest, InstanceResponse>(
             request,
             "register_ephemeral_instance",
@@ -325,15 +342,12 @@ impl NacosNamingService {
         info!(
             "register persistent instance: service_name: {service_name}, group_name: {group_name:?}"
         );
-        let namespace = Some(self.namespace.clone());
-        let group_name = crate::common::util::normalize_group_name(group_name);
-        let request = PersistentInstanceRequest::register(
+        let request = self.instance_request(
+            service_name,
+            group_name,
             service_instance,
-            Some(service_name),
-            namespace,
-            Some(group_name),
+            PersistentInstanceRequest::register,
         );
-
         self.execute_by_register_with_redo::<PersistentInstanceRequest, InstanceResponse>(
             request,
             "register_persistent_instance",
@@ -350,16 +364,12 @@ impl NacosNamingService {
         info!(
             "deregister ephemeral instance: service_name: {service_name}, group_name: {group_name:?}"
         );
-
-        let namespace = Some(self.namespace.clone());
-        let group_name = crate::common::util::normalize_group_name(group_name);
-        let request = InstanceRequest::deregister(
+        let request = self.instance_request(
+            service_name,
+            group_name,
             service_instance,
-            Some(service_name),
-            namespace,
-            Some(group_name),
+            InstanceRequest::deregister,
         );
-
         self.execute_by_deregister_with_redo::<InstanceRequest, InstanceResponse>(
             request,
             "deregister_ephemeral_instance",
@@ -376,15 +386,12 @@ impl NacosNamingService {
         info!(
             "deregister persistent instance: service_name: {service_name}, group_name: {group_name:?}"
         );
-        let namespace = Some(self.namespace.clone());
-        let group_name = crate::common::util::normalize_group_name(group_name);
-        let request = PersistentInstanceRequest::deregister(
+        let request = self.instance_request(
+            service_name,
+            group_name,
             service_instance,
-            Some(service_name),
-            namespace,
-            Some(group_name),
+            PersistentInstanceRequest::deregister,
         );
-
         self.execute_by_deregister_with_redo::<PersistentInstanceRequest, InstanceResponse>(
             request,
             "deregister_persistent_instance",

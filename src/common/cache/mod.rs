@@ -72,7 +72,8 @@ where
             executor::spawn(
                 async move {
                     // Hold the shard lock only for the clone; serialization and
-                    // disk I/O must not block writers.
+                    // disk I/O must not block writers. Reading the entry at save
+                    // time also keeps the last state on disk when writes race.
                     let snapshot = inner.get(&key).map(|entry| entry.value().clone());
                     save_value(store, key, snapshot).await;
                 }
@@ -232,24 +233,22 @@ impl<V> CacheBuilder<V>
 where
     V: serde::Serialize + serde::de::DeserializeOwned + Send + Sync + Clone + 'static,
 {
-    pub(crate) fn config(namespace: String) -> Self {
+    fn new(namespace: String, module: &str) -> Self {
         Self {
             _mark: Default::default(),
             namespace,
-            module: CONFIG_MODULE.to_owned(),
+            module: module.to_owned(),
             load_cache_at_start: false,
             store: None,
         }
     }
 
+    pub(crate) fn config(namespace: String) -> Self {
+        Self::new(namespace, CONFIG_MODULE)
+    }
+
     pub(crate) fn naming(namespace: String) -> Self {
-        Self {
-            _mark: Default::default(),
-            namespace,
-            module: NAMING_MODULE.to_owned(),
-            load_cache_at_start: false,
-            store: None,
-        }
+        Self::new(namespace, NAMING_MODULE)
     }
 
     pub(crate) fn load_cache_at_start(self, load_cache_at_start: bool) -> Self {

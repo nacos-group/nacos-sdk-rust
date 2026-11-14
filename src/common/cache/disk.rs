@@ -1,4 +1,8 @@
-use std::{collections::HashMap, path::PathBuf};
+use std::{
+    collections::HashMap,
+    future::Future,
+    path::{Path, PathBuf},
+};
 
 use async_trait::async_trait;
 use serde::de;
@@ -11,6 +15,9 @@ use tracing::{debug, error, info, instrument, warn};
 
 use super::Store;
 use crate::api::props::CacheKind;
+
+const MAX_RETRIES: u32 = 3;
+const RETRY_DELAY_MS: u64 = 100;
 
 pub(crate) struct DiskStore {
     disk_path: PathBuf,
@@ -28,8 +35,8 @@ impl DiskStore {
 
     async fn try_save(
         &self,
-        tmp_path: &PathBuf,
-        write_path: &PathBuf,
+        tmp_path: &Path,
+        write_path: &Path,
         value: &[u8],
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         debug!(tmp_path = %tmp_path.display(), "Opening temp file for write");
@@ -62,16 +69,55 @@ impl DiskStore {
         Ok(())
     }
 
-    #[allow(dead_code)]
     async fn try_remove(
         &self,
-        path: &PathBuf,
+        path: &Path,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         if !path.exists() {
             return Ok(());
         }
         remove_file(path).await?;
         Ok(())
+    }
+
+    /// Runs `action` until it succeeds or the retry budget is exhausted.
+    async fn retry<F, Fut>(key: &str, path: &Path, operation: &str, mut action: F)
+    where
+        F: FnMut() -> Fut,
+        Fut: Future<Output = Result<(), Box<dyn std::error::Error + Send + Sync>>>,
+    {
+        for attempt in 1..=MAX_RETRIES {
+            match action().await {
+                Ok(()) => {
+                    info!(
+                        key = key,
+                        path = %path.display(),
+                        "{operation} cache entry succeeded"
+                    );
+                    return;
+                }
+                Err(e) if attempt == MAX_RETRIES => {
+                    error!(
+                        key = key,
+                        path = %path.display(),
+                        error = %e,
+                        "Failed to {operation} cache entry after all retries"
+                    );
+                    return;
+                }
+                Err(e) => {
+                    warn!(
+                        key = key,
+                        path = %path.display(),
+                        attempt = attempt,
+                        max_retries = MAX_RETRIES,
+                        error = %e,
+                        "{operation} attempt failed, retrying..."
+                    );
+                    sleep(Duration::from_millis(RETRY_DELAY_MS * u64::from(attempt))).await;
+                }
+            }
+        }
     }
 }
 
@@ -174,83 +220,28 @@ where
 
     #[instrument(fields(key = key), skip_all)]
     async fn save(&self, key: &str, value: Vec<u8>) {
-        const MAX_RETRIES: u32 = 3;
-        const RETRY_DELAY_MS: u64 = 100;
-
         let mut write_path = PathBuf::from(&self.disk_path);
         write_path.push(key);
 
-        let write_path_display = write_path.display();
-        info!(path = %write_path_display, "Saving cache entry to disk");
+        info!(path = %write_path.display(), "Saving cache entry to disk");
 
         // Write to a temporary file first, then rename for atomicity
         let tmp_path = write_path.with_extension("tmp");
-
-        for attempt in 1..=MAX_RETRIES {
-            match self.try_save(&tmp_path, &write_path, &value).await {
-                Ok(()) => {
-                    info!(path = %write_path_display, "Cache entry saved successfully");
-                    return;
-                }
-                Err(e) => {
-                    if attempt == MAX_RETRIES {
-                        error!(
-                            path = %write_path_display,
-                            error = %e,
-                            "Failed to save cache entry after all retries"
-                        );
-                        return;
-                    }
-                    warn!(
-                        path = %write_path_display,
-                        attempt = attempt,
-                        max_retries = MAX_RETRIES,
-                        error = %e,
-                        "Save attempt failed, retrying..."
-                    );
-                    sleep(Duration::from_millis(RETRY_DELAY_MS * attempt as u64)).await;
-                }
-            }
-        }
+        Self::retry(key, &write_path, "save", || {
+            self.try_save(&tmp_path, &write_path, &value)
+        })
+        .await;
     }
 
     #[instrument(fields(key = key), skip_all)]
     async fn remove(&self, key: &str) {
-        const MAX_RETRIES: u32 = 3;
-        const RETRY_DELAY_MS: u64 = 100;
-
         let mut delete_path = PathBuf::from(&self.disk_path);
         delete_path.push(key);
 
-        let delete_path_display = delete_path.display();
-        info!(key = key, path = %delete_path_display, "Removing cache entry from disk");
-
-        for attempt in 1..=MAX_RETRIES {
-            match self.try_remove(&delete_path).await {
-                Ok(()) => {
-                    info!(key = key, path = %delete_path_display, "Cache entry removed successfully");
-                    return;
-                }
-                Err(e) => {
-                    if attempt == MAX_RETRIES {
-                        error!(
-                            key = key,
-                            path = %delete_path_display,
-                            error = %e,
-                            "Failed to remove cache entry after all retries"
-                        );
-                        return;
-                    }
-                    warn!(
-                        key = key,
-                        attempt = attempt,
-                        max_retries = MAX_RETRIES,
-                        error = %e,
-                        "Remove attempt failed, retrying..."
-                    );
-                    sleep(Duration::from_millis(RETRY_DELAY_MS * attempt as u64)).await;
-                }
-            }
-        }
+        info!(key = key, path = %delete_path.display(), "Removing cache entry from disk");
+        Self::retry(key, &delete_path, "remove", || {
+            self.try_remove(&delete_path)
+        })
+        .await;
     }
 }
