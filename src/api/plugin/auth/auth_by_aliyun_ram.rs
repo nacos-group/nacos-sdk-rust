@@ -137,8 +137,8 @@ pub(crate) struct AliyunRamAuthPlugin {
     initialized: ArcSwap<bool>,
 }
 
-impl AliyunRamAuthPlugin {
-    pub(crate) fn default() -> Self {
+impl Default for AliyunRamAuthPlugin {
+    fn default() -> Self {
         Self {
             access_key: ArcSwap::from_pointee(None),
             secret_key: ArcSwap::from_pointee(None),
@@ -146,7 +146,9 @@ impl AliyunRamAuthPlugin {
             initialized: ArcSwap::from_pointee(false),
         }
     }
+}
 
+impl AliyunRamAuthPlugin {
     fn access_key_value(&self) -> String {
         self.access_key
             .load()

@@ -342,10 +342,7 @@ impl NamingServiceBuilder {
 
 impl Default for NamingServiceBuilder {
     fn default() -> Self {
-        NamingServiceBuilder {
-            client_props: ClientProps::new(),
-            auth_plugin: None,
-        }
+        Self::new(ClientProps::new())
     }
 }
 

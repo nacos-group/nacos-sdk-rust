@@ -10,31 +10,25 @@ use crate::api::plugin::RequestResource;
 use crate::common::remote::grpc::message::response::ErrorResponse;
 use crate::nacos_proto::v2::{Metadata, Payload};
 
-/// Helper macro to convert payload body to target type with consistent error handling.
-/// Logs the payload content if conversion fails for easier debugging.
-macro_rules! try_convert_payload {
-    ($result:expr, $body_any:expr, $target_type:expr) => {
-        match $result {
-            Ok(value) => value,
-            Err(error) => {
-                match std::str::from_utf8(&$body_any.value) {
-                    Ok(payload_str) => {
-                        error!(
-                            "payload {} can not convert to {} occur an error:{:?}",
-                            payload_str, $target_type, error
-                        );
-                    }
-                    Err(_) => {
-                        error!(
-                            "can not convert to target type {}, this payload can not convert to string as well",
-                            $target_type
-                        );
-                    }
-                }
-                return Err(error);
+/// Converts a payload body to the target type, logging the payload content on
+/// failure for easier debugging.
+fn convert_body<T: GrpcMessageData>(body_any: &Any, target_type: &str) -> Result<T> {
+    match T::from_proto_any(body_any) {
+        Ok(value) => Ok(value),
+        Err(error) => {
+            match std::str::from_utf8(&body_any.value) {
+                Ok(payload_str) => error!(
+                    "payload {} can not convert to {} occur an error:{:?}",
+                    payload_str, target_type, error
+                ),
+                Err(_) => error!(
+                    "can not convert to target type {}, this payload can not convert to string as well",
+                    target_type
+                ),
             }
+            Err(error)
         }
-    };
+    }
 }
 
 pub(crate) mod request;
@@ -99,8 +93,7 @@ where
         // try to serialize target type if r_type is not empty
         if !r_type.is_empty() {
             if T::identity().eq(&r_type) {
-                let ret: Result<T> = T::from_proto_any(&body_any);
-                let de_body = try_convert_payload!(ret, body_any, T::identity());
+                let de_body = convert_body::<T>(&body_any, T::identity().as_ref())?;
                 return Ok(GrpcMessage {
                     headers,
                     body: de_body,
@@ -114,8 +107,7 @@ where
                 &r_type,
                 T::identity()
             );
-            let ret: Result<ErrorResponse> = ErrorResponse::from_proto_any(&body_any);
-            let error_response = try_convert_payload!(ret, body_any, "ErrorResponse");
+            let error_response = convert_body::<ErrorResponse>(&body_any, "ErrorResponse")?;
             return Err(error_response.into());
         }
 

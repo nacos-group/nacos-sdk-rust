@@ -123,11 +123,8 @@ impl ConfigWorker {
 
         // Try to get config from cache first (if cache exists and content is complete)
         let cached_source = self.unified_cache.get(&group_key).and_then(|r| {
-            if !r.snapshot.content().is_empty() && !r.snapshot.md5().is_empty() {
-                Some(r.resp_source(&self.config_filters))
-            } else {
-                None
-            }
+            r.has_complete_snapshot()
+                .then(|| r.resp_source(&self.config_filters))
         });
         if let Some(source) = cached_source {
             tracing::info!("get_config from cache, group_key={}", group_key);
@@ -493,7 +490,7 @@ impl ConfigWorker {
     /// should be notified.
     fn clear_deleted(cache_data: &mut CacheData, group_key: &str) -> Option<bool> {
         let first_fill = std::mem::take(&mut cache_data.initializing);
-        if cache_data.snapshot.content().is_empty() && cache_data.snapshot.md5().is_empty() {
+        if cache_data.is_tombstone() {
             return None;
         }
         let content_type = cache_data.snapshot.content_type().to_owned();
@@ -531,7 +528,7 @@ impl ConfigWorker {
     fn drop_empty_entries(unified_cache: &Cache<CacheData>) {
         let mut empty_keys = Vec::new();
         unified_cache.for_each(|key, data| {
-            if data.snapshot.content().is_empty() && data.snapshot.md5().is_empty() {
+            if data.is_tombstone() {
                 empty_keys.push(key.clone());
             }
         });
