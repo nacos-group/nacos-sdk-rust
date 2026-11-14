@@ -1,7 +1,7 @@
 # nacos-sdk-rust
 Nacos client in Rust
 
-> 要求 Nacos Server >= 2.3.0（连接建立时使用能力协商；旧版本会返回 `UnsupportedServerVersion`）。
+> 要求 Nacos Server >= 2.3.0（连接建立时使用能力协商；旧版本会在普通 `build()` 中返回 `UnsupportedServerVersion`，`emergency_start` 仅记录错误并持续重试）。
 
 #### 连接与启动行为
 > 普通 `build()` 最多尝试 3 次连接，每次失败都会消耗服务端检查耗时，因此失败不是瞬时返回；`emergency_start` 则立即返回并在后台重连。就绪前发起的请求会等待连接就绪，并与响应共享 10 秒预算；断连时在途请求立即失败，断开瞬间已排队的请求被拒绝（不再无限排队）。

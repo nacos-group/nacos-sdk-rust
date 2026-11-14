@@ -2,8 +2,8 @@
 
 ### Unreleased
 
-- 破坏性变更：要求 Nacos Server >= 2.3.0；连接建立后必须完成能力协商（`SetupAckRequest`），旧版本服务端会返回 `UnsupportedServerVersion`
-- 破坏性变更：连接层重写为独立监督任务；`build()` 在 3 次连接尝试仍失败时返回错误（`emergency_start` 仍立即返回并后台重连）；服务端不支持能力协商时立即失败
+- 破坏性变更：要求 Nacos Server >= 2.3.0；连接建立后必须完成能力协商（`SetupAckRequest`），旧版本服务端在普通 `build()` 中返回 `UnsupportedServerVersion`（`emergency_start` 仅记录错误并持续重试）
+- 破坏性变更：连接层重写为独立监督任务；`build()` 在 3 次连接尝试仍失败时返回错误（`emergency_start` 仍立即返回并后台重连）；普通模式在服务端不支持能力协商时立即失败
 - 特性：连接握手支持能力表协商，记录服务端能力；新增指数退避 + 随机偏移（base 500ms、cap 30s、稳定 10s 后重置）
 - 变更：集成测试默认使用 `nacos/nacos-server:v2.5.4`（podman/docker 自动探测）；rnacos 暂不支持（未实现能力协商）
 - 变更：就绪前发起的请求会等待连接就绪，并与响应共享 10 秒预算；断连时在途请求立即失败，断开瞬间已排队的请求被拒绝（不再无限排队）（用户可见行为变化）
@@ -24,8 +24,8 @@
 
 ---
 
-- Breaking: Nacos Server >= 2.3.0 is required; connections must complete ability negotiation (`SetupAckRequest`), and older servers fail with `UnsupportedServerVersion`
-- Breaking: the connection layer is now an independent supervisor task; `build()` fails after 3 connection attempts (unless `emergency_start`), or immediately when the server reports no ability negotiation
+- Breaking: Nacos Server >= 2.3.0 is required; connections must complete ability negotiation (`SetupAckRequest`), and older servers fail with `UnsupportedServerVersion` in a normal `build()` (`emergency_start` logs the error and keeps retrying)
+- Breaking: the connection layer is now an independent supervisor task; `build()` fails after 3 connection attempts (unless `emergency_start`), or immediately in normal mode when the server reports no ability negotiation
 - Feature: ability-table negotiation during setup with server abilities recorded; exponential backoff with jitter (base 500ms, cap 30s, reset after 10s stable)
 - Change: integration tests default to `nacos/nacos-server:v2.5.4` (podman/docker auto-detected); rnacos is unsupported until it implements ability negotiation
 - Change: requests issued before readiness wait for the connection within the same 10-second budget; in-flight requests fail immediately on disconnect, and requests already queued when the connection drops are rejected (no unbounded queue) (user-visible behavior change)
