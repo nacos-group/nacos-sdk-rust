@@ -9,6 +9,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
+const TEST_SERVER: &str = "test-server";
+
 fn response(content: Option<&str>, md5: Option<&str>) -> ConfigQueryResponse {
     ConfigQueryResponse {
         content: content.map(str::to_string),
@@ -32,7 +34,7 @@ async fn disk_cache(prefix: &str) -> (Cache<CacheData>, PathBuf) {
         rand::random::<u64>()
     ));
     let cache = CacheBuilder::config("test-ns".to_string())
-        .store(CacheKind::DiskStore, Some(root.clone()))
+        .store(CacheKind::DiskStore, Some(root.clone()), TEST_SERVER)
         .build()
         .await;
     (cache, root)
@@ -218,7 +220,11 @@ async fn handle_config_not_found_holds_no_lock_across_filter_await() {
 async fn config_not_found_clears_stale_cache_and_notifies_once() {
     let (cache, root) = disk_cache("not-found").await;
     let group_key = "data+_+group+_+test-ns".to_string();
-    let cache_file = root.join("config").join("test-ns").join(&group_key);
+    let cache_file = root
+        .join("config")
+        .join(TEST_SERVER)
+        .join("test-ns")
+        .join(&group_key);
     let filters: Arc<Vec<Box<dyn ConfigFilter>>> = Arc::new(Vec::new());
 
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
@@ -300,7 +306,7 @@ async fn deletion_notifies_listener_that_never_saw_the_config() {
 #[tokio::test]
 async fn startup_prune_removes_tombstones_and_their_files() {
     let (cache, root) = disk_cache("prune").await;
-    let dir = root.join("config").join("test-ns");
+    let dir = root.join("config").join(TEST_SERVER).join("test-ns");
 
     let tombstone_key = "gone+_+group+_+test-ns".to_string();
     let mut tombstone = CacheData::new("gone".into(), "group".into(), "test-ns".into());
@@ -343,7 +349,11 @@ async fn wait_for_file_removed(path: &std::path::Path) {
 async fn fill_cache_entry_persists_the_new_revision() {
     let (cache, root) = disk_cache("fill").await;
     let key = "data+_+group+_+test-ns".to_string();
-    let cache_file = root.join("config").join("test-ns").join(&key);
+    let cache_file = root
+        .join("config")
+        .join(TEST_SERVER)
+        .join("test-ns")
+        .join(&key);
 
     let mut data = CacheData::new("data".into(), "group".into(), "test-ns".into());
     data.content = Arc::new("old".to_string());

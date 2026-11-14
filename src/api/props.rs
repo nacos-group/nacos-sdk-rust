@@ -136,6 +136,12 @@ impl ClientProps {
         }
     }
 
+    /// Directory name that scopes the on-disk cache by server, following the
+    /// Java client's `<envName>_nacos` convention.
+    pub(crate) fn get_cache_server_name(&self) -> String {
+        crate::common::util::cache_server_dir_name(&self.get_address_identifier())
+    }
+
     pub(crate) fn get_cache_kind(&self) -> CacheKind {
         if self.env_first
             && let Some(value) = get_value_option(ENV_NACOS_CLIENT_CACHE_KIND)
@@ -284,7 +290,7 @@ impl ClientProps {
 
     /// Sets the root directory used for on-disk caches.
     ///
-    /// The module and namespace directories are appended to this path.
+    /// The module, server and namespace directories are appended to this path.
     /// When `env_first` is enabled, `NACOS_CLIENT_CACHE_DIR` takes precedence.
     pub fn cache_dir(mut self, cache_dir: impl Into<PathBuf>) -> Self {
         self.cache_dir = Some(cache_dir.into());
@@ -528,6 +534,45 @@ mod tests {
 
         let props = ClientProps::new().server_addr("10.0.0.1:8848");
         assert_eq!(props.get_address_identifier(), "10.0.0.1:8848");
+    }
+
+    #[test]
+    fn test_cache_server_name_sanitizes_the_address() {
+        let props = ClientProps::new()
+            .env_first(false)
+            .server_addr("10.0.0.1:8848,10.0.0.2:8848");
+        assert_eq!(
+            props.get_cache_server_name(),
+            "10.0.0.1_8848_10.0.0.2_8848_nacos"
+        );
+    }
+
+    #[test]
+    fn test_cache_server_name_prefers_endpoint() {
+        let props = ClientProps::new()
+            .env_first(false)
+            .server_addr("10.0.0.1:8848")
+            .endpoint("http://endpoint.example.com:8080/nacos/serverlist?namespace=public");
+        assert_eq!(
+            props.get_cache_server_name(),
+            "http___endpoint.example.com_8080_nacos_serverlist_namespace_public_nacos"
+        );
+    }
+
+    #[test]
+    fn test_cache_server_name_caps_long_identifiers() {
+        let first = ClientProps::new()
+            .env_first(false)
+            .server_addr("a".repeat(300))
+            .get_cache_server_name();
+        let second = ClientProps::new()
+            .env_first(false)
+            .server_addr("a".repeat(301))
+            .get_cache_server_name();
+
+        assert!(first.len() <= 215, "capped name is too long: {first}");
+        assert!(first.ends_with("_nacos"));
+        assert_ne!(first, second);
     }
 
     #[test]

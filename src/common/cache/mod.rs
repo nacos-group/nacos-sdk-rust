@@ -263,6 +263,7 @@ where
         self,
         cache_kind: CacheKind,
         cache_dir: Option<std::path::PathBuf>,
+        server_name: &str,
     ) -> Self {
         if !cache_kind.is_disk_store() {
             info!(
@@ -279,6 +280,7 @@ where
             std::path::PathBuf::from(crate::common::util::HOME_DIR.to_owned()).join("nacos")
         });
         disk_path.push(self.module.clone());
+        disk_path.push(server_name);
         disk_path.push(self.namespace.clone());
 
         let disk_store = Arc::new(DiskStore::new(disk_path));
@@ -320,6 +322,8 @@ pub mod tests {
 
     use super::CacheBuilder;
 
+    const TEST_SERVER: &str = "test-server";
+
     #[tokio::test]
     async fn test_cache_accepts_str_keys() {
         let cache: Cache<String> = CacheBuilder::config("test-str-keys".to_string())
@@ -342,10 +346,14 @@ pub mod tests {
         let root =
             std::env::temp_dir().join(format!("nacos-sdk-persist-{}", rand::random::<u64>()));
         let cache: Cache<String> = CacheBuilder::config("test-namespace".to_string())
-            .store(CacheKind::DiskStore, Some(root.clone()))
+            .store(CacheKind::DiskStore, Some(root.clone()), TEST_SERVER)
             .build()
             .await;
-        let cache_file = root.join("config").join("test-namespace").join("key");
+        let cache_file = root
+            .join("config")
+            .join(TEST_SERVER)
+            .join("test-namespace")
+            .join("key");
 
         cache.insert("key".to_string(), "value".to_string());
         crate::test_config::wait_for_file(&cache_file, "initial insert should reach disk").await;
@@ -404,7 +412,7 @@ pub mod tests {
 
         let root = std::env::temp_dir().join(format!("nacos-sdk-slow-{}", rand::random::<u64>()));
         let cache: Cache<SlowValue> = CacheBuilder::config("test-namespace".to_string())
-            .store(CacheKind::DiskStore, Some(root.clone()))
+            .store(CacheKind::DiskStore, Some(root.clone()), TEST_SERVER)
             .build()
             .await;
 
@@ -416,7 +424,11 @@ pub mod tests {
             "insert blocked on serialization for {elapsed:?}"
         );
 
-        let cache_file = root.join("config").join("test-namespace").join("slow");
+        let cache_file = root
+            .join("config")
+            .join(TEST_SERVER)
+            .join("test-namespace")
+            .join("slow");
         crate::test_config::wait_for_file(&cache_file, "cache entry should eventually reach disk")
             .await;
 
@@ -454,7 +466,7 @@ pub mod tests {
 
         let root = std::env::temp_dir().join(format!("nacos-sdk-lock-{}", rand::random::<u64>()));
         let cache: Cache<BlockingValue> = CacheBuilder::config("test-namespace".to_string())
-            .store(CacheKind::DiskStore, Some(root.clone()))
+            .store(CacheKind::DiskStore, Some(root.clone()), TEST_SERVER)
             .build()
             .await;
 
@@ -489,7 +501,7 @@ pub mod tests {
 
         let cache: Cache<String> = CacheBuilder::naming("test-naming".to_string())
             .load_cache_at_start(true)
-            .store(CacheKind::DiskStore, None)
+            .store(CacheKind::DiskStore, None, TEST_SERVER)
             .build()
             .await;
         let key = String::from("key");
@@ -551,6 +563,7 @@ pub mod tests {
             user_home.expect("Failed to get user home directory from system environment");
         disk_path.push("nacos");
         disk_path.push("naming");
+        disk_path.push(TEST_SERVER);
         disk_path.push("test-naming");
         disk_path.push("key1");
 
@@ -572,7 +585,7 @@ pub mod tests {
 
         let cache: Cache<String> = CacheBuilder::naming("test-naming".to_string())
             .load_cache_at_start(true)
-            .store(CacheKind::DiskStore, None)
+            .store(CacheKind::DiskStore, None, TEST_SERVER)
             .build()
             .await;
 
@@ -592,13 +605,17 @@ pub mod tests {
         let root =
             std::env::temp_dir().join(format!("nacos-sdk-custom-cache-{}", rand::random::<u64>()));
         let cache: Cache<String> = CacheBuilder::config("test-namespace".to_string())
-            .store(CacheKind::DiskStore, Some(root.clone()))
+            .store(CacheKind::DiskStore, Some(root.clone()), TEST_SERVER)
             .build()
             .await;
 
         cache.insert("key".to_string(), "value".to_string());
 
-        let cache_file = root.join("config").join("test-namespace").join("key");
+        let cache_file = root
+            .join("config")
+            .join(TEST_SERVER)
+            .join("test-namespace")
+            .join("key");
         let value = tokio::time::timeout(Duration::from_secs(2), async {
             loop {
                 if let Ok(value) = tokio::fs::read_to_string(&cache_file).await {
@@ -617,13 +634,52 @@ pub mod tests {
     }
 
     #[tokio::test]
+    async fn test_disk_cache_is_scoped_by_server() {
+        let root =
+            std::env::temp_dir().join(format!("nacos-sdk-server-scope-{}", rand::random::<u64>()));
+        let cache: Cache<String> = CacheBuilder::config("test-namespace".to_string())
+            .store(CacheKind::DiskStore, Some(root.clone()), "server-a")
+            .build()
+            .await;
+        cache.insert("key".to_string(), "value".to_string());
+        let file_a = root
+            .join("config")
+            .join("server-a")
+            .join("test-namespace")
+            .join("key");
+        crate::test_config::wait_for_file(&file_a, "insert should reach disk").await;
+
+        let other: Cache<String> = CacheBuilder::config("test-namespace".to_string())
+            .load_cache_at_start(true)
+            .store(CacheKind::DiskStore, Some(root.clone()), "server-b")
+            .build()
+            .await;
+        assert!(
+            other.get("key").is_none(),
+            "a cache scoped to another server must not be loaded"
+        );
+
+        let restored: Cache<String> = CacheBuilder::config("test-namespace".to_string())
+            .load_cache_at_start(true)
+            .store(CacheKind::DiskStore, Some(root.clone()), "server-a")
+            .build()
+            .await;
+        let value = restored
+            .get("key")
+            .expect("the matching server must load its own cache");
+        assert!(value.eq("value"));
+
+        let _ = tokio::fs::remove_dir_all(&root).await;
+    }
+
+    #[tokio::test]
     async fn test_memory_only_cache_skips_disk() {
         let root =
             std::env::temp_dir().join(format!("nacos-sdk-memory-cache-{}", rand::random::<u64>()));
 
         let cache: Cache<String> = CacheBuilder::config("test-namespace".to_string())
             .load_cache_at_start(true)
-            .store(CacheKind::None, Some(root.clone()))
+            .store(CacheKind::None, Some(root.clone()), TEST_SERVER)
             .build()
             .await;
 
@@ -657,7 +713,7 @@ pub mod tests {
         // nothing persisted, so a rebuilt memory-only cache starts empty
         let cache: Cache<String> = CacheBuilder::config("test-namespace".to_string())
             .load_cache_at_start(true)
-            .store(CacheKind::None, Some(root.clone()))
+            .store(CacheKind::None, Some(root.clone()), TEST_SERVER)
             .build()
             .await;
         assert!(
