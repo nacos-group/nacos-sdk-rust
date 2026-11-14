@@ -91,7 +91,11 @@ impl CacheData {
 
         if let Ok(mut mutex) = self.listeners.lock() {
             for listen_wrap in mutex.iter_mut() {
-                if listen_wrap.last_md5.as_str() == self.md5.as_str() {
+                // An empty md5 means the config was deleted, and an empty
+                // last_md5 means the listener has never been notified (a
+                // listener registered for an entry that was already cached).
+                // Deliver the deletion, otherwise such a listener never learns.
+                if !self.md5.is_empty() && listen_wrap.last_md5.as_str() == self.md5.as_str() {
                     continue;
                 }
                 // Notify when last-md5 not equals the-newest-md5. User callbacks are

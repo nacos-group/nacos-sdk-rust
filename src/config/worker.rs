@@ -48,6 +48,9 @@ impl ConfigWorker {
             .build()
             .await;
         let unified_cache = Arc::new(unified_cache);
+        if config_load_cache_at_start {
+            Self::drop_empty_entries(&unified_cache);
+        }
         let config_filters = Arc::new(config_filters);
 
         // group_key: String
@@ -474,6 +477,111 @@ impl ConfigWorker {
         }
     }
 
+    /// Dispatch the cached revision without holding a DashMap guard across the
+    /// async config filters.
+    async fn dispatch_cached(
+        unified_cache: &Cache<CacheData>,
+        group_key: &str,
+        config_filters: &Arc<Vec<Box<dyn ConfigFilter>>>,
+    ) {
+        let Some(source) = unified_cache
+            .get(group_key)
+            .map(|r| r.resp_source(config_filters))
+        else {
+            return;
+        };
+        let resp = source.into_response().await;
+        if let Some(cache_ref) = unified_cache.get(group_key) {
+            cache_ref.dispatch_notify(resp);
+        }
+    }
+
+    /// A missing config is reported by the server with an empty md5. Converge the
+    /// local entry to the same state; keeping the stale md5 makes every list-watch
+    /// round flag the key as changed and re-fetch it forever.
+    ///
+    /// Returns `None` when there was nothing to clear, otherwise whether listeners
+    /// should be notified.
+    fn clear_deleted(cache_data: &mut CacheData, group_key: &str) -> Option<bool> {
+        let first_fill = std::mem::take(&mut cache_data.initializing);
+        if cache_data.content.is_empty() && cache_data.md5.is_empty() {
+            return None;
+        }
+        cache_data.content = Arc::new(String::new());
+        cache_data.md5 = Arc::new(String::new());
+        cache_data.encrypted_data_key = Arc::new(String::new());
+        tracing::warn!(
+            group_key = %group_key,
+            "config no longer exists on server, cleared the stale cache entry"
+        );
+        Some(!first_fill)
+    }
+
+    /// Keep the entry (and its listeners) so a re-created config is still
+    /// observed, but drop the deleted content and notify the change. The snapshot
+    /// file is deleted like the Java client's `saveSnapshot(null)`, so the next
+    /// startup does not load the deleted config back.
+    async fn handle_config_not_found(
+        unified_cache: &Cache<CacheData>,
+        group_key: &str,
+        config_filters: &Arc<Vec<Box<dyn ConfigFilter>>>,
+    ) {
+        let Some(should_notify) = unified_cache
+            .get_mut(group_key)
+            .and_then(|mut cache_ref_mut| Self::clear_deleted(&mut cache_ref_mut, group_key))
+        else {
+            return;
+        };
+        unified_cache.remove_persisted(group_key).await;
+        if should_notify {
+            Self::dispatch_cached(unified_cache, group_key, config_filters).await;
+        }
+    }
+
+    /// Drop entries restored from disk that only hold a deletion tombstone.
+    fn drop_empty_entries(unified_cache: &Cache<CacheData>) {
+        let mut empty_keys = Vec::new();
+        unified_cache.for_each(|key, data| {
+            if data.content.is_empty() && data.md5.is_empty() {
+                empty_keys.push(key.clone());
+            }
+        });
+        if empty_keys.is_empty() {
+            return;
+        }
+        tracing::info!(
+            count = empty_keys.len(),
+            "removing empty config cache entries left by deleted configs"
+        );
+        for key in empty_keys {
+            unified_cache.remove(&key);
+        }
+    }
+
+    /// Fill a cached entry from a server response and persist the new revision.
+    fn fill_cache_entry(
+        unified_cache: &Cache<CacheData>,
+        group_key: &str,
+        config_resp: ConfigQueryResponse,
+    ) -> bool {
+        let Some(mut cache_ref_mut) = unified_cache.get_mut(group_key) else {
+            return false;
+        };
+        match Self::fill_data(&mut cache_ref_mut, config_resp) {
+            Ok(should_notify) => {
+                cache_ref_mut.persist();
+                should_notify
+            }
+            Err(e) => {
+                tracing::warn!(
+                    group_key = %group_key,
+                    "fill cache data failed, skip notify: {e:?}"
+                );
+                false
+            }
+        }
+    }
+
     /// Notify change to cache_data.
     #[instrument(skip_all)]
     async fn notify_change_to_cache_data(
@@ -516,35 +624,26 @@ impl ConfigWorker {
 
                     match config_resp {
                         Ok(config_resp) => {
-                            let should_notify = match unified_cache.get_mut(&group_key) {
-                                Some(mut cache_ref_mut) => {
-                                    match Self::fill_data(&mut cache_ref_mut, config_resp) {
-                                        Ok(should_notify) => should_notify,
-                                        Err(e) => {
-                                            tracing::warn!(
-                                                group_key = %group_key,
-                                                "fill cache data failed, skip notify: {e:?}"
-                                            );
-                                            false
-                                        }
-                                    }
-                                }
-                                None => false,
-                            };
+                            let should_notify =
+                                Self::fill_cache_entry(&unified_cache, &group_key, config_resp);
                             if should_notify {
-                                let source = unified_cache
-                                    .get(&group_key)
-                                    .map(|r| r.resp_source(&config_filters));
-                                if let Some(source) = source {
-                                    let resp = source.into_response().await;
-                                    if let Some(cache_ref) = unified_cache.get(&group_key) {
-                                        cache_ref.dispatch_notify(resp);
-                                    }
-                                }
+                                Self::dispatch_cached(&unified_cache, &group_key, &config_filters)
+                                    .await;
                             }
                         }
+                        Err(crate::api::error::Error::ConfigNotFound(_)) => {
+                            Self::handle_config_not_found(
+                                &unified_cache,
+                                &group_key,
+                                &config_filters,
+                            )
+                            .await;
+                        }
                         Err(e) => {
-                            tracing::error!("get_config_inner_async, config_resp err={e:?}");
+                            tracing::error!(
+                                group_key = %group_key,
+                                "get_config_inner_async, config_resp err={e:?}"
+                            );
                         }
                     }
                 }
@@ -635,77 +734,4 @@ impl ConfigWorker {
 }
 
 #[cfg(test)]
-mod tests {
-    use crate::api::plugin::ConfigFilter;
-    use crate::config::cache::CacheData;
-    use crate::config::message::response::ConfigQueryResponse;
-    use crate::config::worker::ConfigWorker;
-    use std::sync::Arc;
-
-    fn cache_data() -> CacheData {
-        CacheData::new(
-            "data".to_string(),
-            "group".to_string(),
-            "namespace".to_string(),
-        )
-    }
-
-    #[test]
-    fn fill_data_returns_err_when_content_missing() {
-        let resp = ConfigQueryResponse {
-            content: None,
-            md5: Some("md5".to_string()),
-            content_type: Some("text".to_string()),
-            ..Default::default()
-        };
-
-        assert!(ConfigWorker::fill_data(&mut cache_data(), resp).is_err());
-    }
-
-    #[test]
-    fn fill_data_returns_err_when_md5_missing() {
-        let resp = ConfigQueryResponse {
-            content: Some("content".to_string()),
-            md5: None,
-            content_type: Some("text".to_string()),
-            ..Default::default()
-        };
-
-        assert!(ConfigWorker::fill_data(&mut cache_data(), resp).is_err());
-    }
-
-    #[test]
-    fn fill_data_returns_err_when_content_type_missing() {
-        let resp = ConfigQueryResponse {
-            content: Some("content".to_string()),
-            md5: Some("md5".to_string()),
-            content_type: None,
-            ..Default::default()
-        };
-
-        assert!(ConfigWorker::fill_data(&mut cache_data(), resp).is_err());
-    }
-
-    #[tokio::test]
-    async fn failed_initial_fill_does_not_swallow_next_notification() {
-        let mut data = cache_data();
-        let filters: Arc<Vec<Box<dyn ConfigFilter>>> = Arc::new(Vec::new());
-        let malformed = ConfigQueryResponse {
-            content: None,
-            ..Default::default()
-        };
-        ConfigWorker::fill_data_and_notify(&mut data, malformed, &filters).await;
-
-        let valid = ConfigQueryResponse {
-            content: Some("content".to_string()),
-            md5: Some("md5".to_string()),
-            content_type: Some("text".to_string()),
-            ..Default::default()
-        };
-        assert!(
-            ConfigWorker::fill_data(&mut data, valid)
-                .expect("valid response should fill the cache"),
-            "first successful fill after a rejected initial response must notify"
-        );
-    }
-}
+mod tests;
