@@ -27,7 +27,10 @@ pub struct ConfigService {
 }
 
 impl ConfigService {
-    /// Get config, return the content.
+    /// Get config, returning an immutable snapshot of the content.
+    ///
+    /// Without a `ConfigFilter` the returned `Arc` is shared with the cache;
+    /// filters produce a freshly filtered copy on every call.
     ///
     /// Attention to [`error::Error::ConfigNotFound`], [`error::Error::ConfigQueryConflict`]
     pub async fn get_config(
@@ -148,9 +151,10 @@ impl ConfigService {
 
 /// The ConfigChangeListener receives a notification of [`ConfigResponse`].
 ///
-/// The response is an immutable snapshot shared with the cache; clone the
-/// `Arc` to keep it. Later config changes replace the cache's snapshot and do
-/// not mutate a response you already hold.
+/// Without a `ConfigFilter` the response is the cache's own immutable snapshot;
+/// with filters it is a freshly filtered copy whose `md5()` still reports the
+/// raw cached revision. Either way, later config changes replace the cache's
+/// snapshot and never mutate a response you already hold.
 ///
 /// Callbacks run on Tokio's blocking pool and may execute concurrently; keep
 /// them short and do not assume cross-listener ordering.
@@ -162,6 +166,9 @@ pub trait ConfigChangeListener: Send + Sync {
 ///
 /// This is a plain value type. Cloning it copies the content; pass an
 /// [`Arc<ConfigResponse>`] around when you only need shared access.
+///
+/// Its field names are also the on-disk config cache schema, so they must stay
+/// stable for backward-compatible cache reads.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ConfigResponse {
     /// Namespace/Tenant
