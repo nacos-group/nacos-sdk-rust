@@ -69,7 +69,7 @@ async fn build_config_service(
 
 // ─── Mock Endpoint Server ───
 
-/// Handler for `/nacos/serverlist` — returns the rnacos server address.
+/// Handler for `/nacos/serverlist` — returns the Nacos server address.
 async fn serverlist_handler(State(nacos_addr): State<String>) -> String {
     nacos_addr
 }

@@ -3,17 +3,16 @@ use tracing::{Instrument, instrument};
 
 use crate::api::error::Error;
 use crate::api::plugin::{AuthPlugin, NoopAuthPlugin, init_auth_plugin};
+use crate::common::remote::grpc::message::GrpcMessageData;
 use crate::common::remote::grpc::message::{
     GrpcMessage, GrpcMessageBuilder, GrpcRequestMessage, GrpcResponseMessage,
 };
-use crate::common::remote::grpc::message::{GrpcMessageData, request::NacosClientAbilities};
 use crate::common::remote::server_list::{PollingServerListService, ServerListProvider};
 
+use super::connection::supervisor::StartupMode;
+use super::connection::{ConnectionHandle, ConnectionListener, ExecutorSpawner, SendRequest};
 use super::handlers::client_detection_request_handler::ClientDetectionRequestHandler;
-use super::message::request::{ClientDetectionRequest, HealthCheckRequest};
-use super::nacos_grpc_connection::{
-    ConnectedListener, DisconnectedListener, NacosGrpcConnection, SendRequest,
-};
+use super::message::request::ClientDetectionRequest;
 use super::tonic::TonicBuilder;
 use super::{config::GrpcConfiguration, nacos_grpc_service::ServerRequestHandler};
 
@@ -70,18 +69,16 @@ pub(crate) struct NacosGrpcClientBuilder {
     client_version: String,
     namespace: String,
     labels: HashMap<String, String>,
-    client_abilities: NacosClientAbilities,
     grpc_config: GrpcConfiguration,
     server_request_handler_map: HandlerMap,
     server_list_provider: Arc<dyn ServerListProvider>,
-    connected_listener: Option<ConnectedListener>,
-    disconnected_listener: Option<DisconnectedListener>,
+    connected_listener: Option<ConnectionListener>,
+    disconnected_listener: Option<ConnectionListener>,
     auth_plugin: Arc<dyn AuthPlugin>,
     auth_context: HashMap<String, String>,
     emergency_start: bool,
 }
 
-#[allow(dead_code)]
 impl NacosGrpcClientBuilder {
     pub(crate) fn new(server_list_provider: Arc<dyn ServerListProvider>) -> Self {
         Self {
@@ -89,7 +86,6 @@ impl NacosGrpcClientBuilder {
             client_version: Default::default(),
             namespace: Default::default(),
             labels: Default::default(),
-            client_abilities: Default::default(),
             grpc_config: Default::default(),
             server_request_handler_map: Default::default(),
             server_list_provider,
@@ -116,11 +112,6 @@ impl NacosGrpcClientBuilder {
         Self { namespace, ..self }
     }
 
-    pub(crate) fn add_label(mut self, key: String, value: String) -> Self {
-        self.labels.insert(key, value);
-        Self { ..self }
-    }
-
     pub(crate) fn add_labels(mut self, labels: HashMap<String, String>) -> Self {
         self.labels.extend(labels);
         Self { ..self }
@@ -141,26 +132,6 @@ impl NacosGrpcClientBuilder {
 
     pub(crate) fn emergency_start(mut self, emergency_start: bool) -> Self {
         self.emergency_start = emergency_start;
-        Self { ..self }
-    }
-
-    pub(crate) fn support_remote_connection(mut self, enable: bool) -> Self {
-        self.client_abilities.support_remote_connection(enable);
-        Self { ..self }
-    }
-
-    pub(crate) fn support_config_remote_metrics(mut self, enable: bool) -> Self {
-        self.client_abilities.support_config_remote_metrics(enable);
-        Self { ..self }
-    }
-
-    pub(crate) fn support_naming_delta_push(mut self, enable: bool) -> Self {
-        self.client_abilities.support_naming_delta_push(enable);
-        Self { ..self }
-    }
-
-    pub(crate) fn support_naming_remote_metric(mut self, enable: bool) -> Self {
-        self.client_abilities.support_naming_remote_metric(enable);
         Self { ..self }
     }
 
@@ -192,6 +163,8 @@ impl NacosGrpcClientBuilder {
         Self { ..self }
     }
 
+    // Only the naming service wires connection listeners; unused with `config` alone.
+    #[allow(dead_code)]
     pub(crate) fn connected_listener(
         mut self,
         listener: impl Fn(String) + Send + Sync + 'static,
@@ -200,6 +173,8 @@ impl NacosGrpcClientBuilder {
         Self { ..self }
     }
 
+    // Only the naming service wires connection listeners; unused with `config` alone.
+    #[allow(dead_code)]
     pub(crate) fn disconnected_listener(
         mut self,
         listener: impl Fn(String) + Send + Sync + 'static,
@@ -214,50 +189,48 @@ impl NacosGrpcClientBuilder {
             Arc::new(ClientDetectionRequestHandler),
         );
 
-        let send_request = {
-            let server_list =
-                PollingServerListService::from_provider(self.server_list_provider.clone()).await;
-            let tonic_builder = TonicBuilder::new(self.grpc_config, server_list);
+        let server_list =
+            PollingServerListService::from_provider(self.server_list_provider.clone()).await;
 
-            let mut connection = NacosGrpcConnection::new(
-                id.clone(),
-                tonic_builder,
-                self.server_request_handler_map,
-                self.client_version,
-                self.namespace,
-                self.labels,
-                self.client_abilities,
-            );
-
-            if let Some(connected_listener) = self.connected_listener {
-                connection = connection.connected_listener(connected_listener);
-            }
-
-            if let Some(disconnected_listener) = self.disconnected_listener {
-                connection = connection.disconnected_listener(disconnected_listener);
-            }
-
-            let failover_connection = connection.into_failover_connection(id.clone());
-            Arc::new(failover_connection) as Arc<dyn SendRequest + Send + Sync + 'static>
+        let settings = crate::common::remote::grpc::connection::ConnectionSettings {
+            client_version: self.client_version,
+            namespace: self.namespace,
+            labels: self.labels,
+            ..Default::default()
         };
 
-        // Verify connection by sending a health check request
-        let health_check_request = GrpcMessageBuilder::new(HealthCheckRequest::default())
-            .build()
-            .into_payload()?;
-        match send_request.send_request(health_check_request).await {
-            Ok(_) => {
-                tracing::info!("health check passed, connected to Nacos server");
-            }
-            Err(e) => {
-                if self.emergency_start {
-                    tracing::warn!(
-                        "health check failed, cannot connect to Nacos server, but continuing startup in emergency mode: {}",
-                        e
-                    );
-                } else {
-                    return Err(e);
-                }
+        let (connection, waiter) = ConnectionHandle::start_with(
+            id.clone(),
+            TonicBuilder::new(self.grpc_config, server_list),
+            self.server_request_handler_map,
+            settings,
+            if self.emergency_start {
+                StartupMode::Background
+            } else {
+                StartupMode::WaitForReady { max_attempts: 3 }
+            },
+            self.connected_listener,
+            self.disconnected_listener,
+            Arc::new(ExecutorSpawner),
+        );
+
+        let send_request =
+            Arc::new(connection.clone()) as Arc<dyn SendRequest + Send + Sync + 'static>;
+
+        // The 2.3 handshake is the readiness check: `WaitForReady` has already
+        // propagated any connection failure before this point.
+        waiter.wait().await?;
+
+        if !self.emergency_start {
+            let abilities = connection.server_abilities();
+            if !abilities
+                .get("supportPersistentInstanceByGrpc")
+                .copied()
+                .unwrap_or(false)
+            {
+                tracing::warn!(
+                    "server does not advertise supportPersistentInstanceByGrpc; persistent naming operations may fail"
+                );
             }
         }
 
@@ -284,8 +257,8 @@ impl NacosGrpcClientBuilder {
 pub mod tests {
 
     use crate::common::remote::grpc::{
+        connection::MockSendRequest,
         message::{request::HealthCheckRequest, response::HealthCheckResponse},
-        nacos_grpc_connection::MockSendRequest,
     };
 
     use mockall::predicate::*;

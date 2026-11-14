@@ -2,6 +2,14 @@ use crate::api::error::Error;
 use crate::api::error::Result;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+/// Milliseconds since the Unix epoch, for wall-clock idle tracking.
+pub(crate) fn now_millis() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis() as u64)
+        .unwrap_or_default()
+}
+
 pub(crate) static LOCAL_IP: std::sync::LazyLock<String> =
     std::sync::LazyLock::new(|| local_ipaddress::get().unwrap_or(String::from("127.0.0.1")));
 

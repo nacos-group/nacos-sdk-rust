@@ -2,6 +2,12 @@
 
 ### Unreleased
 
+- 破坏性变更：要求 Nacos Server >= 2.3.0；连接建立后必须完成能力协商（`SetupAckRequest`），旧版本服务端在普通 `build()` 中返回 `UnsupportedServerVersion`（`emergency_start` 仅记录错误并持续重试）
+- 破坏性变更：连接层重写为独立监督任务；`build()` 在 3 次连接尝试仍失败时返回错误（`emergency_start` 仍立即返回并后台重连）；普通模式在服务端不支持能力协商时立即失败
+- 特性：连接握手支持能力表协商，记录服务端能力；新增指数退避 + 随机偏移（base 500ms、cap 30s、稳定 10s 后重置）
+- 变更：集成测试默认使用 `nacos/nacos-server:v2.5.4`（podman/docker 自动探测）；rnacos 暂不支持（未实现能力协商）
+- 变更：就绪前发起的请求会等待连接就绪，并与响应共享 10 秒预算；断连时在途请求立即失败，断开瞬间已排队的请求被拒绝（不再无限排队）（用户可见行为变化）
+- 变更：普通 `build()` 每次失败尝试都要消耗服务端检查耗时（共 3 次尝试），因此连接失败不是瞬时返回
 - 破坏性变更：API 入口的必填字符串参数统一改为 `impl Into<String>`（如 `data_id`、`group`、`content`、`cas_md5`、`beta_ips`、`service_name`）；`ConfigResponse` 与 `ServiceInstance` 的 getter 改为返回 `&str` / `Option<&str>`
 - 破坏性变更：`get_all_instances` / `select_instances` 返回 `Arc<Vec<ServiceInstance>>`，`select_one_healthy_instance` 返回 `Arc<ServiceInstance>`，`NamingChangeEvent.instances` 改为 `Option<Arc<Vec<ServiceInstance>>>`
 - 增强：上述入口可直接传入 `&str` / `&String`，无需手动 `to_string()`
@@ -18,6 +24,12 @@
 
 ---
 
+- Breaking: Nacos Server >= 2.3.0 is required; connections must complete ability negotiation (`SetupAckRequest`), and older servers fail with `UnsupportedServerVersion` in a normal `build()` (`emergency_start` logs the error and keeps retrying)
+- Breaking: the connection layer is now an independent supervisor task; `build()` fails after 3 connection attempts (unless `emergency_start`), or immediately in normal mode when the server reports no ability negotiation
+- Feature: ability-table negotiation during setup with server abilities recorded; exponential backoff with jitter (base 500ms, cap 30s, reset after 10s stable)
+- Change: integration tests default to `nacos/nacos-server:v2.5.4` (podman/docker auto-detected); rnacos is unsupported until it implements ability negotiation
+- Change: requests issued before readiness wait for the connection within the same 10-second budget; in-flight requests fail immediately on disconnect, and requests already queued when the connection drops are rejected (no unbounded queue) (user-visible behavior change)
+- Change: an ordinary `build()` spends server-check time on every failed attempt (3 attempts total), so a failed build is not instantaneous
 - Change: required string parameters of API entries now accept `impl Into<String>` (e.g. `data_id`, `group`, `content`, `cas_md5`, `beta_ips`, `service_name`); `ConfigResponse` and `ServiceInstance` getters now return `&str` / `Option<&str>`
 - Change: `get_all_instances` / `select_instances` return `Arc<Vec<ServiceInstance>>`, `select_one_healthy_instance` returns `Arc<ServiceInstance>`, and `NamingChangeEvent.instances` is now `Option<Arc<Vec<ServiceInstance>>>`
 - Enhance: those entries accept `&str` / `&String` directly, no manual `to_string()`

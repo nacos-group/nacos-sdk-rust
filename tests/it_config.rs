@@ -27,7 +27,7 @@
 //! - `add_listener`
 //! - `remove_listener`
 //!
-//! Tests require a running Nacos server (rnacos or Docker-based).
+//! Tests require a Nacos server >= 2.3.0 (container or external).
 //!
 //! Run with: `cargo test --test it_config --features "config" -- --ignored`
 
@@ -316,19 +316,20 @@ mod config_integration_tests {
             )
             .await;
 
+        assert!(
+            !matches!(wrong_cas_result, Ok(true)),
+            "CAS with a wrong MD5 must not report success: {wrong_cas_result:?}"
+        );
+
         let final_resp = service
             .get_config(test_data.data_id.clone(), test_data.group.clone())
             .await
             .expect("get_config should succeed after CAS");
-        // rnacos reports success for a wrong MD5, so only assert the
-        // rejection guarantee when the server actually rejected it.
-        if !matches!(wrong_cas_result, Ok(true)) {
-            assert_eq!(
-                final_resp.content(),
-                &new_content,
-                "a rejected CAS must not overwrite the current content"
-            );
-        }
+        assert_eq!(
+            final_resp.content(),
+            &new_content,
+            "a rejected CAS must not overwrite the current content"
+        );
 
         cleanup_config(&service, test_data.data_id.clone(), test_data.group.clone()).await;
     }

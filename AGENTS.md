@@ -6,6 +6,8 @@ This file provides guidance to AI coding agents when working with code in this r
 
 This is `nacos-sdk-rust`, a Rust client library for Nacos (a dynamic service discovery, configuration and service management platform). It provides async APIs for configuration management and service naming/discovery using gRPC communication with Nacos servers.
 
+Nacos Server >= 2.3.0 is required: connections perform ability negotiation at setup and older servers fail with `UnsupportedServerVersion` in a normal `build()` (`emergency_start` logs the error and keeps retrying). An ordinary `build()` makes up to 3 connection attempts, each spending server-check time, so a failed build is not instantaneous (`emergency_start` returns immediately and reconnects in the background). Requests issued before readiness wait for the connection within the same 10-second budget; in-flight requests fail immediately on disconnect, and requests already queued when the connection drops are rejected (no unbounded queue).
+
 ## Common Commands
 
 ### Build Commands
@@ -60,11 +62,11 @@ Nacos uses a custom RPC over gRPC. Key architectural notes:
 - The `Metadata.type` field carries the Java-style class name (e.g., `com.alibaba.nacos.api.naming.remote.request.ServiceQueryRequest`)
 
 ### gRPC Client Architecture
-- `NacosGrpcClient` maintains persistent bidirectional stream (`requestBiStream`) with server
-- Uses `tonic` for gRPC transport with Tower middleware
-- Connection lifecycle managed through `NacosGrpcConnection`
-- Server pushes messages to client via this stream; client sends requests on the same channel
-- `RequestHandler` trait allows handling server-initiated requests (like config change notifications)
+- `NacosGrpcClient` sends requests through a cloneable `ConnectionHandle`; a supervisor task owns the connection lifecycle
+- `tonic` provides the transport; `tower::Service` is only used to select a server from the server list
+- The supervisor performs the Nacos >= 2.3 handshake (ServerCheck + ability negotiation + `SetupAckRequest`), then keeps the persistent bidirectional stream (`requestBiStream`) alive with health checks and jittered exponential backoff
+- Server pushes are dispatched to `ServerRequestHandler` implementations (for example config change notifications); the stream pump intercepts `SetupAckRequest` locally and never replies to it
+- Connection states are published through a `watch` channel; connected/disconnected listeners fire on `Ready` transitions
 
 ### Builder Pattern and Service Lifecycle
 Both ConfigService and NamingService use builder initialization:
@@ -102,25 +104,27 @@ Environment variables use prefix `NACOS_CLIENT_` for common props, `NACOS_CLIENT
 ## Testing
 
 ### Integration Tests
-Tests use `rnacos` by default for fast local testing.
+
+Tests start `nacos/nacos-server:v2.5.4` automatically by default (podman first, then docker).
+Nacos server >= 2.3.0 is required.
 
 ```bash
-# One-time setup
-cargo install rnacos
-
-# Run with rnacos (default)
+# Default: auto-start a container
 cargo test --test it_config --test it_naming --test it_auth --features "config,naming,auth-by-http" -- --include-ignored
 
-# Run with Docker Nacos (auto-starts container)
-NACOS_SERVER=docker cargo test --test it_config --test it_naming --test it_auth --test config_cache_test --features "config,naming,auth-by-http" -- --include-ignored
+# Force a runtime
+NACOS_CONTAINER_RUNTIME=podman cargo test --test it_config --features "config" -- --include-ignored
 
-# Run with external Nacos server (connects to localhost:8848)
-NACOS_SERVER=external cargo test --test it_config --test it_naming --test it_auth --test config_cache_test --features "config,naming,auth-by-http" -- --include-ignored
+# External Nacos on 127.0.0.1:8848 (used by CI)
+NACOS_SERVER=external cargo test --test it_config --test it_naming --test it_auth --features "config,naming,auth-by-http" -- --include-ignored
 ```
+
+rnacos is not supported yet: it does not implement ability negotiation (`SetupAckRequest`).
 
 ## Key Implementation Files
 
 - `src/common/remote/grpc/nacos_grpc_client.rs` - Core gRPC client logic
+- `src/common/remote/grpc/connection/` - Connection supervisor, handshake, stream pump, health checks, backoff
 - `src/common/remote/grpc/message/` - Request/Response message definitions and handlers
 - `src/config/worker.rs` - Config change detection and cache management
 - `src/naming/observable/` - Service instance change observation
@@ -129,7 +133,7 @@ NACOS_SERVER=external cargo test --test it_config --test it_naming --test it_aut
 ## Dependencies Worth Knowing
 
 - `tonic` - gRPC framework
-- `tokio` - Async runtime (requires `rt-multi-thread`, `time`, `net`, `fs` features)
+- `tokio` - Async runtime (requires `rt-multi-thread`, `time`, `net`, `fs`, `macros` features)
 - `prost` - Protobuf encoding
 - `serde` + `serde_json` - JSON for request/response bodies
 - `tracing` - Structured logging
