@@ -495,16 +495,16 @@ impl ConfigWorker {
     /// A missing config is reported by the server with an empty md5. Converge the
     /// local entry to the same state; keeping the stale md5 makes every list-watch
     /// round flag the key as changed and re-fetch it forever.
-    fn clear_deleted(cache_data: &mut CacheData) -> bool {
+    fn clear_deleted(cache_data: &mut CacheData, group_key: &str) -> bool {
         let first_fill = std::mem::take(&mut cache_data.initializing);
         let had_content = !cache_data.content.is_empty() || !cache_data.md5.is_empty();
         if had_content {
             cache_data.content = Arc::new(String::new());
             cache_data.md5 = Arc::new(String::new());
             cache_data.encrypted_data_key = Arc::new(String::new());
-            tracing::info!(
-                "config no longer exists on server, cleared cache data, cache_data={}",
-                cache_data
+            tracing::warn!(
+                group_key = %group_key,
+                "config no longer exists on server, cleared the stale cache entry"
             );
         }
         had_content && !first_fill
@@ -518,7 +518,7 @@ impl ConfigWorker {
         config_filters: &Arc<Vec<Box<dyn ConfigFilter>>>,
     ) {
         let should_notify = match unified_cache.get_mut(group_key) {
-            Some(mut cache_ref_mut) => Self::clear_deleted(&mut cache_ref_mut),
+            Some(mut cache_ref_mut) => Self::clear_deleted(&mut cache_ref_mut, group_key),
             None => return,
         };
         if should_notify {
@@ -588,11 +588,7 @@ impl ConfigWorker {
                                     .await;
                             }
                         }
-                        Err(crate::api::error::Error::ConfigNotFound(msg)) => {
-                            tracing::warn!(
-                                group_key = %group_key,
-                                "config no longer exists on server, clearing the stale cache entry: {msg}"
-                            );
+                        Err(crate::api::error::Error::ConfigNotFound(_)) => {
                             Self::handle_config_not_found(
                                 &unified_cache,
                                 &group_key,
