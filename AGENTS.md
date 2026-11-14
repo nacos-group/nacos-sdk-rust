@@ -62,11 +62,11 @@ Nacos uses a custom RPC over gRPC. Key architectural notes:
 - The `Metadata.type` field carries the Java-style class name (e.g., `com.alibaba.nacos.api.naming.remote.request.ServiceQueryRequest`)
 
 ### gRPC Client Architecture
-- `NacosGrpcClient` maintains persistent bidirectional stream (`requestBiStream`) with server
-- Uses `tonic` for gRPC transport with Tower middleware
-- Connection lifecycle managed through `NacosGrpcConnection`
-- Server pushes messages to client via this stream; client sends requests on the same channel
-- `RequestHandler` trait allows handling server-initiated requests (like config change notifications)
+- `NacosGrpcClient` sends requests through a cloneable `ConnectionHandle`; a supervisor task owns the connection lifecycle
+- `tonic` provides the transport; `tower::Service` is only used to select a server from the server list
+- The supervisor performs the Nacos >= 2.3 handshake (ServerCheck + ability negotiation + `SetupAckRequest`), then keeps the persistent bidirectional stream (`requestBiStream`) alive with health checks and jittered exponential backoff
+- Server pushes are dispatched to `ServerRequestHandler` implementations (for example config change notifications); the stream pump intercepts `SetupAckRequest` locally and never replies to it
+- Connection states are published through a `watch` channel; connected/disconnected listeners fire on `Ready` transitions
 
 ### Builder Pattern and Service Lifecycle
 Both ConfigService and NamingService use builder initialization:
@@ -124,6 +124,7 @@ rnacos is not supported yet: it does not implement ability negotiation (`SetupAc
 ## Key Implementation Files
 
 - `src/common/remote/grpc/nacos_grpc_client.rs` - Core gRPC client logic
+- `src/common/remote/grpc/connection/` - Connection supervisor, handshake, stream pump, health checks, backoff
 - `src/common/remote/grpc/message/` - Request/Response message definitions and handlers
 - `src/config/worker.rs` - Config change detection and cache management
 - `src/naming/observable/` - Service instance change observation
@@ -132,7 +133,7 @@ rnacos is not supported yet: it does not implement ability negotiation (`SetupAc
 ## Dependencies Worth Knowing
 
 - `tonic` - gRPC framework
-- `tokio` - Async runtime (requires `rt-multi-thread`, `time`, `net`, `fs` features)
+- `tokio` - Async runtime (requires `rt-multi-thread`, `time`, `net`, `fs`, `macros` features)
 - `prost` - Protobuf encoding
 - `serde` + `serde_json` - JSON for request/response bodies
 - `tracing` - Structured logging
