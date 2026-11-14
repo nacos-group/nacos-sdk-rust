@@ -29,8 +29,8 @@ pub struct ConfigService {
 impl ConfigService {
     /// Get config, returning an immutable snapshot of the content.
     ///
-    /// Without a `ConfigFilter` the returned `Arc` is shared with the cache;
-    /// filters produce a freshly filtered copy on every call.
+    /// On a cache hit without a `ConfigFilter` the returned `Arc` is the cached
+    /// snapshot; a filtered read or a cache miss returns a freshly built copy.
     ///
     /// Attention to [`error::Error::ConfigNotFound`], [`error::Error::ConfigQueryConflict`]
     pub async fn get_config(
