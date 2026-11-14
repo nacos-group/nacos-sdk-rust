@@ -9,6 +9,7 @@
 - 变更：就绪前发起的请求会等待连接就绪，并与响应共享 10 秒预算；断连时在途请求立即失败，断开瞬间已排队的请求被拒绝（不再无限排队）（用户可见行为变化）
 - 变更：普通 `build()` 每次失败尝试都要消耗服务端检查耗时（共 3 次尝试），因此连接失败不是瞬时返回
 - 破坏性变更：API 入口的必填字符串参数统一改为 `impl Into<String>`（如 `data_id`、`group`、`content`、`cas_md5`、`beta_ips`、`service_name`）；`ConfigResponse` 与 `ServiceInstance` 的 getter 改为返回 `&str` / `Option<&str>`
+- 破坏性变更：`ConfigResponse` 改为纯值类型（内部字段由 `Arc<String>` 改为 `String`）；`ConfigService::get_config` 返回 `Arc<ConfigResponse>`，`ConfigChangeListener::notify` 接收 `Arc<ConfigResponse>`；config 缓存保存不可变响应快照，未配置 `ConfigFilter` 时缓存命中与多监听器分发零拷贝共享同一快照，磁盘快照 JSON 格式保持不变
 - 破坏性变更：`get_all_instances` / `select_instances` 返回 `Arc<Vec<ServiceInstance>>`，`select_one_healthy_instance` 返回 `Arc<ServiceInstance>`，`NamingChangeEvent.instances` 改为 `Option<Arc<Vec<ServiceInstance>>>`
 - 破坏性变更：磁盘缓存按服务端隔离，路径改为 `<cache_dir>/<module>/<server>_nacos/<namespace>`，避免加载其他实例的缓存；旧版未隔离的缓存不再加载（可手动删除）。服务端标识优先取 endpoint、否则取 server_addr，特殊字符替换为 `_`；超长标识截断并附加哈希
 - 增强：上述入口可直接传入 `&str` / `&String`，无需手动 `to_string()`
@@ -33,6 +34,7 @@
 - Change: requests issued before readiness wait for the connection within the same 10-second budget; in-flight requests fail immediately on disconnect, and requests already queued when the connection drops are rejected (no unbounded queue) (user-visible behavior change)
 - Change: an ordinary `build()` spends server-check time on every failed attempt (3 attempts total), so a failed build is not instantaneous
 - Change: required string parameters of API entries now accept `impl Into<String>` (e.g. `data_id`, `group`, `content`, `cas_md5`, `beta_ips`, `service_name`); `ConfigResponse` and `ServiceInstance` getters now return `&str` / `Option<&str>`
+- Breaking: `ConfigResponse` is now a plain value type (its fields are `String` instead of `Arc<String>`); `ConfigService::get_config` returns `Arc<ConfigResponse>` and `ConfigChangeListener::notify` receives `Arc<ConfigResponse>`; the config cache stores an immutable response snapshot, so without a `ConfigFilter` both cache hits and multi-listener fan-out share one snapshot with no copies, and the on-disk snapshot JSON format is unchanged
 - Change: `get_all_instances` / `select_instances` return `Arc<Vec<ServiceInstance>>`, `select_one_healthy_instance` returns `Arc<ServiceInstance>`, and `NamingChangeEvent.instances` is now `Option<Arc<Vec<ServiceInstance>>>`
 - Breaking: the disk cache is now scoped per server at `<cache_dir>/<module>/<server>_nacos/<namespace>`, so a client never loads another server's cache; caches written by earlier versions are no longer loaded (they can be deleted manually). The identifier is the endpoint when set, otherwise server_addr; characters outside `[A-Za-z0-9._-]` are replaced by `_`, and over-long identifiers are truncated with a hash suffix
 - Enhance: those entries accept `&str` / `&String` directly, no manual `to_string()`
