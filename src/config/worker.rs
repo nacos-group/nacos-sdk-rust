@@ -5,7 +5,7 @@ use crate::common::cache::{Cache, CacheBuilder};
 use crate::common::remote::grpc::message::GrpcResponseMessage;
 use crate::common::remote::grpc::{NacosGrpcClient, NacosGrpcClientBuilder};
 use crate::common::remote::server_list::create_server_list_provider;
-use crate::config::cache::CacheData;
+use crate::config::cache::{CacheData, RespSnapshot};
 use crate::config::handler::ConfigChangeNotifyHandler;
 use crate::config::message::request::*;
 use crate::config::message::response::*;
@@ -148,25 +148,20 @@ impl ConfigWorker {
         })?;
 
         // invoke config_filter
-        let mut conf_resp = ConfigResp::new(
-            data_id,
-            group,
-            self.namespace.clone(),
-            content,
-            config_resp.encrypted_data_key.unwrap_or_default(),
-        );
-        for config_filter in self.config_filters.iter() {
-            config_filter.filter(None, Some(&mut conf_resp)).await;
-        }
-
-        Ok(Arc::new(ConfigResponse::new(
-            conf_resp.data_id,
-            conf_resp.group,
-            conf_resp.namespace,
-            conf_resp.content,
+        Ok(RespSnapshot::new(
+            Arc::clone(&self.config_filters),
+            ConfigResp::new(
+                data_id,
+                group,
+                self.namespace.clone(),
+                content,
+                config_resp.encrypted_data_key.unwrap_or_default(),
+            ),
             content_type,
             md5,
-        )))
+        )
+        .into_response()
+        .await)
     }
 
     #[instrument(skip_all)]
@@ -329,14 +324,8 @@ impl ConfigWorker {
                     tracing::error!("get_config_inner_async, config_resp err={e:?}");
                 }
             }
-            let req = ConfigBatchListenRequest::new(true).add_config_listen_context(
-                ConfigListenContext::new(
-                    cache_data.snapshot.data_id().to_owned(),
-                    cache_data.snapshot.group().to_owned(),
-                    cache_data.snapshot.namespace().to_owned(),
-                    cache_data.snapshot.md5().to_owned(),
-                ),
-            );
+            let req = ConfigBatchListenRequest::new(true)
+                .add_config_listen_context(Self::listen_context(&cache_data));
             let remote_client_clone = self.remote_client.clone();
             crate::common::executor::spawn(
                 async move {
@@ -371,6 +360,15 @@ impl ConfigWorker {
             cache_ref.remove_listener(listener);
         }
     }
+
+    fn listen_context(cache_data: &CacheData) -> ConfigListenContext {
+        ConfigListenContext::new(
+            cache_data.snapshot.data_id().to_owned(),
+            cache_data.snapshot.group().to_owned(),
+            cache_data.snapshot.namespace().to_owned(),
+            cache_data.snapshot.md5().to_owned(),
+        )
+    }
 }
 
 impl ConfigWorker {
@@ -390,12 +388,7 @@ impl ConfigWorker {
             {
                 // Use foreach to iterate over all cached configs
                 unified_cache.for_each(|_key, c| {
-                    listen_context_vec.push(ConfigListenContext::new(
-                        c.snapshot.data_id().to_owned(),
-                        c.snapshot.group().to_owned(),
-                        c.snapshot.namespace().to_owned(),
-                        c.snapshot.md5().to_owned(),
-                    ));
+                    listen_context_vec.push(Self::listen_context(c));
                 });
             }
             if !listen_context_vec.is_empty() {
@@ -447,14 +440,7 @@ impl ConfigWorker {
         let md5 = config_resp.md5.ok_or_else(|| {
             crate::api::error::Error::ErrResult("config md5 missing in response".to_string())
         })?;
-        cache_data.snapshot = Arc::new(ConfigResponse::new(
-            cache_data.snapshot.data_id().to_owned(),
-            cache_data.snapshot.group().to_owned(),
-            cache_data.snapshot.namespace().to_owned(),
-            content,
-            content_type,
-            md5,
-        ));
+        cache_data.replace_snapshot(content, content_type, md5);
         // Compatibility None < 2.1.0
         cache_data.encrypted_data_key =
             Arc::new(config_resp.encrypted_data_key.unwrap_or_default());
@@ -514,14 +500,7 @@ impl ConfigWorker {
             return None;
         }
         let content_type = cache_data.snapshot.content_type().to_owned();
-        cache_data.snapshot = Arc::new(ConfigResponse::new(
-            cache_data.snapshot.data_id().to_owned(),
-            cache_data.snapshot.group().to_owned(),
-            cache_data.snapshot.namespace().to_owned(),
-            String::new(),
-            content_type,
-            String::new(),
-        ));
+        cache_data.replace_snapshot(String::new(), content_type, String::new());
         cache_data.encrypted_data_key = Arc::new(String::new());
         tracing::warn!(
             group_key = %group_key,

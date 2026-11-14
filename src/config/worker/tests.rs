@@ -78,14 +78,7 @@ fn fill_data_returns_err_when_content_type_missing() {
 fn clear_deleted_gates_notification() {
     let mut with_content = cache_data();
     with_content.initializing = false;
-    with_content.snapshot = Arc::new(ConfigResponse::new(
-        "data",
-        "group",
-        "namespace",
-        "content",
-        "text",
-        "md5",
-    ));
+    with_content.replace_snapshot("content".into(), "text".into(), "md5".into());
 
     assert_eq!(
         Some(true),
@@ -100,14 +93,7 @@ fn clear_deleted_gates_notification() {
 
     let mut first_fill = cache_data();
     first_fill.initializing = true;
-    first_fill.snapshot = Arc::new(ConfigResponse::new(
-        "data",
-        "group",
-        "namespace",
-        "content",
-        "text",
-        "md5",
-    ));
+    first_fill.replace_snapshot("content".into(), "text".into(), "md5".into());
 
     assert_eq!(
         Some(false),
@@ -156,14 +142,7 @@ async fn handle_config_not_found_holds_no_lock_across_filter_await() {
     let hits = Arc::new(AtomicUsize::new(0));
 
     let mut data = CacheData::new("data".into(), "group".into(), "test-ns".into());
-    data.snapshot = Arc::new(ConfigResponse::new(
-        "data",
-        "group",
-        "test-ns",
-        "stale",
-        "text",
-        "stale-md5",
-    ));
+    data.replace_snapshot("stale".into(), "text".into(), "stale-md5".into());
     data.initializing = false;
     data.add_listener(Arc::new(CountingListener(Arc::clone(&hits))));
     // Mark the listener as up to date so the deletion is actually dispatched.
@@ -247,14 +226,7 @@ async fn config_not_found_clears_stale_cache_and_notifies_once() {
 
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
     let mut data = CacheData::new("data".into(), "group".into(), "test-ns".into());
-    data.snapshot = Arc::new(ConfigResponse::new(
-        "data",
-        "group",
-        "test-ns",
-        "stale",
-        "text",
-        "stale-md5",
-    ));
+    data.replace_snapshot("stale".into(), "text".into(), "stale-md5".into());
     data.initializing = false;
     data.add_listener(Arc::new(ChannelListener(tx)));
     cache.insert(group_key.clone(), data);
@@ -309,14 +281,7 @@ async fn deletion_notifies_listener_that_never_saw_the_config() {
 
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
     let mut data = CacheData::new("data".into(), "group".into(), "test-ns".into());
-    data.snapshot = Arc::new(ConfigResponse::new(
-        "data",
-        "group",
-        "test-ns",
-        "stale",
-        "text",
-        "stale-md5",
-    ));
+    data.replace_snapshot("stale".into(), "text".into(), "stale-md5".into());
     data.initializing = false;
     // The listener registers for an already-cached entry, so its last_md5 stays
     // empty until something is dispatched.
@@ -339,17 +304,12 @@ async fn startup_prune_removes_tombstones_and_their_files() {
     let dir = root.join("config").join(TEST_SERVER).join("test-ns");
 
     let tombstone_key = "gone+_+group+_+test-ns".to_string();
-    let mut tombstone = CacheData::new("gone".into(), "group".into(), "test-ns".into());
-    tombstone.snapshot = Arc::new(ConfigResponse::new(
-        "gone", "group", "test-ns", "", "text", "",
-    ));
+    let tombstone = CacheData::new("gone".into(), "group".into(), "test-ns".into());
     cache.insert(tombstone_key.clone(), tombstone);
 
     let live_key = "live+_+group+_+test-ns".to_string();
     let mut live = CacheData::new("live".into(), "group".into(), "test-ns".into());
-    live.snapshot = Arc::new(ConfigResponse::new(
-        "live", "group", "test-ns", "value", "text", "m1",
-    ));
+    live.replace_snapshot("value".into(), "text".into(), "m1".into());
     cache.insert(live_key.clone(), live);
 
     let tombstone_file = dir.join(&tombstone_key);
@@ -388,9 +348,7 @@ async fn fill_cache_entry_persists_the_new_revision() {
         .join(&key);
 
     let mut data = CacheData::new("data".into(), "group".into(), "test-ns".into());
-    data.snapshot = Arc::new(ConfigResponse::new(
-        "data", "group", "test-ns", "old", "text", "old-md5",
-    ));
+    data.replace_snapshot("old".into(), "text".into(), "old-md5".into());
     data.initializing = false;
     cache.insert(key.clone(), data);
     crate::test_config::wait_for_file(&cache_file, "initial insert should reach disk").await;

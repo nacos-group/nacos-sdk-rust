@@ -42,6 +42,23 @@ impl CacheData {
         }
     }
 
+    /// Replace the snapshot while preserving the entry's identity.
+    pub(crate) fn replace_snapshot(&mut self, content: String, content_type: String, md5: String) {
+        let (data_id, group, namespace) = (
+            self.snapshot.data_id().to_owned(),
+            self.snapshot.group().to_owned(),
+            self.snapshot.namespace().to_owned(),
+        );
+        self.snapshot = Arc::new(ConfigResponse::new(
+            data_id,
+            group,
+            namespace,
+            content,
+            content_type,
+            md5,
+        ));
+    }
+
     /// Add listener.
     pub fn add_listener(&self, listener: Arc<dyn crate::api::config::ConfigChangeListener>) {
         if let Ok(mut mutex) = self.listeners.lock() {
@@ -92,14 +109,13 @@ impl CacheData {
         );
 
         if let Ok(mut mutex) = self.listeners.lock() {
-            let current_md5 = Arc::new(self.snapshot.md5().to_owned());
+            let current_md5 = self.snapshot.md5();
             for listen_wrap in mutex.iter_mut() {
                 // An empty md5 means the config was deleted, and an empty
                 // last_md5 means the listener has never been notified (a
                 // listener registered for an entry that was already cached).
                 // Deliver the deletion, otherwise such a listener never learns.
-                if !current_md5.is_empty() && listen_wrap.last_md5.as_str() == current_md5.as_str()
-                {
+                if !current_md5.is_empty() && listen_wrap.last_md5.as_str() == current_md5 {
                     continue;
                 }
                 // Notify when last-md5 not equals the-newest-md5. User callbacks are
@@ -109,7 +125,7 @@ impl CacheData {
                 drop(crate::common::executor::spawn_blocking(move || {
                     l_clone.notify(c_clone)
                 }));
-                listen_wrap.last_md5 = Arc::clone(&current_md5);
+                listen_wrap.last_md5 = current_md5.to_owned();
             }
         }
     }
@@ -139,7 +155,7 @@ impl CacheData {
         &self,
         config_filters: &Arc<Vec<Box<dyn ConfigFilter>>>,
     ) -> RespSnapshot {
-        (
+        RespSnapshot::new(
             Arc::clone(config_filters),
             ConfigResp::new(
                 self.snapshot.data_id().to_owned(),
@@ -152,24 +168,6 @@ impl CacheData {
             self.snapshot.md5().to_owned(),
         )
     }
-
-    /// Apply async config filters to a snapshot. No DashMap guard may be alive.
-    pub(crate) async fn filtered_response(
-        (filters, mut conf_resp, content_type, md5): RespSnapshot,
-    ) -> Arc<ConfigResponse> {
-        for config_filter in filters.iter() {
-            config_filter.filter(None, Some(&mut conf_resp)).await;
-        }
-
-        Arc::new(ConfigResponse::new(
-            conf_resp.data_id,
-            conf_resp.group,
-            conf_resp.namespace,
-            conf_resp.content,
-            content_type,
-            md5,
-        ))
-    }
 }
 
 pub(crate) enum RespSource {
@@ -181,7 +179,7 @@ impl RespSource {
     pub(crate) async fn into_response(self) -> Arc<ConfigResponse> {
         match self {
             RespSource::Raw(response) => response,
-            RespSource::Filtered(snapshot) => CacheData::filtered_response(snapshot).await,
+            RespSource::Filtered(snapshot) => snapshot.into_response().await,
         }
     }
 }
@@ -203,20 +201,63 @@ impl std::fmt::Display for CacheData {
     }
 }
 
-/// Pre-filter response snapshot: (filters, raw resp, content_type, md5).
-pub(crate) type RespSnapshot = (Arc<Vec<Box<dyn ConfigFilter>>>, ConfigResp, String, String);
+/// Pre-filter response snapshot, materialized without holding a cache guard.
+pub(crate) struct RespSnapshot {
+    filters: Arc<Vec<Box<dyn ConfigFilter>>>,
+    response: ConfigResp,
+    content_type: String,
+    md5: String,
+}
+
+impl RespSnapshot {
+    pub(crate) fn new(
+        filters: Arc<Vec<Box<dyn ConfigFilter>>>,
+        response: ConfigResp,
+        content_type: String,
+        md5: String,
+    ) -> Self {
+        Self {
+            filters,
+            response,
+            content_type,
+            md5,
+        }
+    }
+
+    /// Apply the async filters and build the response. No DashMap guard may be alive.
+    pub(crate) async fn into_response(self) -> Arc<ConfigResponse> {
+        let Self {
+            filters,
+            mut response,
+            content_type,
+            md5,
+        } = self;
+        for config_filter in filters.iter() {
+            config_filter.filter(None, Some(&mut response)).await;
+        }
+
+        Arc::new(ConfigResponse::new(
+            response.data_id,
+            response.group,
+            response.namespace,
+            response.content,
+            content_type,
+            md5,
+        ))
+    }
+}
 
 /// The inner Wrapper of ConfigChangeListener
 pub(crate) struct ListenerWrapper {
     /// last md5 be notified
-    last_md5: Arc<String>,
+    last_md5: String,
     listener: Arc<dyn crate::api::config::ConfigChangeListener>,
 }
 
 impl ListenerWrapper {
     fn new(listener: Arc<dyn crate::api::config::ConfigChangeListener>) -> Self {
         Self {
-            last_md5: Arc::new(String::new()),
+            last_md5: String::new(),
             listener,
         }
     }
@@ -700,7 +741,7 @@ mod tests {
                 .get(&key_in_task)
                 .map(|r| r.resp_snapshot(&filters_in_task))
                 .expect("entry should exist");
-            let resp = CacheData::filtered_response(snapshot).await;
+            let resp = snapshot.into_response().await;
             if let Some(r) = cache_in_task.get(&key_in_task) {
                 r.dispatch_notify(resp);
             }
