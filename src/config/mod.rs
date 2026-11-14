@@ -17,7 +17,7 @@ mod message;
 mod util;
 mod worker;
 
-use std::sync::atomic::AtomicU64;
+use std::sync::{Arc, atomic::AtomicU64};
 
 use tracing::instrument;
 
@@ -70,7 +70,7 @@ impl NacosConfigService {
         &self,
         data_id: String,
         group: String,
-    ) -> crate::api::error::Result<crate::api::config::ConfigResponse> {
+    ) -> crate::api::error::Result<Arc<crate::api::config::ConfigResponse>> {
         self.client_worker.get_config(data_id, group).await
     }
 

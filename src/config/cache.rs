@@ -6,15 +6,11 @@ use std::ops::Deref;
 use std::sync::{Arc, Mutex};
 
 /// Cache Data for Config
-#[derive(Serialize, Deserialize, Default, Clone)]
+#[derive(Serialize, Deserialize, Clone)]
 pub(crate) struct CacheData {
-    pub data_id: Arc<String>,
-    pub group: Arc<String>,
-    pub namespace: Arc<String>,
-    /// Default text; text, json, properties, html, xml, yaml ...
-    pub content_type: Arc<String>,
-    pub content: Arc<String>,
-    pub md5: Arc<String>,
+    /// Immutable snapshot shared with get_config and listener callbacks.
+    #[serde(flatten)]
+    pub snapshot: Arc<ConfigResponse>,
     /// whether content was encrypted with encryptedDataKey.
     pub encrypted_data_key: Arc<String>,
     pub last_modified: i64,
@@ -31,12 +27,18 @@ pub(crate) struct CacheData {
 impl CacheData {
     pub fn new(data_id: String, group: String, namespace: String) -> Self {
         Self {
-            data_id: Arc::new(data_id),
-            group: Arc::new(group),
-            namespace: Arc::new(namespace),
-            content_type: Arc::new("text".to_string()),
+            snapshot: Arc::new(ConfigResponse::new(
+                data_id,
+                group,
+                namespace,
+                String::new(),
+                "text".to_string(),
+                String::new(),
+            )),
+            encrypted_data_key: Arc::new(String::new()),
+            last_modified: 0,
             initializing: true,
-            ..Default::default()
+            listeners: Arc::new(Mutex::new(Vec::new())),
         }
     }
 
@@ -80,32 +82,34 @@ impl CacheData {
 
     /// Dispatch notification synchronously: compare last_md5 and notify in an
     /// independent task. Never awaits, safe to call while holding a lock.
-    pub(crate) fn dispatch_notify(&self, config_resp: ConfigResponse) {
+    pub(crate) fn dispatch_notify(&self, config_resp: Arc<ConfigResponse>) {
         tracing::info!(
             "dispatch_notify, dataId={},group={},namespace={},md5={}",
-            self.data_id,
-            self.group,
-            self.namespace,
-            self.md5
+            self.snapshot.data_id(),
+            self.snapshot.group(),
+            self.snapshot.namespace(),
+            self.snapshot.md5()
         );
 
         if let Ok(mut mutex) = self.listeners.lock() {
+            let current_md5 = Arc::new(self.snapshot.md5().to_owned());
             for listen_wrap in mutex.iter_mut() {
                 // An empty md5 means the config was deleted, and an empty
                 // last_md5 means the listener has never been notified (a
                 // listener registered for an entry that was already cached).
                 // Deliver the deletion, otherwise such a listener never learns.
-                if !self.md5.is_empty() && listen_wrap.last_md5.as_str() == self.md5.as_str() {
+                if !current_md5.is_empty() && listen_wrap.last_md5.as_str() == current_md5.as_str()
+                {
                     continue;
                 }
                 // Notify when last-md5 not equals the-newest-md5. User callbacks are
                 // synchronous and may block, so keep them off the SDK runtime.
                 let l_clone = listen_wrap.listener.clone();
-                let c_clone = config_resp.clone();
+                let c_clone = Arc::clone(&config_resp);
                 drop(crate::common::executor::spawn_blocking(move || {
                     l_clone.notify(c_clone)
                 }));
-                listen_wrap.last_md5 = Arc::clone(&self.md5);
+                listen_wrap.last_md5 = Arc::clone(&current_md5);
             }
         }
     }
@@ -125,16 +129,9 @@ impl CacheData {
         }
     }
 
-    /// Build a response sharing the cached strings.
-    pub(crate) fn raw_response(&self) -> ConfigResponse {
-        ConfigResponse::from_shared(
-            Arc::clone(&self.data_id),
-            Arc::clone(&self.group),
-            Arc::clone(&self.namespace),
-            Arc::clone(&self.content),
-            Arc::clone(&self.content_type),
-            Arc::clone(&self.md5),
-        )
+    /// Return the cached snapshot without copying.
+    pub(crate) fn raw_response(&self) -> Arc<ConfigResponse> {
+        Arc::clone(&self.snapshot)
     }
 
     /// Clone a pre-filter response snapshot, so async filters can run lock-free.
@@ -145,43 +142,43 @@ impl CacheData {
         (
             Arc::clone(config_filters),
             ConfigResp::new(
-                self.data_id.to_string(),
-                self.group.to_string(),
-                self.namespace.to_string(),
-                self.content.to_string(),
+                self.snapshot.data_id().to_owned(),
+                self.snapshot.group().to_owned(),
+                self.snapshot.namespace().to_owned(),
+                self.snapshot.content().to_owned(),
                 self.encrypted_data_key.to_string(),
             ),
-            Arc::clone(&self.content_type),
-            Arc::clone(&self.md5),
+            self.snapshot.content_type().to_owned(),
+            self.snapshot.md5().to_owned(),
         )
     }
 
     /// Apply async config filters to a snapshot. No DashMap guard may be alive.
     pub(crate) async fn filtered_response(
         (filters, mut conf_resp, content_type, md5): RespSnapshot,
-    ) -> ConfigResponse {
+    ) -> Arc<ConfigResponse> {
         for config_filter in filters.iter() {
             config_filter.filter(None, Some(&mut conf_resp)).await;
         }
 
-        ConfigResponse::from_shared(
-            Arc::new(conf_resp.data_id),
-            Arc::new(conf_resp.group),
-            Arc::new(conf_resp.namespace),
-            Arc::new(conf_resp.content),
+        Arc::new(ConfigResponse::new(
+            conf_resp.data_id,
+            conf_resp.group,
+            conf_resp.namespace,
+            conf_resp.content,
             content_type,
             md5,
-        )
+        ))
     }
 }
 
 pub(crate) enum RespSource {
-    Raw(ConfigResponse),
+    Raw(Arc<ConfigResponse>),
     Filtered(RespSnapshot),
 }
 
 impl RespSource {
-    pub(crate) async fn into_response(self) -> ConfigResponse {
+    pub(crate) async fn into_response(self) -> Arc<ConfigResponse> {
         match self {
             RespSource::Raw(response) => response,
             RespSource::Filtered(snapshot) => CacheData::filtered_response(snapshot).await,
@@ -194,26 +191,20 @@ impl std::fmt::Display for CacheData {
         write!(
             f,
             "CacheData(namespace={n},data_id={d},group={g},md5={m},encrypted_data_key={k},content_type={t},content=",
-            n = self.namespace,
-            d = self.data_id,
-            g = self.group,
-            m = self.md5,
+            n = self.snapshot.namespace(),
+            d = self.snapshot.data_id(),
+            g = self.snapshot.group(),
+            m = self.snapshot.md5(),
             k = self.encrypted_data_key,
-            t = self.content_type,
+            t = self.snapshot.content_type(),
         )?;
-        // Truncate content for display if it exceeds 30 chars
-        crate::common::util::write_truncated(f, &self.content, 30)?;
+        crate::common::util::write_truncated(f, self.snapshot.content(), 30)?;
         write!(f, ")")
     }
 }
 
 /// Pre-filter response snapshot: (filters, raw resp, content_type, md5).
-pub(crate) type RespSnapshot = (
-    Arc<Vec<Box<dyn ConfigFilter>>>,
-    ConfigResp,
-    Arc<String>,
-    Arc<String>,
-);
+pub(crate) type RespSnapshot = (Arc<Vec<Box<dyn ConfigFilter>>>, ConfigResp, String, String);
 
 /// The inner Wrapper of ConfigChangeListener
 pub(crate) struct ListenerWrapper {
@@ -310,7 +301,7 @@ mod tests {
         }
 
         impl ConfigChangeListener for BlockingListener {
-            fn notify(&self, _: ConfigResponse) {
+            fn notify(&self, _: Arc<ConfigResponse>) {
                 self.entered.store(true, Ordering::Release);
                 let _ = self.release.lock().expect("release receiver").recv();
             }
@@ -319,7 +310,7 @@ mod tests {
         struct SignalingListener(Arc<AtomicBool>);
 
         impl ConfigChangeListener for SignalingListener {
-            fn notify(&self, _: ConfigResponse) {
+            fn notify(&self, _: Arc<ConfigResponse>) {
                 self.0.store(true, Ordering::Release);
             }
         }
@@ -329,7 +320,7 @@ mod tests {
         let second_ran = Arc::new(AtomicBool::new(false));
 
         let mut data = CacheData::new("D".to_string(), "G".to_string(), "N".to_string());
-        data.md5 = Arc::new("m1".to_string());
+        data.snapshot = Arc::new(ConfigResponse::new("D", "G", "N", "", "text", "m1"));
         data.add_listener(Arc::new(BlockingListener {
             entered: Arc::clone(&entered),
             release: std::sync::Mutex::new(release_rx),
@@ -342,7 +333,7 @@ mod tests {
         );
 
         data.add_listener(Arc::new(SignalingListener(Arc::clone(&second_ran))));
-        data.md5 = Arc::new("m2".to_string());
+        data.snapshot = Arc::new(ConfigResponse::new("D", "G", "N", "", "text", "m2"));
         data.dispatch_notify(data.raw_response());
 
         let ran = crate::test_config::wait_for_flag(&second_ran, Duration::from_secs(2)).await;
@@ -363,14 +354,14 @@ mod tests {
         struct SignalingListener(mpsc::Sender<()>);
 
         impl ConfigChangeListener for SignalingListener {
-            fn notify(&self, _: ConfigResponse) {
+            fn notify(&self, _: Arc<ConfigResponse>) {
                 let _ = self.0.send(());
             }
         }
 
         let (tx, rx) = mpsc::channel();
         let mut data = CacheData::new("D".to_string(), "G".to_string(), "N".to_string());
-        data.md5 = Arc::new("m1".to_string());
+        data.snapshot = Arc::new(ConfigResponse::new("D", "G", "N", "", "text", "m1"));
         data.add_listener(Arc::new(SignalingListener(tx)));
 
         data.dispatch_notify(data.raw_response());
@@ -446,25 +437,24 @@ mod tests {
     #[test]
     fn test_cache_data_serde_roundtrip() {
         let mut data = CacheData::new("D".to_string(), "G".to_string(), "N".to_string());
-        data.content = Arc::new("hello".to_string());
-        data.md5 = Arc::new("m1".to_string());
-        data.content_type = Arc::new("json".to_string());
+        data.snapshot = Arc::new(ConfigResponse::new("D", "G", "N", "hello", "json", "m1"));
         data.encrypted_data_key = Arc::new("key".to_string());
         data.last_modified = 42;
 
         let json = serde_json::to_string(&data).expect("cache data should serialize");
         assert!(json.contains("\"content\":\"hello\""));
+        assert!(!json.contains("snapshot"));
         assert!(!json.contains("listeners"));
         assert!(!json.contains("initializing"));
 
         let decoded: CacheData =
             serde_json::from_str(&json).expect("cache data should deserialize");
-        assert_eq!(decoded.data_id.as_str(), "D");
-        assert_eq!(decoded.group.as_str(), "G");
-        assert_eq!(decoded.namespace.as_str(), "N");
-        assert_eq!(decoded.content.as_str(), "hello");
-        assert_eq!(decoded.content_type.as_str(), "json");
-        assert_eq!(decoded.md5.as_str(), "m1");
+        assert_eq!(decoded.snapshot.data_id(), "D");
+        assert_eq!(decoded.snapshot.group(), "G");
+        assert_eq!(decoded.snapshot.namespace(), "N");
+        assert_eq!(decoded.snapshot.content(), "hello");
+        assert_eq!(decoded.snapshot.content_type(), "json");
+        assert_eq!(decoded.snapshot.md5(), "m1");
         assert_eq!(decoded.encrypted_data_key.as_str(), "key");
         assert_eq!(decoded.last_modified, 42);
     }
@@ -476,12 +466,12 @@ mod tests {
         let decoded: CacheData =
             serde_json::from_str(json).expect("legacy cache json should deserialize");
 
-        assert_eq!(decoded.data_id.as_str(), "D");
-        assert_eq!(decoded.group.as_str(), "G");
-        assert_eq!(decoded.namespace.as_str(), "N");
-        assert_eq!(decoded.content.as_str(), "hello");
-        assert_eq!(decoded.content_type.as_str(), "text");
-        assert_eq!(decoded.md5.as_str(), "m1");
+        assert_eq!(decoded.snapshot.data_id(), "D");
+        assert_eq!(decoded.snapshot.group(), "G");
+        assert_eq!(decoded.snapshot.namespace(), "N");
+        assert_eq!(decoded.snapshot.content(), "hello");
+        assert_eq!(decoded.snapshot.content_type(), "text");
+        assert_eq!(decoded.snapshot.md5(), "m1");
         assert_eq!(decoded.last_modified, 42);
     }
 
@@ -498,18 +488,21 @@ mod tests {
     }
 
     #[test]
-    fn test_resp_source_without_filters_is_raw_and_shared() {
+    fn test_resp_source_without_filters_returns_cached_snapshot() {
         let mut data = CacheData::new("D".to_string(), "G".to_string(), "N".to_string());
-        data.content = Arc::new("hello".to_string());
+        data.snapshot = Arc::new(ConfigResponse::new("D", "G", "N", "hello", "text", "m1"));
 
         let RespSource::Raw(response) = data.resp_source(&Arc::new(Vec::new())) else {
             panic!("a cache entry without filters must take the raw path");
         };
-        assert!(response.shares_content_with(&data.content));
+        assert!(
+            Arc::ptr_eq(&response, &data.snapshot),
+            "the raw path must hand out the cached snapshot without copying"
+        );
     }
 
     #[tokio::test]
-    async fn test_filtered_response_shares_content_type_and_md5() {
+    async fn test_filtered_response_keeps_content_type_and_md5() {
         struct Noop;
 
         #[async_trait::async_trait]
@@ -519,16 +512,12 @@ mod tests {
 
         let filters: Arc<Vec<Box<dyn ConfigFilter>>> = Arc::new(vec![Box::new(Noop)]);
         let mut data = CacheData::new("D".to_string(), "G".to_string(), "N".to_string());
-        data.content = Arc::new("hello".to_string());
-        data.content_type = Arc::new("json".to_string());
-        data.md5 = Arc::new("m1".to_string());
+        data.snapshot = Arc::new(ConfigResponse::new("D", "G", "N", "hello", "json", "m1"));
 
         let response = data.resp_source(&filters).into_response().await;
         assert_eq!(response.content(), "hello");
         assert_eq!(response.content_type(), "json");
         assert_eq!(response.md5(), "m1");
-        assert!(response.shares_content_type_with(&data.content_type));
-        assert!(response.shares_md5_with(&data.md5));
     }
 
     #[tokio::test]
@@ -536,7 +525,7 @@ mod tests {
         let filters: Arc<Vec<Box<dyn ConfigFilter>>> =
             Arc::new(vec![Box::new(Append("-1")), Box::new(Append("-2"))]);
         let mut data = CacheData::new("D".to_string(), "G".to_string(), "N".to_string());
-        data.content = Arc::new("base".to_string());
+        data.snapshot = Arc::new(ConfigResponse::new("D", "G", "N", "base", "text", ""));
 
         let response = data.resp_source(&filters).into_response().await;
         assert_eq!(response.content(), "base-1-2");
@@ -550,19 +539,19 @@ mod tests {
         struct CountingListener(Arc<AtomicUsize>);
 
         impl ConfigChangeListener for CountingListener {
-            fn notify(&self, _: ConfigResponse) {
+            fn notify(&self, _: Arc<ConfigResponse>) {
                 self.0.fetch_add(1, Ordering::SeqCst);
             }
         }
 
         let hits = Arc::new(AtomicUsize::new(0));
         let mut data = CacheData::new("D".to_string(), "G".to_string(), "N".to_string());
-        data.md5 = Arc::new("m1".to_string());
+        data.snapshot = Arc::new(ConfigResponse::new("D", "G", "N", "", "text", "m1"));
         data.add_listener(Arc::new(CountingListener(hits.clone())));
 
         data.dispatch_notify(data.raw_response());
         data.dispatch_notify(data.raw_response());
-        data.md5 = Arc::new("m2".to_string());
+        data.snapshot = Arc::new(ConfigResponse::new("D", "G", "N", "", "text", "m2"));
         data.dispatch_notify(data.raw_response());
 
         tokio::time::timeout(Duration::from_secs(2), async {
@@ -577,23 +566,76 @@ mod tests {
         assert_eq!(2, hits.load(Ordering::SeqCst));
     }
 
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn test_dispatch_notify_shares_one_snapshot_across_listeners() {
+        use std::time::Duration;
+
+        #[derive(Default)]
+        struct Capture(std::sync::Mutex<Option<Arc<ConfigResponse>>>);
+
+        impl ConfigChangeListener for Capture {
+            fn notify(&self, config_resp: Arc<ConfigResponse>) {
+                *self.0.lock().expect("mutex poisoned") = Some(config_resp);
+            }
+        }
+
+        let first = Arc::new(Capture::default());
+        let second = Arc::new(Capture::default());
+        let mut data = CacheData::new("D".to_string(), "G".to_string(), "N".to_string());
+        data.snapshot = Arc::new(ConfigResponse::new("D", "G", "N", "hello", "text", "m1"));
+        data.add_listener(Arc::clone(&first) as Arc<dyn ConfigChangeListener>);
+        data.add_listener(Arc::clone(&second) as Arc<dyn ConfigChangeListener>);
+
+        data.dispatch_notify(Arc::clone(&data.snapshot));
+
+        tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                let first_done = first.0.lock().expect("mutex poisoned").is_some();
+                let second_done = second.0.lock().expect("mutex poisoned").is_some();
+                if first_done && second_done {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("both listeners should be notified");
+
+        let first_resp = first
+            .0
+            .lock()
+            .expect("mutex poisoned")
+            .clone()
+            .expect("first notified");
+        let second_resp = second
+            .0
+            .lock()
+            .expect("mutex poisoned")
+            .clone()
+            .expect("second notified");
+        assert!(
+            Arc::ptr_eq(&first_resp, &second_resp),
+            "all listeners must share one snapshot handle"
+        );
+    }
+
     struct TestConfigChangeListener1;
     struct TestConfigChangeListener2;
 
     impl ConfigChangeListener for TestConfigChangeListener1 {
-        fn notify(&self, config_resp: ConfigResponse) {
+        fn notify(&self, config_resp: Arc<ConfigResponse>) {
             tracing::info!(
                 "TestConfigChangeListener1 listen the config={}",
-                config_resp
+                config_resp.as_ref()
             );
         }
     }
 
     impl ConfigChangeListener for TestConfigChangeListener2 {
-        fn notify(&self, config_resp: ConfigResponse) {
+        fn notify(&self, config_resp: Arc<ConfigResponse>) {
             tracing::info!(
                 "TestConfigChangeListener2 listen the config={}",
-                config_resp
+                config_resp.as_ref()
             );
         }
     }
@@ -623,7 +665,7 @@ mod tests {
         }
 
         impl ConfigChangeListener for CountingListener {
-            fn notify(&self, _: ConfigResponse) {
+            fn notify(&self, _: Arc<ConfigResponse>) {
                 self.hits.fetch_add(1, Ordering::SeqCst);
             }
         }
@@ -643,8 +685,7 @@ mod tests {
         });
 
         let mut data = CacheData::new("D".to_string(), "G".to_string(), "test-ns".to_string());
-        data.content = Arc::new("c".to_string());
-        data.md5 = Arc::new("m1".to_string());
+        data.snapshot = Arc::new(ConfigResponse::new("D", "G", "test-ns", "c", "text", "m1"));
         data.initializing = false;
         data.add_listener(listener.clone());
         cache.insert(key.clone(), data);

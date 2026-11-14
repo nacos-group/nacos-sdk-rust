@@ -110,12 +110,12 @@ impl ConfigWorker {
         &self,
         data_id: String,
         group: String,
-    ) -> crate::api::error::Result<ConfigResponse> {
+    ) -> crate::api::error::Result<Arc<ConfigResponse>> {
         let group_key = util::group_key(&data_id, &group, &self.namespace);
 
         // Try to get config from cache first (if cache exists and content is complete)
         let cached_source = self.unified_cache.get(&group_key).and_then(|r| {
-            if !r.content.is_empty() && !r.md5.is_empty() {
+            if !r.snapshot.content().is_empty() && !r.snapshot.md5().is_empty() {
                 Some(r.resp_source(&self.config_filters))
             } else {
                 None
@@ -159,14 +159,14 @@ impl ConfigWorker {
             config_filter.filter(None, Some(&mut conf_resp)).await;
         }
 
-        Ok(ConfigResponse::new(
+        Ok(Arc::new(ConfigResponse::new(
             conf_resp.data_id,
             conf_resp.group,
             conf_resp.namespace,
             conf_resp.content,
             content_type,
             md5,
-        ))
+        )))
     }
 
     #[instrument(skip_all)]
@@ -314,9 +314,9 @@ impl ConfigWorker {
             // listen immediately upon initialization
             let config_resp = Self::get_config_inner_async(
                 self.remote_client.clone(),
-                cache_data.data_id.to_string(),
-                cache_data.group.to_string(),
-                cache_data.namespace.to_string(),
+                cache_data.snapshot.data_id().to_owned(),
+                cache_data.snapshot.group().to_owned(),
+                cache_data.snapshot.namespace().to_owned(),
             )
             .in_current_span()
             .await;
@@ -331,10 +331,10 @@ impl ConfigWorker {
             }
             let req = ConfigBatchListenRequest::new(true).add_config_listen_context(
                 ConfigListenContext::new(
-                    Arc::clone(&cache_data.data_id),
-                    Arc::clone(&cache_data.group),
-                    Arc::clone(&cache_data.namespace),
-                    Arc::clone(&cache_data.md5),
+                    cache_data.snapshot.data_id().to_owned(),
+                    cache_data.snapshot.group().to_owned(),
+                    cache_data.snapshot.namespace().to_owned(),
+                    cache_data.snapshot.md5().to_owned(),
                 ),
             );
             let remote_client_clone = self.remote_client.clone();
@@ -391,10 +391,10 @@ impl ConfigWorker {
                 // Use foreach to iterate over all cached configs
                 unified_cache.for_each(|_key, c| {
                     listen_context_vec.push(ConfigListenContext::new(
-                        Arc::clone(&c.data_id),
-                        Arc::clone(&c.group),
-                        Arc::clone(&c.namespace),
-                        Arc::clone(&c.md5),
+                        c.snapshot.data_id().to_owned(),
+                        c.snapshot.group().to_owned(),
+                        c.snapshot.namespace().to_owned(),
+                        c.snapshot.md5().to_owned(),
                     ));
                 });
             }
@@ -447,9 +447,14 @@ impl ConfigWorker {
         let md5 = config_resp.md5.ok_or_else(|| {
             crate::api::error::Error::ErrResult("config md5 missing in response".to_string())
         })?;
-        cache_data.content_type = Arc::new(content_type);
-        cache_data.content = Arc::new(content);
-        cache_data.md5 = Arc::new(md5);
+        cache_data.snapshot = Arc::new(ConfigResponse::new(
+            cache_data.snapshot.data_id().to_owned(),
+            cache_data.snapshot.group().to_owned(),
+            cache_data.snapshot.namespace().to_owned(),
+            content,
+            content_type,
+            md5,
+        ));
         // Compatibility None < 2.1.0
         cache_data.encrypted_data_key =
             Arc::new(config_resp.encrypted_data_key.unwrap_or_default());
@@ -470,9 +475,9 @@ impl ConfigWorker {
             }
             Ok(false) => {}
             Err(e) => tracing::warn!(
-                data_id = %cache_data.data_id,
-                group = %cache_data.group,
-                namespace = %cache_data.namespace,
+                data_id = %cache_data.snapshot.data_id(),
+                group = %cache_data.snapshot.group(),
+                namespace = %cache_data.snapshot.namespace(),
                 "fill cache data failed, skip notify: {e:?}"
             ),
         }
@@ -505,11 +510,18 @@ impl ConfigWorker {
     /// should be notified.
     fn clear_deleted(cache_data: &mut CacheData, group_key: &str) -> Option<bool> {
         let first_fill = std::mem::take(&mut cache_data.initializing);
-        if cache_data.content.is_empty() && cache_data.md5.is_empty() {
+        if cache_data.snapshot.content().is_empty() && cache_data.snapshot.md5().is_empty() {
             return None;
         }
-        cache_data.content = Arc::new(String::new());
-        cache_data.md5 = Arc::new(String::new());
+        let content_type = cache_data.snapshot.content_type().to_owned();
+        cache_data.snapshot = Arc::new(ConfigResponse::new(
+            cache_data.snapshot.data_id().to_owned(),
+            cache_data.snapshot.group().to_owned(),
+            cache_data.snapshot.namespace().to_owned(),
+            String::new(),
+            content_type,
+            String::new(),
+        ));
         cache_data.encrypted_data_key = Arc::new(String::new());
         tracing::warn!(
             group_key = %group_key,
@@ -543,7 +555,7 @@ impl ConfigWorker {
     fn drop_empty_entries(unified_cache: &Cache<CacheData>) {
         let mut empty_keys = Vec::new();
         unified_cache.for_each(|key, data| {
-            if data.content.is_empty() && data.md5.is_empty() {
+            if data.snapshot.content().is_empty() && data.snapshot.md5().is_empty() {
                 empty_keys.push(key.clone());
             }
         });
@@ -605,9 +617,9 @@ impl ConfigWorker {
                     // single-worker SDK runtime.
                     let snapshot = unified_cache.get(&group_key).map(|r| {
                         (
-                            r.data_id.to_string(),
-                            r.group.to_string(),
-                            r.namespace.to_string(),
+                            r.snapshot.data_id().to_owned(),
+                            r.snapshot.group().to_owned(),
+                            r.snapshot.namespace().to_owned(),
                         )
                     });
                     let Some((data_id, group, namespace)) = snapshot else {

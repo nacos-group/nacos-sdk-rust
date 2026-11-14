@@ -40,10 +40,10 @@ async fn disk_cache(prefix: &str) -> (Cache<CacheData>, PathBuf) {
     (cache, root)
 }
 
-struct ChannelListener(tokio::sync::mpsc::UnboundedSender<ConfigResponse>);
+struct ChannelListener(tokio::sync::mpsc::UnboundedSender<Arc<ConfigResponse>>);
 
 impl ConfigChangeListener for ChannelListener {
-    fn notify(&self, config_resp: ConfigResponse) {
+    fn notify(&self, config_resp: Arc<ConfigResponse>) {
         let _ = self.0.send(config_resp);
     }
 }
@@ -78,15 +78,21 @@ fn fill_data_returns_err_when_content_type_missing() {
 fn clear_deleted_gates_notification() {
     let mut with_content = cache_data();
     with_content.initializing = false;
-    with_content.content = Arc::new("content".to_string());
-    with_content.md5 = Arc::new("md5".to_string());
+    with_content.snapshot = Arc::new(ConfigResponse::new(
+        "data",
+        "group",
+        "namespace",
+        "content",
+        "text",
+        "md5",
+    ));
 
     assert_eq!(
         Some(true),
         ConfigWorker::clear_deleted(&mut with_content, "group-key")
     );
-    assert!(with_content.content.is_empty());
-    assert!(with_content.md5.is_empty());
+    assert!(with_content.snapshot.content().is_empty());
+    assert!(with_content.snapshot.md5().is_empty());
     assert_eq!(
         None,
         ConfigWorker::clear_deleted(&mut with_content, "group-key")
@@ -94,15 +100,21 @@ fn clear_deleted_gates_notification() {
 
     let mut first_fill = cache_data();
     first_fill.initializing = true;
-    first_fill.content = Arc::new("content".to_string());
-    first_fill.md5 = Arc::new("md5".to_string());
+    first_fill.snapshot = Arc::new(ConfigResponse::new(
+        "data",
+        "group",
+        "namespace",
+        "content",
+        "text",
+        "md5",
+    ));
 
     assert_eq!(
         Some(false),
         ConfigWorker::clear_deleted(&mut first_fill, "group-key")
     );
-    assert!(first_fill.content.is_empty());
-    assert!(first_fill.md5.is_empty());
+    assert!(first_fill.snapshot.content().is_empty());
+    assert!(first_fill.snapshot.md5().is_empty());
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
@@ -126,7 +138,7 @@ async fn handle_config_not_found_holds_no_lock_across_filter_await() {
     struct CountingListener(Arc<AtomicUsize>);
 
     impl ConfigChangeListener for CountingListener {
-        fn notify(&self, _: ConfigResponse) {
+        fn notify(&self, _: Arc<ConfigResponse>) {
             self.0.fetch_add(1, Ordering::SeqCst);
         }
     }
@@ -144,8 +156,14 @@ async fn handle_config_not_found_holds_no_lock_across_filter_await() {
     let hits = Arc::new(AtomicUsize::new(0));
 
     let mut data = CacheData::new("data".into(), "group".into(), "test-ns".into());
-    data.content = Arc::new("stale".to_string());
-    data.md5 = Arc::new("stale-md5".to_string());
+    data.snapshot = Arc::new(ConfigResponse::new(
+        "data",
+        "group",
+        "test-ns",
+        "stale",
+        "text",
+        "stale-md5",
+    ));
     data.initializing = false;
     data.add_listener(Arc::new(CountingListener(Arc::clone(&hits))));
     // Mark the listener as up to date so the deletion is actually dispatched.
@@ -212,8 +230,8 @@ async fn handle_config_not_found_holds_no_lock_across_filter_await() {
     .expect("listener should see the cached revision and the deletion");
 
     let entry = cache.get(&key).expect("entry should exist");
-    assert!(entry.content.is_empty());
-    assert!(entry.md5.is_empty());
+    assert!(entry.snapshot.content().is_empty());
+    assert!(entry.snapshot.md5().is_empty());
 }
 
 #[tokio::test]
@@ -229,8 +247,14 @@ async fn config_not_found_clears_stale_cache_and_notifies_once() {
 
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
     let mut data = CacheData::new("data".into(), "group".into(), "test-ns".into());
-    data.content = Arc::new("stale".to_string());
-    data.md5 = Arc::new("stale-md5".to_string());
+    data.snapshot = Arc::new(ConfigResponse::new(
+        "data",
+        "group",
+        "test-ns",
+        "stale",
+        "text",
+        "stale-md5",
+    ));
     data.initializing = false;
     data.add_listener(Arc::new(ChannelListener(tx)));
     cache.insert(group_key.clone(), data);
@@ -259,8 +283,8 @@ async fn config_not_found_clears_stale_cache_and_notifies_once() {
         let entry = cache
             .get(&group_key)
             .expect("entry should stay cached for re-creation");
-        assert_eq!(entry.content.as_str(), "");
-        assert_eq!(entry.md5.as_str(), "");
+        assert_eq!(entry.snapshot.content(), "");
+        assert_eq!(entry.snapshot.md5(), "");
     }
     wait_for_file_removed(&cache_file).await;
 
@@ -285,8 +309,14 @@ async fn deletion_notifies_listener_that_never_saw_the_config() {
 
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
     let mut data = CacheData::new("data".into(), "group".into(), "test-ns".into());
-    data.content = Arc::new("stale".to_string());
-    data.md5 = Arc::new("stale-md5".to_string());
+    data.snapshot = Arc::new(ConfigResponse::new(
+        "data",
+        "group",
+        "test-ns",
+        "stale",
+        "text",
+        "stale-md5",
+    ));
     data.initializing = false;
     // The listener registers for an already-cached entry, so its last_md5 stays
     // empty until something is dispatched.
@@ -310,14 +340,16 @@ async fn startup_prune_removes_tombstones_and_their_files() {
 
     let tombstone_key = "gone+_+group+_+test-ns".to_string();
     let mut tombstone = CacheData::new("gone".into(), "group".into(), "test-ns".into());
-    tombstone.content = Arc::new(String::new());
-    tombstone.md5 = Arc::new(String::new());
+    tombstone.snapshot = Arc::new(ConfigResponse::new(
+        "gone", "group", "test-ns", "", "text", "",
+    ));
     cache.insert(tombstone_key.clone(), tombstone);
 
     let live_key = "live+_+group+_+test-ns".to_string();
     let mut live = CacheData::new("live".into(), "group".into(), "test-ns".into());
-    live.content = Arc::new("value".to_string());
-    live.md5 = Arc::new("m1".to_string());
+    live.snapshot = Arc::new(ConfigResponse::new(
+        "live", "group", "test-ns", "value", "text", "m1",
+    ));
     cache.insert(live_key.clone(), live);
 
     let tombstone_file = dir.join(&tombstone_key);
@@ -356,8 +388,9 @@ async fn fill_cache_entry_persists_the_new_revision() {
         .join(&key);
 
     let mut data = CacheData::new("data".into(), "group".into(), "test-ns".into());
-    data.content = Arc::new("old".to_string());
-    data.md5 = Arc::new("old-md5".to_string());
+    data.snapshot = Arc::new(ConfigResponse::new(
+        "data", "group", "test-ns", "old", "text", "old-md5",
+    ));
     data.initializing = false;
     cache.insert(key.clone(), data);
     crate::test_config::wait_for_file(&cache_file, "initial insert should reach disk").await;
@@ -386,8 +419,8 @@ async fn fill_cache_entry_persists_the_new_revision() {
         cache
             .get(&key)
             .expect("entry should exist")
-            .content
-            .as_str(),
+            .snapshot
+            .content(),
         "new"
     );
 
