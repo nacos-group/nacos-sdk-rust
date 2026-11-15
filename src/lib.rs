@@ -313,3 +313,6 @@ mod test_config {
         assert!(status.success(), "child test {test} failed");
     }
 }
+
+#[cfg(test)]
+mod test_support;

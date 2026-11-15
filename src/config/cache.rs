@@ -342,40 +342,17 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_blocking_listener_does_not_starve_other_listeners() {
-        use std::sync::atomic::{AtomicBool, Ordering};
-        use std::sync::mpsc;
+        use crate::test_support::{BlockingListener, SignalingListener};
+        use std::sync::atomic::AtomicBool;
         use std::time::Duration;
 
-        struct BlockingListener {
-            entered: Arc<AtomicBool>,
-            release: std::sync::Mutex<mpsc::Receiver<()>>,
-        }
-
-        impl ConfigChangeListener for BlockingListener {
-            fn notify(&self, _: Arc<ConfigResponse>) {
-                self.entered.store(true, Ordering::Release);
-                let _ = self.release.lock().expect("release receiver").recv();
-            }
-        }
-
-        struct SignalingListener(Arc<AtomicBool>);
-
-        impl ConfigChangeListener for SignalingListener {
-            fn notify(&self, _: Arc<ConfigResponse>) {
-                self.0.store(true, Ordering::Release);
-            }
-        }
-
-        let (release_tx, release_rx) = mpsc::channel();
-        let entered = Arc::new(AtomicBool::new(false));
+        let (blocking, release_tx) = BlockingListener::new();
+        let entered = Arc::clone(&blocking.entered);
         let second_ran = Arc::new(AtomicBool::new(false));
 
         let mut data = CacheData::new("D".to_string(), "G".to_string(), "N".to_string());
         data.snapshot = Arc::new(ConfigResponse::new("D", "G", "N", "", "text", "m1"));
-        data.add_listener(Arc::new(BlockingListener {
-            entered: Arc::clone(&entered),
-            release: std::sync::Mutex::new(release_rx),
-        }));
+        data.add_listener(blocking);
 
         data.dispatch_notify(data.raw_response());
         assert!(

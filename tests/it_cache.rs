@@ -64,9 +64,12 @@ mod cache_integration_tests {
         std::env::home_dir().unwrap_or_else(std::env::temp_dir)
     }
 
-    fn cache_dir_for_namespace(server_addr: &str, namespace: &str) -> PathBuf {
-        let mut path = home_dir();
-        path.push("nacos");
+    /// The config cache directory: `<root>/config/<server>_nacos/<namespace>`.
+    ///
+    /// `root` is the `cache_dir` passed through `ClientProps`; without it the
+    /// SDK uses `$HOME/nacos`.
+    fn cache_dir_path(root: Option<PathBuf>, server_addr: &str, namespace: &str) -> PathBuf {
+        let mut path = root.unwrap_or_else(|| home_dir().join("nacos"));
         path.push("config");
         path.push(format!("{}_nacos", server_addr.replace(['/', ':'], "_")));
         path.push(namespace);
@@ -75,7 +78,7 @@ mod cache_integration_tests {
 
     /// Removes a cache file for the given data_id, group, and namespace.
     fn remove_cache_file(server_addr: &str, data_id: &str, group: &str, namespace: &str) {
-        let cache_dir = cache_dir_for_namespace(server_addr, namespace);
+        let cache_dir = cache_dir_path(None, server_addr, namespace);
         let cache_key = format!("{data_id}+_+{group}+_+{namespace}");
         let cache_file = cache_dir.join(&cache_key);
         if cache_file.exists() {
@@ -555,7 +558,6 @@ mod cache_integration_tests {
         let test_data_id = format!("no-disk-cache-test-{}", rand::random::<u32>());
         let test_content = "content that must not be persisted".to_string();
         let cache_key = format!("{test_data_id}+_+{test_group}+_+{namespace}");
-        let server_name = format!("{}_nacos", server.server_addr().replace(['/', ':'], "_"));
 
         // Publish the config first, so add_listener caches real content.
         {
@@ -584,7 +586,7 @@ mod cache_integration_tests {
         // Case 1: CacheKind::None, listening must not touch the disk.
         let root =
             std::env::temp_dir().join(format!("nacos-sdk-no-disk-{}", rand::random::<u64>()));
-        let cache_dir = root.join("config").join(&server_name).join(&namespace);
+        let cache_dir = cache_dir_path(Some(root.clone()), &server.server_addr(), &namespace);
 
         let disabled_props = ClientProps::new()
             .server_addr(server.server_addr().to_string())
@@ -628,7 +630,8 @@ mod cache_integration_tests {
         // Case 2: same flow with CacheKind::DiskStore does write to disk.
         let disk_root =
             std::env::temp_dir().join(format!("nacos-sdk-disk-{}", rand::random::<u64>()));
-        let disk_cache_dir = disk_root.join("config").join(&server_name).join(&namespace);
+        let disk_cache_dir =
+            cache_dir_path(Some(disk_root.clone()), &server.server_addr(), &namespace);
 
         let disk_props = ClientProps::new()
             .server_addr(server.server_addr().to_string())

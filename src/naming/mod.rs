@@ -309,92 +309,38 @@ impl NacosNamingService {
         )
     }
 
-    async fn register_ephemeral_instance_async(
+    async fn register_request<R, F>(
         &self,
         service_name: String,
         group_name: Option<String>,
         service_instance: ServiceInstance,
-    ) -> Result<()> {
-        info!(
-            "register ephemeral instance: service_name: {service_name}, group_name: {group_name:?}"
-        );
-        let request = self.instance_request(
-            service_name,
-            group_name,
-            service_instance,
-            InstanceRequest::register,
-        );
-        self.execute_by_register_with_redo::<InstanceRequest, InstanceResponse>(
-            request,
-            "register_ephemeral_instance",
-        )
-        .await
+        build: F,
+        operation: &str,
+    ) -> Result<()>
+    where
+        R: GrpcRequestMessage + AutomaticRequest + Clone + 'static,
+        F: FnOnce(ServiceInstance, Option<String>, Option<String>, Option<String>) -> R,
+    {
+        let request = self.instance_request(service_name, group_name, service_instance, build);
+        self.execute_by_register_with_redo::<R, InstanceResponse>(request, operation)
+            .await
     }
 
-    async fn register_persistent_instance_async(
+    async fn deregister_request<R, F>(
         &self,
         service_name: String,
         group_name: Option<String>,
         service_instance: ServiceInstance,
-    ) -> Result<()> {
-        info!(
-            "register persistent instance: service_name: {service_name}, group_name: {group_name:?}"
-        );
-        let request = self.instance_request(
-            service_name,
-            group_name,
-            service_instance,
-            PersistentInstanceRequest::register,
-        );
-        self.execute_by_register_with_redo::<PersistentInstanceRequest, InstanceResponse>(
-            request,
-            "register_persistent_instance",
-        )
-        .await
-    }
-
-    async fn deregister_ephemeral_instance_async(
-        &self,
-        service_name: String,
-        group_name: Option<String>,
-        service_instance: ServiceInstance,
-    ) -> Result<()> {
-        info!(
-            "deregister ephemeral instance: service_name: {service_name}, group_name: {group_name:?}"
-        );
-        let request = self.instance_request(
-            service_name,
-            group_name,
-            service_instance,
-            InstanceRequest::deregister,
-        );
-        self.execute_by_deregister::<InstanceRequest, InstanceResponse>(
-            request,
-            "deregister_ephemeral_instance",
-        )
-        .await
-    }
-
-    async fn deregister_persistent_instance_async(
-        &self,
-        service_name: String,
-        group_name: Option<String>,
-        service_instance: ServiceInstance,
-    ) -> Result<()> {
-        info!(
-            "deregister persistent instance: service_name: {service_name}, group_name: {group_name:?}"
-        );
-        let request = self.instance_request(
-            service_name,
-            group_name,
-            service_instance,
-            PersistentInstanceRequest::deregister,
-        );
-        self.execute_by_deregister::<PersistentInstanceRequest, InstanceResponse>(
-            request,
-            "deregister_persistent_instance",
-        )
-        .await
+        build: F,
+        operation: &str,
+    ) -> Result<()>
+    where
+        R: GrpcRequestMessage + AutomaticRequest + Clone + 'static,
+        F: FnOnce(ServiceInstance, Option<String>, Option<String>, Option<String>) -> R,
+    {
+        let request = self.instance_request(service_name, group_name, service_instance, build);
+        self.execute_by_deregister::<R, InstanceResponse>(request, operation)
+            .await
     }
 
     #[instrument(fields(client_id = &self.client_id, group = group_name), skip_all)]
@@ -729,11 +675,29 @@ impl NacosNamingService {
         service_instance: ServiceInstance,
     ) -> Result<()> {
         if service_instance.ephemeral {
-            self.register_ephemeral_instance_async(service_name, group_name, service_instance)
-                .await
+            info!(
+                "register ephemeral instance: service_name: {service_name}, group_name: {group_name:?}"
+            );
+            self.register_request(
+                service_name,
+                group_name,
+                service_instance,
+                InstanceRequest::register,
+                "register_ephemeral_instance",
+            )
+            .await
         } else {
-            self.register_persistent_instance_async(service_name, group_name, service_instance)
-                .await
+            info!(
+                "register persistent instance: service_name: {service_name}, group_name: {group_name:?}"
+            );
+            self.register_request(
+                service_name,
+                group_name,
+                service_instance,
+                PersistentInstanceRequest::register,
+                "register_persistent_instance",
+            )
+            .await
         }
     }
 
@@ -745,11 +709,29 @@ impl NacosNamingService {
         service_instance: ServiceInstance,
     ) -> Result<()> {
         if service_instance.ephemeral {
-            self.deregister_ephemeral_instance_async(service_name, group_name, service_instance)
-                .await
+            info!(
+                "deregister ephemeral instance: service_name: {service_name}, group_name: {group_name:?}"
+            );
+            self.deregister_request(
+                service_name,
+                group_name,
+                service_instance,
+                InstanceRequest::deregister,
+                "deregister_ephemeral_instance",
+            )
+            .await
         } else {
-            self.deregister_persistent_instance_async(service_name, group_name, service_instance)
-                .await
+            info!(
+                "deregister persistent instance: service_name: {service_name}, group_name: {group_name:?}"
+            );
+            self.deregister_request(
+                service_name,
+                group_name,
+                service_instance,
+                PersistentInstanceRequest::deregister,
+                "deregister_persistent_instance",
+            )
+            .await
         }
     }
 
