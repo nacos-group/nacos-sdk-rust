@@ -75,6 +75,26 @@ fn is_selectable(instance: &ServiceInstance, healthy: bool) -> bool {
     healthy == instance.healthy && instance.enabled && instance.weight > 0.0
 }
 
+/// Whether `instance` belongs to one of `clusters`; an empty list matches all.
+///
+/// Like the Java selector, an instance without a cluster name matches no
+/// cluster at all: the Java filter compares the raw cluster name, so a missing
+/// name never matches a requested cluster.
+fn instance_in_clusters(instance: &ServiceInstance, clusters: &[String]) -> bool {
+    if clusters.is_empty() {
+        return true;
+    }
+    instance
+        .cluster_name
+        .as_deref()
+        .is_some_and(|cluster_name| clusters.iter().any(|cluster| cluster == cluster_name))
+}
+
+/// Whether `instance` satisfies the cluster and health selection.
+fn is_selected(instance: &ServiceInstance, clusters: &[String], healthy: bool) -> bool {
+    instance_in_clusters(instance, clusters) && is_selectable(instance, healthy)
+}
+
 /// Filters instances down to the requested clusters.
 ///
 /// The Java client subscribes with an empty cluster list (`Constants.NULL`) so
@@ -82,10 +102,6 @@ fn is_selectable(instance: &ServiceInstance, healthy: bool) -> bool {
 /// with a cluster selector. This mirrors that selector: an instance is kept
 /// when its cluster name is in `clusters`, and an empty `clusters` keeps all
 /// of them.
-///
-/// Like the Java selector, an instance without a cluster name matches no
-/// cluster at all: the Java filter compares the raw cluster name, so a
-/// missing name never matches a requested cluster.
 pub(crate) fn filter_instances_by_clusters(
     instances: &[ServiceInstance],
     clusters: &[String],
@@ -95,12 +111,7 @@ pub(crate) fn filter_instances_by_clusters(
     }
     instances
         .iter()
-        .filter(|instance| {
-            let Some(cluster_name) = instance.cluster_name.as_deref() else {
-                return false;
-            };
-            clusters.iter().any(|cluster| cluster == cluster_name)
-        })
+        .filter(|instance| instance_in_clusters(instance, clusters))
         .cloned()
         .collect()
 }
@@ -366,16 +377,18 @@ impl NacosNamingService {
         .await
     }
 
-    #[instrument(fields(client_id = &self.client_id, group = group_name), skip_all)]
-    pub(crate) async fn get_all_instances(
+    /// Fetches the full instance set for a service, before the in-memory
+    /// cluster narrowing.
+    ///
+    /// The selecting APIs apply the cluster and health predicates in one pass
+    /// over this list, so the instances are cloned at most once.
+    async fn fetch_all_instances(
         &self,
         service_name: String,
-        group_name: Option<String>,
+        group_name: String,
         clusters: Vec<String>,
         subscribe: bool,
     ) -> Result<Arc<Vec<ServiceInstance>>> {
-        let group_name = crate::common::util::normalize_group_name(group_name);
-
         let hosts = if subscribe {
             // The cache is keyed by service and group only, never by cluster:
             // the Java client stores the full instance set and narrows it down
@@ -397,7 +410,7 @@ impl NacosNamingService {
                     hosts
                 }
                 _ => self
-                    .subscribe_async(service_name, Some(group_name), clusters.clone(), None)
+                    .subscribe_async(service_name, Some(group_name), clusters, None)
                     .await
                     .ok()
                     .flatten(),
@@ -419,9 +432,22 @@ impl NacosNamingService {
             crate::common::error::handle_response(&response, "get_all_instances")?;
             response.service_info.hosts
         };
-        let hosts = hosts.unwrap_or_default();
-        // Narrow the result down to the requested clusters, the way the Java
-        // client does with its in-memory cluster selector.
+        Ok(hosts.unwrap_or_default())
+    }
+
+    #[instrument(fields(client_id = &self.client_id, group = group_name), skip_all)]
+    pub(crate) async fn get_all_instances(
+        &self,
+        service_name: String,
+        group_name: Option<String>,
+        clusters: Vec<String>,
+        subscribe: bool,
+    ) -> Result<Arc<Vec<ServiceInstance>>> {
+        let group_name = crate::common::util::normalize_group_name(group_name);
+
+        let hosts = self
+            .fetch_all_instances(service_name, group_name, clusters.clone(), subscribe)
+            .await?;
         Ok(filter_instances_by_clusters_arc(hosts, &clusters))
     }
 
@@ -436,18 +462,18 @@ impl NacosNamingService {
     ) -> Result<Arc<Vec<ServiceInstance>>> {
         let group_name = crate::common::util::normalize_group_name(group_name);
 
-        let all_instance = self
-            .get_all_instances(service_name, Some(group_name), clusters, subscribe)
+        let instances = self
+            .fetch_all_instances(service_name, group_name, clusters.clone(), subscribe)
             .await?;
-        if all_instance
+        if instances
             .iter()
-            .all(|instance| is_selectable(instance, healthy))
+            .all(|instance| is_selected(instance, &clusters, healthy))
         {
-            return Ok(all_instance);
+            return Ok(instances);
         }
-        let ret: Vec<ServiceInstance> = all_instance
+        let ret: Vec<ServiceInstance> = instances
             .iter()
-            .filter(|instance| is_selectable(instance, healthy))
+            .filter(|instance| is_selected(instance, &clusters, healthy))
             .cloned()
             .collect();
         Ok(Arc::new(ret))
@@ -465,10 +491,10 @@ impl NacosNamingService {
         let service_name_for_tip = service_name.clone();
 
         let instances = self
-            .get_all_instances(service_name, Some(group_name), clusters, subscribe)
+            .fetch_all_instances(service_name, group_name, clusters.clone(), subscribe)
             .await?;
         let chooser = RandomWeightChooser::new(&service_name_for_tip, &instances, |instance| {
-            is_selectable(instance, true)
+            is_selected(instance, &clusters, true)
         })?;
         let index = chooser.choose_index();
         Ok(Arc::new(instances[index].clone()))
