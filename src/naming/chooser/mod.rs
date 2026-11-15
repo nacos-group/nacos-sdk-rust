@@ -17,7 +17,7 @@ impl<'a> RandomWeightChooser<'a> {
         items: &'a [ServiceInstance],
         keep: impl Fn(&ServiceInstance) -> bool,
     ) -> Result<Self> {
-        let mut indices = Vec::new();
+        let mut indices = Vec::with_capacity(items.len());
         let mut origin_weight_sum = 0_f64;
 
         for (index, instance) in items.iter().enumerate() {

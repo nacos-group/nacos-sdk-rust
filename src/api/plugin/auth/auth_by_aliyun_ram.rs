@@ -1,8 +1,8 @@
 use super::RequestResource;
 use crate::api::plugin::{AuthContext, AuthPlugin, LoginIdentityContext};
+use crate::common::util::now_millis;
 use arc_swap::ArcSwap;
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 pub(crate) const ACCESS_KEY: &str = "accessKey";
 pub(crate) const ACCESS_SECRET: &str = "secretKey";
@@ -24,13 +24,6 @@ pub const SIGNATURE_HEADER: &str = "Spas-Signature";
 pub const GROUP_KEY: &str = "group";
 pub const TENANT_KEY: &str = "tenant";
 pub const SHA_ENCRYPT: &str = "HmacSHA1";
-
-fn get_current_timestamp() -> u128 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("System time should be after UNIX_EPOCH")
-        .as_millis()
-}
 
 mod sign_utils {
     use base64::Engine;
@@ -56,8 +49,9 @@ mod sign_utils {
 }
 
 mod spas_adaptor {
-    use crate::api::plugin::auth::auth_by_aliyun_ram::{get_current_timestamp, sign_utils};
+    use crate::api::plugin::auth::auth_by_aliyun_ram::sign_utils;
     use crate::api::plugin::{SIGNATURE_HEADER, TIMESTAMP_HEADER};
+    use crate::common::util::now_millis;
     use std::collections::HashMap;
 
     pub fn get_sign_header_for_resource(
@@ -65,7 +59,7 @@ mod spas_adaptor {
         secret_key: &str,
     ) -> HashMap<String, String> {
         let mut headers = HashMap::default();
-        let timestamp = get_current_timestamp();
+        let timestamp = now_millis();
         headers.insert(TIMESTAMP_HEADER.to_string(), timestamp.to_string());
         if !secret_key.is_empty() {
             let sign = if resource.is_empty() {
@@ -204,9 +198,9 @@ impl AliyunRamAuthPlugin {
 
     fn get_sign_data(resource: &RequestResource) -> Option<String> {
         Self::get_grouped_service_name(resource).map(|grouped_service_name| {
-            let timestamp = get_current_timestamp();
+            let timestamp = now_millis();
             if grouped_service_name.is_empty() {
-                format!("{}", timestamp)
+                timestamp.to_string()
             } else {
                 format!("{}@@{}", timestamp, grouped_service_name)
             }

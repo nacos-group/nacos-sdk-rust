@@ -135,22 +135,28 @@ impl<C: Connector> Supervisor<C> {
             self.spawner.as_ref(),
         )
         .await?;
+        let handshake::Negotiated {
+            transport,
+            connection_id,
+            abilities,
+            pump,
+        } = negotiated;
         *self
             .server_abilities
             .write()
-            .unwrap_or_else(|poisoned| poisoned.into_inner()) = negotiated.abilities.clone();
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = abilities;
         let (cancel, _) = watch::channel(false);
         let health = self.spawner.spawn(Box::pin(health::run(
-            negotiated.transport.clone(),
+            transport.clone(),
             last_active.clone(),
             events_tx,
             shutdown,
             self.settings.clone(),
         )));
         Ok(ActiveConnection {
-            transport: negotiated.transport,
-            connection_id: negotiated.connection_id,
-            pump: negotiated.pump,
+            transport,
+            connection_id,
+            pump,
             health,
             events_rx,
             last_active,

@@ -10,6 +10,7 @@
 //! - `observable`: Service instance change observation and event notification
 //! - `redo`: Automatic retry mechanism for failed operations
 //! - `updater`: Background service info updater for subscribed services
+//! - `util`: Naming-specific helpers (group name and cluster string normalization)
 //!
 //! The public API for service naming is exposed through [`crate::api::naming::NamingService`].
 
@@ -40,6 +41,7 @@ use self::handler::NamingPushRequestHandler;
 use self::observable::service_info_observable::ServiceInfoObserver;
 use self::redo::{AutomaticRequest, NamingRedoTask, RedoTask, RedoTaskExecutor};
 use self::updater::ServiceInfoUpdater;
+use self::util::normalize_group_name;
 
 mod chooser;
 mod dto;
@@ -48,6 +50,7 @@ mod message;
 mod observable;
 mod redo;
 mod updater;
+mod util;
 
 pub(crate) struct NacosNamingService {
     nacos_grpc_client: Arc<NacosGrpcClient>,
@@ -311,7 +314,7 @@ impl NacosNamingService {
         F: FnOnce(ServiceInstance, Option<String>, Option<String>, Option<String>) -> R,
     {
         let namespace = Some(self.namespace.clone());
-        let group_name = crate::common::util::normalize_group_name(group_name);
+        let group_name = normalize_group_name(group_name);
         build(
             service_instance,
             Some(service_name),
@@ -362,7 +365,7 @@ impl NacosNamingService {
         service_instances: Vec<ServiceInstance>,
     ) -> Result<()> {
         let namespace = Some(self.namespace.clone());
-        let group_name = crate::common::util::normalize_group_name(group_name);
+        let group_name = normalize_group_name(group_name);
         let request = BatchInstanceRequest::new(
             service_instances,
             namespace,
@@ -386,7 +389,7 @@ impl NacosNamingService {
         &self,
         service_name: String,
         group_name: String,
-        clusters: Vec<String>,
+        clusters: &[String],
         subscribe: bool,
     ) -> Result<Arc<Vec<ServiceInstance>>> {
         let hosts = if subscribe {
@@ -410,7 +413,7 @@ impl NacosNamingService {
                     hosts
                 }
                 _ => self
-                    .subscribe_async(service_name, Some(group_name), clusters, None)
+                    .ensure_subscribed(service_name, Some(group_name))
                     .await
                     .ok()
                     .flatten(),
@@ -443,10 +446,10 @@ impl NacosNamingService {
         clusters: Vec<String>,
         subscribe: bool,
     ) -> Result<Arc<Vec<ServiceInstance>>> {
-        let group_name = crate::common::util::normalize_group_name(group_name);
+        let group_name = normalize_group_name(group_name);
 
         let hosts = self
-            .fetch_all_instances(service_name, group_name, clusters.clone(), subscribe)
+            .fetch_all_instances(service_name, group_name, &clusters, subscribe)
             .await?;
         Ok(filter_instances_by_clusters_arc(hosts, &clusters))
     }
@@ -460,10 +463,10 @@ impl NacosNamingService {
         subscribe: bool,
         healthy: bool,
     ) -> Result<Arc<Vec<ServiceInstance>>> {
-        let group_name = crate::common::util::normalize_group_name(group_name);
+        let group_name = normalize_group_name(group_name);
 
         let instances = self
-            .fetch_all_instances(service_name, group_name, clusters.clone(), subscribe)
+            .fetch_all_instances(service_name, group_name, &clusters, subscribe)
             .await?;
         if instances
             .iter()
@@ -487,11 +490,11 @@ impl NacosNamingService {
         clusters: Vec<String>,
         subscribe: bool,
     ) -> Result<Arc<ServiceInstance>> {
-        let group_name = crate::common::util::normalize_group_name(group_name);
+        let group_name = normalize_group_name(group_name);
         let service_name_for_tip = service_name.clone();
 
         let instances = self
-            .fetch_all_instances(service_name, group_name, clusters.clone(), subscribe)
+            .fetch_all_instances(service_name, group_name, &clusters, subscribe)
             .await?;
         let chooser = RandomWeightChooser::new(&service_name_for_tip, &instances, |instance| {
             is_selected(instance, &clusters, true)
@@ -507,7 +510,7 @@ impl NacosNamingService {
         page_size: i32,
         group_name: Option<String>,
     ) -> Result<(Vec<String>, i32)> {
-        let group_name = crate::common::util::normalize_group_name(group_name);
+        let group_name = normalize_group_name(group_name);
         let namespace = Some(self.namespace.clone());
 
         let request = ServiceListRequest {
@@ -526,14 +529,17 @@ impl NacosNamingService {
         Ok((response.service_names, response.count))
     }
 
-    async fn subscribe_async(
+    /// Establishes (or reuses) the shared server subscription for a service.
+    ///
+    /// Listeners are registered by the public `subscribe` entry point before
+    /// this is called; the returned instance set is the cached revision when
+    /// one is available.
+    async fn ensure_subscribed(
         &self,
         service_name: String,
         group_name: Option<String>,
-        clusters: Vec<String>,
-        event_listener: Option<Arc<dyn NamingEventListener>>,
     ) -> Result<Option<Arc<Vec<ServiceInstance>>>> {
-        let group_name = crate::common::util::normalize_group_name(group_name);
+        let group_name = normalize_group_name(group_name);
         // The cache is keyed by service and group only, never by cluster:
         // the Java client stores the full instance set and narrows it down
         // in memory (see `filter_instances_by_clusters`).
@@ -557,13 +563,6 @@ impl NacosNamingService {
                 group_name.clone(),
             )
             .await;
-
-        // add event listener
-        if let Some(event_listener) = event_listener {
-            self.observer
-                .subscribe(key.clone(), clusters.clone(), event_listener)
-                .await;
-        }
 
         // Create subscribe request for background execution.
         //
@@ -647,7 +646,7 @@ impl NacosNamingService {
         _clusters: Vec<String>,
         event_listener: Arc<dyn NamingEventListener>,
     ) -> Result<()> {
-        let group_name = crate::common::util::normalize_group_name(group_name);
+        let group_name = normalize_group_name(group_name);
 
         // The listener registry is keyed by service and group only, never by
         // cluster (aligned with the Java client).
@@ -769,9 +768,10 @@ impl NacosNamingService {
         clusters: Vec<String>,
         event_listener: Arc<dyn NamingEventListener>,
     ) -> Result<()> {
-        let _ = self
-            .subscribe_async(service_name, group_name, clusters, Some(event_listener))
-            .await;
+        let group_name = normalize_group_name(group_name);
+        let key = ServiceInfo::get_key_without_clusters(&service_name, &group_name);
+        self.observer.subscribe(key, clusters, event_listener).await;
+        let _ = self.ensure_subscribed(service_name, Some(group_name)).await;
         Ok(())
     }
 }
