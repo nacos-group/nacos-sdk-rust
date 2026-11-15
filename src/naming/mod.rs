@@ -90,6 +90,11 @@ fn instance_in_clusters(instance: &ServiceInstance, clusters: &[String]) -> bool
         .is_some_and(|cluster_name| clusters.iter().any(|cluster| cluster == cluster_name))
 }
 
+/// Whether `instance` satisfies the cluster and health selection.
+fn is_selected(instance: &ServiceInstance, clusters: &[String], healthy: bool) -> bool {
+    instance_in_clusters(instance, clusters) && is_selectable(instance, healthy)
+}
+
 /// Filters instances down to the requested clusters.
 ///
 /// The Java client subscribes with an empty cluster list (`Constants.NULL`) so
@@ -460,15 +465,15 @@ impl NacosNamingService {
         let instances = self
             .fetch_all_instances(service_name, group_name, clusters.clone(), subscribe)
             .await?;
-        let matches = |instance: &ServiceInstance| {
-            instance_in_clusters(instance, &clusters) && is_selectable(instance, healthy)
-        };
-        if instances.iter().all(|instance| matches(instance)) {
+        if instances
+            .iter()
+            .all(|instance| is_selected(instance, &clusters, healthy))
+        {
             return Ok(instances);
         }
         let ret: Vec<ServiceInstance> = instances
             .iter()
-            .filter(|instance| matches(instance))
+            .filter(|instance| is_selected(instance, &clusters, healthy))
             .cloned()
             .collect();
         Ok(Arc::new(ret))
@@ -489,7 +494,7 @@ impl NacosNamingService {
             .fetch_all_instances(service_name, group_name, clusters.clone(), subscribe)
             .await?;
         let chooser = RandomWeightChooser::new(&service_name_for_tip, &instances, |instance| {
-            instance_in_clusters(instance, &clusters) && is_selectable(instance, true)
+            is_selected(instance, &clusters, true)
         })?;
         let index = chooser.choose_index();
         Ok(Arc::new(instances[index].clone()))
