@@ -1,9 +1,9 @@
-use crate::api::config::{ConfigChangeListener, ConfigResponse};
 use crate::api::plugin::ConfigFilter;
 use crate::api::props::CacheKind;
 use crate::common::cache::{Cache, CacheBuilder};
 use crate::config::cache::CacheData;
 use crate::config::message::response::ConfigQueryResponse;
+use crate::config::test_support::{BlockingFilter, ChannelListener};
 use crate::config::worker::ConfigWorker;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -38,14 +38,6 @@ async fn disk_cache(prefix: &str) -> (Cache<CacheData>, PathBuf) {
         .build()
         .await;
     (cache, root)
-}
-
-struct ChannelListener(tokio::sync::mpsc::UnboundedSender<Arc<ConfigResponse>>);
-
-impl ConfigChangeListener for ChannelListener {
-    fn notify(&self, config_resp: Arc<ConfigResponse>) {
-        let _ = self.0.send(config_resp);
-    }
 }
 
 #[test]
@@ -105,29 +97,7 @@ fn clear_deleted_gates_notification() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn handle_config_not_found_holds_no_lock_across_filter_await() {
-    use crate::api::plugin::{ConfigReq, ConfigResp};
-    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-
-    struct BlockingFilter {
-        entered: Arc<AtomicBool>,
-        release: Arc<tokio::sync::Notify>,
-    }
-
-    #[async_trait::async_trait]
-    impl ConfigFilter for BlockingFilter {
-        async fn filter(&self, _: Option<&mut ConfigReq>, _: Option<&mut ConfigResp>) {
-            self.entered.store(true, Ordering::Release);
-            self.release.notified().await;
-        }
-    }
-
-    struct CountingListener(Arc<AtomicUsize>);
-
-    impl ConfigChangeListener for CountingListener {
-        fn notify(&self, _: Arc<ConfigResponse>) {
-            self.0.fetch_add(1, Ordering::SeqCst);
-        }
-    }
+    use std::sync::atomic::{AtomicBool, Ordering};
 
     let entered = Arc::new(AtomicBool::new(false));
     let release = Arc::new(tokio::sync::Notify::new());
@@ -139,12 +109,12 @@ async fn handle_config_not_found_holds_no_lock_across_filter_await() {
     let cache: Arc<Cache<CacheData>> =
         Arc::new(CacheBuilder::config("test-ns".to_string()).build().await);
     let key = "data+_+group+_+test-ns".to_string();
-    let hits = Arc::new(AtomicUsize::new(0));
+    let (notify_tx, mut notify_rx) = tokio::sync::mpsc::unbounded_channel();
 
     let mut data = CacheData::new("data".into(), "group".into(), "test-ns".into());
     data.replace_snapshot("stale".into(), "text".into(), "stale-md5".into());
     data.initializing = false;
-    data.add_listener(Arc::new(CountingListener(Arc::clone(&hits))));
+    data.add_listener(Arc::new(ChannelListener(notify_tx)));
     // Mark the listener as up to date so the deletion is actually dispatched.
     data.dispatch_notify(data.raw_response());
     cache.insert(key.clone(), data);
@@ -200,13 +170,18 @@ async fn handle_config_not_found_holds_no_lock_across_filter_await() {
         .expect("worker task stuck")
         .expect("worker task panicked");
 
-    tokio::time::timeout(Duration::from_secs(2), async {
-        while hits.load(Ordering::SeqCst) < 2 {
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
-    })
-    .await
-    .expect("listener should see the cached revision and the deletion");
+    let cached = tokio::time::timeout(Duration::from_secs(2), notify_rx.recv())
+        .await
+        .expect("listener should see the cached revision")
+        .expect("listener channel should stay open");
+    assert_eq!(cached.content(), "stale");
+
+    let deleted = tokio::time::timeout(Duration::from_secs(2), notify_rx.recv())
+        .await
+        .expect("listener should see the deletion")
+        .expect("listener channel should stay open");
+    assert_eq!(deleted.content(), "");
+    assert_eq!(deleted.md5(), "");
 
     let entry = cache.get(&key).expect("entry should exist");
     assert!(entry.snapshot.content().is_empty());

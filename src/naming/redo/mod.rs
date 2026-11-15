@@ -125,7 +125,8 @@ type CallBack = Box<dyn Fn(Result<()>) + Send + Sync + 'static>;
 pub(crate) trait AutomaticRequest: Send + Sync + 'static {
     async fn run(&self, grpc_client: Arc<NacosGrpcClient>, call_back: CallBack);
 
-    fn name(&self) -> String;
+    /// The key that identifies this request's redo task.
+    fn task_key(&self) -> String;
 }
 
 /// The canonical redo task key: `namespace@@group@@service@@identity`.
@@ -164,7 +165,7 @@ impl NamingRedoTask {
 #[async_trait]
 impl RedoTask for NamingRedoTask {
     fn task_key(&self) -> String {
-        self.automatic_request.name()
+        self.automatic_request.task_key()
     }
 
     fn frozen(&self) {

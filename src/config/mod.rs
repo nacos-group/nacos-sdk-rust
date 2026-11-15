@@ -17,6 +17,9 @@ mod message;
 mod util;
 mod worker;
 
+#[cfg(test)]
+mod test_support;
+
 use std::sync::{Arc, atomic::AtomicU64};
 
 use tracing::instrument;

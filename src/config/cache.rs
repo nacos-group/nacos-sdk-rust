@@ -695,31 +695,9 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_notify_flow_holds_no_lock_across_await() {
         use crate::common::cache::{Cache, CacheBuilder};
-        use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+        use crate::config::test_support::{BlockingFilter, ChannelListener};
+        use std::sync::atomic::{AtomicBool, Ordering};
         use std::time::Duration;
-
-        struct BlockingFilter {
-            entered: Arc<AtomicBool>,
-            release: Arc<tokio::sync::Notify>,
-        }
-
-        #[async_trait::async_trait]
-        impl ConfigFilter for BlockingFilter {
-            async fn filter(&self, _: Option<&mut ConfigReq>, _: Option<&mut ConfigResp>) {
-                self.entered.store(true, Ordering::Release);
-                self.release.notified().await;
-            }
-        }
-
-        struct CountingListener {
-            hits: AtomicUsize,
-        }
-
-        impl ConfigChangeListener for CountingListener {
-            fn notify(&self, _: Arc<ConfigResponse>) {
-                self.hits.fetch_add(1, Ordering::SeqCst);
-            }
-        }
 
         let entered = Arc::new(AtomicBool::new(false));
         let release = Arc::new(tokio::sync::Notify::new());
@@ -731,9 +709,8 @@ mod tests {
         let cache: Arc<Cache<CacheData>> =
             Arc::new(CacheBuilder::config("test-ns".to_string()).build().await);
         let key = "D+G+test-ns".to_string();
-        let listener = Arc::new(CountingListener {
-            hits: AtomicUsize::new(0),
-        });
+        let (notify_tx, mut notify_rx) = tokio::sync::mpsc::unbounded_channel();
+        let listener = Arc::new(ChannelListener(notify_tx));
 
         let mut data = CacheData::new("D".to_string(), "G".to_string(), "test-ns".to_string());
         data.snapshot = Arc::new(ConfigResponse::new("D", "G", "test-ns", "c", "text", "m1"));
@@ -786,13 +763,10 @@ mod tests {
             .expect("notify task stuck")
             .expect("notify task panicked");
 
-        tokio::time::timeout(Duration::from_secs(2), async {
-            while listener.hits.load(Ordering::SeqCst) == 0 {
-                tokio::time::sleep(Duration::from_millis(10)).await;
-            }
-        })
-        .await
-        .expect("listener was not notified");
+        tokio::time::timeout(Duration::from_secs(2), notify_rx.recv())
+            .await
+            .expect("listener was not notified")
+            .expect("listener channel should stay open");
 
         let r = cache.get(&key).expect("entry should exist");
         let last_md5 = r.listeners.lock().expect("mutex should not be poisoned")[0]
