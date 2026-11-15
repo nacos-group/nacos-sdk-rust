@@ -43,14 +43,8 @@ pub enum Error {
     #[error("config query conflict: {0}")]
     ConfigQueryConflict(String),
 
-    #[error("remote client shutdown failed: {0}")]
-    ClientShutdown(String),
-
     #[error("remote client unhealthy failed: {0}")]
     ClientUnhealthy(String),
-
-    #[error("tonic grpc transport error: {0}")]
-    TonicGrpcTransport(#[from] tonic::transport::Error),
 
     #[error("tonic grpc status error: {0}")]
     TonicGrpcStatus(#[from] tonic::Status),

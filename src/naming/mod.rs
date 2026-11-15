@@ -120,40 +120,6 @@ fn filter_instances_by_clusters_arc(
 }
 
 impl NacosNamingService {
-    /// The redo task key of a service's subscription.
-    fn subscribe_task_key(namespace: &str, service_name: &str, group_name: &str) -> String {
-        crate::naming::redo::redo_task_key(
-            namespace,
-            group_name,
-            service_name,
-            <SubscribeServiceRequest as GrpcMessageData>::identity(),
-        )
-    }
-
-    /// Whether the server-side subscription for this service is still active.
-    ///
-    /// The redo task registry holds one entry per active subscription, the
-    /// same way the Java client checks `isSubscribed`.
-    async fn is_subscribed(&self, service_name: &str, group_name: &str) -> bool {
-        self.redo_task_executor
-            .contains_task(&Self::subscribe_task_key(
-                &self.namespace,
-                service_name,
-                group_name,
-            ))
-            .await
-    }
-
-    /// The cached hosts for `key`, gated by the caller's subscription check.
-    ///
-    /// The outer [`Option`] reports whether a cache entry exists; the inner one
-    /// mirrors [`ServiceInfo::hosts`].
-    fn cached_hosts(&self, key: &str) -> Option<Option<Arc<Vec<ServiceInstance>>>> {
-        self.naming_cache
-            .get(key)
-            .map(|cached| cached.hosts.clone())
-    }
-
     pub(crate) async fn new(
         client_props: ClientProps,
         auth_plugin: Arc<dyn AuthPlugin>,
@@ -256,11 +222,11 @@ impl NacosNamingService {
         self.nacos_grpc_client.send_request::<R, P>(request).await
     }
 
-    /// Execute by register request with redo task (active → execute → frozen lifecycle)
-    async fn execute_by_register_with_redo<R, P>(&self, request: R, operation: &str) -> Result<()>
+    /// Register a redo task for `request`, returning it so the caller can freeze
+    /// it once the operation succeeds.
+    async fn register_redo_task<R>(&self, request: &R) -> Arc<NamingRedoTask>
     where
-        R: GrpcRequestMessage + AutomaticRequest + Clone + 'static,
-        P: GrpcResponseMessage + 'static,
+        R: AutomaticRequest + Clone + 'static,
     {
         // automatic request
         let auto_request: Arc<dyn AutomaticRequest> = Arc::new(request.clone());
@@ -271,6 +237,16 @@ impl NacosNamingService {
         redo_task.active();
         // add redo task to executor
         self.redo_task_executor.add_task(redo_task.clone()).await;
+        redo_task
+    }
+
+    /// Execute by register request with redo task (active → execute → frozen lifecycle)
+    async fn execute_by_register_with_redo<R, P>(&self, request: R, operation: &str) -> Result<()>
+    where
+        R: GrpcRequestMessage + AutomaticRequest + Clone + 'static,
+        P: GrpcResponseMessage + 'static,
+    {
+        let redo_task = self.register_redo_task(&request).await;
 
         let response = self.request_to_server::<R, P>(request).await?;
         crate::common::error::handle_response(&response, operation)?;
@@ -279,27 +255,47 @@ impl NacosNamingService {
         Ok(())
     }
 
-    /// Execute by deregister request with immediate redo task cleanup
-    async fn execute_by_deregister_with_redo<R, P>(&self, request: R, operation: &str) -> Result<()>
+    /// Execute a deregister request and drop its redo task.
+    async fn execute_by_deregister<R, P>(&self, request: R, operation: &str) -> Result<()>
     where
-        R: GrpcRequestMessage + AutomaticRequest + Clone + 'static,
+        R: GrpcRequestMessage + AutomaticRequest + 'static,
         P: GrpcResponseMessage + 'static,
     {
-        let auto_request: Arc<dyn AutomaticRequest> = Arc::new(request.clone());
-        let redo_task = NamingRedoTask::new(self.nacos_grpc_client.clone(), auto_request);
+        let task_key = request.task_key();
 
         let response = self.request_to_server::<R, P>(request).await?;
         crate::common::error::handle_response(&response, operation)?;
 
-        // remove redo task from executor
-        self.redo_task_executor
-            .remove_task(redo_task.task_key().as_str())
-            .await;
+        self.redo_task_executor.remove_task(&task_key).await;
         Ok(())
     }
 }
 
 impl NacosNamingService {
+    /// Whether the server-side subscription for this service is still active.
+    ///
+    /// The redo task registry holds one entry per active subscription, the
+    /// same way the Java client checks `isSubscribed`.
+    async fn is_subscribed(&self, service_name: &str, group_name: &str) -> bool {
+        let task_key = crate::naming::redo::redo_task_key(
+            &self.namespace,
+            group_name,
+            service_name,
+            <SubscribeServiceRequest as GrpcMessageData>::identity(),
+        );
+        self.redo_task_executor.contains_task(&task_key).await
+    }
+
+    /// The cached hosts for `key`, gated by the caller's subscription check.
+    ///
+    /// The outer [`Option`] reports whether a cache entry exists; the inner one
+    /// mirrors [`ServiceInfo::hosts`].
+    fn cached_hosts(&self, key: &str) -> Option<Option<Arc<Vec<ServiceInstance>>>> {
+        self.naming_cache
+            .get(key)
+            .map(|cached| cached.hosts.clone())
+    }
+
     fn instance_request<R, F>(
         &self,
         service_name: String,
@@ -379,7 +375,7 @@ impl NacosNamingService {
             service_instance,
             InstanceRequest::deregister,
         );
-        self.execute_by_deregister_with_redo::<InstanceRequest, InstanceResponse>(
+        self.execute_by_deregister::<InstanceRequest, InstanceResponse>(
             request,
             "deregister_ephemeral_instance",
         )
@@ -401,7 +397,7 @@ impl NacosNamingService {
             service_instance,
             PersistentInstanceRequest::deregister,
         );
-        self.execute_by_deregister_with_redo::<PersistentInstanceRequest, InstanceResponse>(
+        self.execute_by_deregister::<PersistentInstanceRequest, InstanceResponse>(
             request,
             "deregister_persistent_instance",
         )
@@ -619,15 +615,9 @@ impl NacosNamingService {
             Some(group_name),
         );
 
-        // automatic request
-        let auto_request: Arc<dyn AutomaticRequest> = Arc::new(request.clone());
-        let redo_task = NamingRedoTask::new(self.nacos_grpc_client.clone(), auto_request);
-
-        let redo_task = Arc::new(redo_task);
-        // active redo task
-        redo_task.active();
-        // add redo task to executor
-        self.redo_task_executor.add_task(redo_task.clone()).await;
+        // The redo task retries the subscribe in the background while it stays
+        // active, and is frozen once the server acknowledges it.
+        let redo_task = self.register_redo_task(&request).await;
 
         // Try to get service info from cache first (if load_cache_at_start is enabled).
         //
@@ -672,11 +662,7 @@ impl NacosNamingService {
             }
             Err(e) => {
                 warn!("subscribe failed, will use the local cache. fail message: {e}");
-                match self
-                    .naming_cache
-                    .get(&key)
-                    .map(|cached| cached.hosts.clone())
-                {
+                match self.cached_hosts(&key) {
                     Some(hosts) => hosts,
                     None => return Err(e),
                 }
@@ -729,18 +715,14 @@ impl NacosNamingService {
             Some(group_name),
         );
 
-        // automatic request
-        let auto_request: Arc<dyn AutomaticRequest> = Arc::new(request.clone());
-        let redo_task = NamingRedoTask::new(self.nacos_grpc_client.clone(), auto_request);
+        let task_key = request.task_key();
 
         let response = self
             .request_to_server::<SubscribeServiceRequest, SubscribeServiceResponse>(request)
             .await?;
         crate::common::error::handle_response(&response, "unsubscribe")?;
         debug!("unsubscribe the {response:?}");
-        self.redo_task_executor
-            .remove_task(redo_task.task_key().as_str())
-            .await;
+        self.redo_task_executor.remove_task(&task_key).await;
         Ok(())
     }
 }

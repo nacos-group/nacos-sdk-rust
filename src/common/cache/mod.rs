@@ -65,23 +65,45 @@ where
 
     pub(crate) fn insert(&self, key: String, value: V) -> Option<V> {
         let ret = self.inner.insert(key.clone(), value);
-
-        if let Some(store) = self.store.clone() {
-            let inner = Arc::clone(&self.inner);
-
-            executor::spawn(
-                async move {
-                    // Hold the shard lock only for the clone; serialization and
-                    // disk I/O must not block writers. Reading the entry at save
-                    // time also keeps the last state on disk when writes race.
-                    let snapshot = inner.get(&key).map(|entry| entry.value().clone());
-                    save_value(store, key, snapshot).await;
-                }
-                .in_current_span(),
-            );
-        }
-
+        self.persist_key(key);
         ret
+    }
+
+    /// Insert `value` only when no entry exists for `key`.
+    ///
+    /// Returns whether this call inserted the value. A caller that must not
+    /// overwrite another writer's entry (and the listeners attached to it)
+    /// should use this instead of `contains_key` followed by `insert`.
+    pub(crate) fn insert_if_absent(&self, key: String, value: V) -> bool {
+        let inserted = match self.inner.entry(key.clone()) {
+            dashmap::mapref::entry::Entry::Occupied(_) => false,
+            dashmap::mapref::entry::Entry::Vacant(entry) => {
+                entry.insert(value);
+                true
+            }
+        };
+        if inserted {
+            self.persist_key(key);
+        }
+        inserted
+    }
+
+    fn persist_key(&self, key: String) {
+        let Some(store) = self.store.clone() else {
+            return;
+        };
+        let inner = Arc::clone(&self.inner);
+
+        executor::spawn(
+            async move {
+                // Hold the shard lock only for the clone; serialization and
+                // disk I/O must not block writers. Reading the entry at save
+                // time also keeps the last state on disk when writes race.
+                let snapshot = inner.get(&key).map(|entry| entry.value().clone());
+                save_value(store, key, snapshot).await;
+            }
+            .in_current_span(),
+        );
     }
 
     pub(crate) fn remove(&self, key: &str) -> Option<V> {
@@ -338,6 +360,20 @@ pub mod tests {
         assert!(cache.get_mut("key").is_some());
         assert_eq!(cache.remove("key").as_deref(), Some("value"));
         assert!(cache.get("key").is_none());
+    }
+
+    #[tokio::test]
+    async fn test_insert_if_absent_keeps_the_first_entry() {
+        let cache: Cache<String> = CacheBuilder::config("test-if-absent".to_string())
+            .build()
+            .await;
+
+        assert!(cache.insert_if_absent("key".to_string(), "first".to_string()));
+        assert!(!cache.insert_if_absent("key".to_string(), "second".to_string()));
+        assert_eq!(
+            cache.get("key").as_deref().map(String::as_str),
+            Some("first")
+        );
     }
 
     #[tokio::test]

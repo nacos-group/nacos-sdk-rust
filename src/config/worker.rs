@@ -337,8 +337,12 @@ impl ConfigWorker {
                 }
                 .in_current_span(),
             );
-            // Save to unified cache (will persist to disk)
-            self.unified_cache.insert(group_key.clone(), cache_data);
+            // Save to unified cache (will persist to disk). A concurrent
+            // add_listener may have created the entry while this call was
+            // fetching, so do not overwrite it: that would drop the listeners
+            // the other call already attached.
+            self.unified_cache
+                .insert_if_absent(group_key.clone(), cache_data);
         }
         // Add listener to existing cache data
         if let Some(cache_ref) = self.unified_cache.get(&group_key) {

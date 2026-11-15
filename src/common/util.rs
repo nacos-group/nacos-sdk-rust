@@ -13,7 +13,6 @@ pub(crate) fn now_millis() -> u64 {
 pub(crate) static LOCAL_IP: std::sync::LazyLock<String> =
     std::sync::LazyLock::new(|| local_ipaddress::get().unwrap_or(String::from("127.0.0.1")));
 
-#[allow(dead_code)]
 pub(crate) static HOME_DIR: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
     std::env::home_dir()
         .unwrap_or(std::env::temp_dir())

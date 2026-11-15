@@ -37,7 +37,7 @@ macro_rules! impl_automatic_request {
                 }
             }
 
-            fn name(&self) -> String {
+            fn task_key(&self) -> String {
                 let namespace = self.namespace.as_deref().unwrap_or("");
                 let service_name = self.service_name.as_deref().unwrap_or("");
                 let group_name = self.group_name.as_deref().unwrap_or("");
