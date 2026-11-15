@@ -42,13 +42,6 @@ impl ConfigWorker {
         let cache_ns = client_props.get_namespace_default_if_empty();
         let cache_kind = client_props.get_cache_kind();
         let config_load_cache_at_start = client_props.get_config_load_cache_at_start();
-        if !cache_kind.is_disk_store() && config_load_cache_at_start {
-            tracing::warn!(
-                cache_kind = cache_kind.name(),
-                "config_load_cache_at_start is set but cache is memory-only, \
-                 nothing will be loaded at startup"
-            );
-        }
         // Create unified cache using the Cache framework with CacheData directly
         let cache_server_name = client_props.get_cache_server_name();
         let unified_cache: Cache<CacheData> = CacheBuilder::config(cache_ns)
@@ -315,15 +308,7 @@ impl ConfigWorker {
             )
             .in_current_span()
             .await;
-            match config_resp {
-                Ok(config_resp) => {
-                    Self::fill_data_and_notify(&mut cache_data, config_resp, &self.config_filters)
-                        .await;
-                }
-                Err(e) => {
-                    tracing::error!("get_config_inner_async, config_resp err={e:?}");
-                }
-            }
+            Self::fill_initial_snapshot(&mut cache_data, config_resp, &self.config_filters).await;
             let req = ConfigBatchListenRequest::new(true)
                 .add_config_listen_context(Self::listen_context(&cache_data));
             let remote_client_clone = self.remote_client.clone();
@@ -341,8 +326,16 @@ impl ConfigWorker {
             // add_listener may have created the entry while this call was
             // fetching, so do not overwrite it: that would drop the listeners
             // the other call already attached.
-            self.unified_cache
-                .insert_if_absent(group_key.clone(), cache_data);
+            let tombstone = cache_data.is_tombstone();
+            let inserted =
+                self.unified_cache
+                    .insert_if_absent(group_key.clone(), cache_data, !tombstone);
+            if inserted && tombstone {
+                // A failed initial fetch leaves an empty entry; the entry stays
+                // for this listener, but nothing is written to disk. Delete a
+                // snapshot left by an earlier existence of this config.
+                self.unified_cache.remove_persisted(&group_key).await;
+            }
         }
         // Add listener to existing cache data
         if let Some(cache_ref) = self.unified_cache.get(&group_key) {
@@ -464,6 +457,29 @@ impl ConfigWorker {
                 namespace = %cache_data.snapshot.namespace(),
                 "fill cache data failed, skip notify: {e:?}"
             ),
+        }
+    }
+
+    /// Fill a freshly created entry from its initial fetch, or close the
+    /// initialization window when the fetch failed.
+    ///
+    /// `initializing` suppresses the notification for the fill that populates a
+    /// new entry. A failed fetch populates nothing, so keeping the window open
+    /// would swallow the first successful fill — the config's creation — and
+    /// the listener would never observe it.
+    async fn fill_initial_snapshot(
+        cache_data: &mut CacheData,
+        config_resp: crate::api::error::Result<ConfigQueryResponse>,
+        config_filters: &Arc<Vec<Box<dyn ConfigFilter>>>,
+    ) {
+        match config_resp {
+            Ok(config_resp) => {
+                Self::fill_data_and_notify(cache_data, config_resp, config_filters).await;
+            }
+            Err(e) => {
+                cache_data.initializing = false;
+                tracing::error!("get_config_inner_async, config_resp err={e:?}");
+            }
         }
     }
 

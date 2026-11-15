@@ -141,13 +141,6 @@ impl NacosNamingService {
         // create naming cache
         let cache_kind = client_props.get_cache_kind();
         let naming_load_cache_at_start = client_props.get_naming_load_cache_at_start();
-        if !cache_kind.is_disk_store() && naming_load_cache_at_start {
-            warn!(
-                cache_kind = cache_kind.name(),
-                "naming_load_cache_at_start is set but cache is memory-only, \
-                 nothing will be loaded at startup"
-            );
-        }
         let cache_server_name = client_props.get_cache_server_name();
         let naming_cache: Cache<ServiceInfo> = CacheBuilder::naming(namespace.clone())
             .load_cache_at_start(naming_load_cache_at_start)

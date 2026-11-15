@@ -81,10 +81,17 @@ mod cache_integration_tests {
         if cache_file.exists() {
             let _ = std::fs::remove_file(&cache_file);
         }
-        // Also remove any temp files
-        let tmp_file = cache_dir.join(format!("{cache_key}.tmp"));
-        if tmp_file.exists() {
-            let _ = std::fs::remove_file(&tmp_file);
+        // Temp names are `<cache_key>.<pid>.<seq>.tmp`; remove leftovers from
+        // an interrupted save.
+        if let Ok(entries) = std::fs::read_dir(&cache_dir) {
+            let tmp_prefix = format!("{cache_key}.");
+            for entry in entries.flatten() {
+                let file_name = entry.file_name();
+                let file_name = file_name.to_string_lossy();
+                if file_name.starts_with(&tmp_prefix) && file_name.ends_with(".tmp") {
+                    let _ = std::fs::remove_file(entry.path());
+                }
+            }
         }
     }
 

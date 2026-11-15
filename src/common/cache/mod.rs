@@ -74,7 +74,11 @@ where
     /// Returns whether this call inserted the value. A caller that must not
     /// overwrite another writer's entry (and the listeners attached to it)
     /// should use this instead of `contains_key` followed by `insert`.
-    pub(crate) fn insert_if_absent(&self, key: String, value: V) -> bool {
+    ///
+    /// `persist` controls whether the inserted value is written to the store.
+    /// A tombstone that must never reach disk passes `false`; skipping the
+    /// save also avoids racing a later delete of an old snapshot.
+    pub(crate) fn insert_if_absent(&self, key: String, value: V, persist: bool) -> bool {
         let inserted = match self.inner.entry(key.clone()) {
             dashmap::mapref::entry::Entry::Occupied(_) => false,
             dashmap::mapref::entry::Entry::Vacant(entry) => {
@@ -82,7 +86,7 @@ where
                 true
             }
         };
-        if inserted {
+        if inserted && persist {
             self.persist_key(key);
         }
         inserted
@@ -287,6 +291,14 @@ where
         server_name: &str,
     ) -> Self {
         if !cache_kind.is_disk_store() {
+            if self.load_cache_at_start {
+                warn!(
+                    cache_kind = cache_kind.name(),
+                    "{}_load_cache_at_start is set but cache is memory-only, \
+                     nothing will be loaded at startup",
+                    self.module
+                );
+            }
             info!(
                 cache_kind = cache_kind.name(),
                 "Cache store disabled, using memory-only cache"
@@ -368,12 +380,42 @@ pub mod tests {
             .build()
             .await;
 
-        assert!(cache.insert_if_absent("key".to_string(), "first".to_string()));
-        assert!(!cache.insert_if_absent("key".to_string(), "second".to_string()));
+        assert!(cache.insert_if_absent("key".to_string(), "first".to_string(), false));
+        assert!(!cache.insert_if_absent("key".to_string(), "second".to_string(), false));
         assert_eq!(
             cache.get("key").as_deref().map(String::as_str),
             Some("first")
         );
+    }
+
+    #[tokio::test]
+    async fn test_insert_if_absent_can_skip_persistence() {
+        let root =
+            std::env::temp_dir().join(format!("nacos-sdk-skip-persist-{}", rand::random::<u64>()));
+        let cache: Cache<String> = CacheBuilder::config("test-namespace".to_string())
+            .store(CacheKind::DiskStore, Some(root.clone()), TEST_SERVER)
+            .build()
+            .await;
+        let cache_file = root
+            .join("config")
+            .join(TEST_SERVER)
+            .join("test-namespace")
+            .join("key");
+
+        assert!(cache.insert_if_absent("key".to_string(), "value".to_string(), false));
+        tokio::time::sleep(Duration::from_millis(300)).await;
+
+        assert!(
+            !cache_file.exists(),
+            "persist=false must not write the entry to disk"
+        );
+        assert_eq!(
+            cache.get("key").as_deref().map(String::as_str),
+            Some("value"),
+            "the entry must still be in memory"
+        );
+
+        let _ = tokio::fs::remove_dir_all(&root).await;
     }
 
     #[tokio::test]
@@ -534,12 +576,14 @@ pub mod tests {
     pub async fn test_cache() {
         crate::test_config::setup_log();
 
+        let root = std::env::temp_dir().join(format!("nacos-sdk-cache-{}", rand::random::<u64>()));
         let cache: Cache<String> = CacheBuilder::naming("test-naming".to_string())
             .load_cache_at_start(true)
-            .store(CacheKind::DiskStore, None, TEST_SERVER)
+            .store(CacheKind::DiskStore, Some(root.clone()), TEST_SERVER)
             .build()
             .await;
         let key = String::from("key");
+        let cache_dir = root.join("naming").join(TEST_SERVER).join("test-naming");
 
         {
             let value = cache.get(&key);
@@ -573,7 +617,8 @@ pub mod tests {
         }
 
         {
-            tokio::time::sleep(Duration::from_millis(222)).await; // sleep for cache already write into disk
+            crate::test_config::wait_for_file(&cache_dir.join("key"), "key should reach disk")
+                .await;
             let ret = cache.remove(&key);
             assert!(ret.is_some());
             let ret = ret.expect("Removed value should be present");
@@ -588,21 +633,12 @@ pub mod tests {
         {
             let ret = cache.insert("key1".to_string(), "test".to_owned());
             assert!(ret.is_none());
-            // sleep 1 second
-            tokio::time::sleep(Duration::from_secs(1)).await;
         }
 
-        let user_home = std::env::home_dir();
+        let cache_file = cache_dir.join("key1");
+        crate::test_config::wait_for_file(&cache_file, "key1 should reach disk").await;
 
-        let mut disk_path =
-            user_home.expect("Failed to get user home directory from system environment");
-        disk_path.push("nacos");
-        disk_path.push("naming");
-        disk_path.push(TEST_SERVER);
-        disk_path.push("test-naming");
-        disk_path.push("key1");
-
-        let read_ret = tokio::fs::read(&disk_path).await;
+        let read_ret = tokio::fs::read(&cache_file).await;
 
         assert!(read_ret.is_ok());
 
@@ -620,7 +656,7 @@ pub mod tests {
 
         let cache: Cache<String> = CacheBuilder::naming("test-naming".to_string())
             .load_cache_at_start(true)
-            .store(CacheKind::DiskStore, None, TEST_SERVER)
+            .store(CacheKind::DiskStore, Some(root.clone()), TEST_SERVER)
             .build()
             .await;
 
@@ -630,9 +666,7 @@ pub mod tests {
         let value = value.expect("Value should be present in cache after reload");
         assert!(value.eq("test"));
 
-        tokio::fs::remove_file(&disk_path)
-            .await
-            .expect("Failed to remove test cache file");
+        let _ = tokio::fs::remove_dir_all(&root).await;
     }
 
     #[tokio::test]
