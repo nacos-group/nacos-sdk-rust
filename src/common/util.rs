@@ -35,13 +35,6 @@ pub(crate) fn generate_client_id(
     )
 }
 
-/// Returns the group name or default group if empty.
-pub(crate) fn normalize_group_name(group_name: Option<String>) -> String {
-    group_name
-        .filter(|data| !data.is_empty())
-        .unwrap_or_else(|| crate::api::constants::DEFAULT_GROUP.to_owned())
-}
-
 /// Checks whether two slices contain the same elements regardless of order.
 /// Duplicates are significant: `[a, a]` != `[a]`.
 pub(crate) fn unordered_eq<T>(a: &[T], b: &[T]) -> bool
@@ -61,22 +54,14 @@ where
 /// The separator the Nacos client puts between the group and the service name.
 pub(crate) const GROUPED_NAME_SEPARATOR: &str = "@@";
 
-/// Joins cluster names into the canonical form used by the Nacos client.
-///
-/// Sorted and deduplicated, matching the Java client's
-/// `NamingSelectorFactory.getUniqueClusterString`.
-pub(crate) fn unique_cluster_string(clusters: &[String]) -> String {
-    let mut sorted: Vec<&str> = clusters.iter().map(|cluster| cluster.as_str()).collect();
-    sorted.sort_unstable();
-    sorted.dedup();
-    sorted.join(",")
-}
-
 /// Builds the `group@@service` name.
 ///
 /// Matches the Java client's `NamingUtils.getGroupedName`. A service name
 /// that already contains the separator is returned unchanged, and an empty
 /// group leaves the service name alone.
+///
+/// Kept here rather than in `naming::util` because the Aliyun auth plugin
+/// signs grouped naming resources and must build without the `naming` feature.
 pub(crate) fn grouped_service_name(service_name: &str, group_name: &str) -> String {
     if !group_name.is_empty() && !service_name.contains(GROUPED_NAME_SEPARATOR) {
         return format!("{group_name}{GROUPED_NAME_SEPARATOR}{service_name}");
@@ -258,19 +243,6 @@ mod tests {
         assert_eq!(super::grouped_service_name("a@@b", "DEFAULT"), "a@@b");
         // An empty group leaves the service name alone.
         assert_eq!(super::grouped_service_name("svc", ""), "svc");
-    }
-
-    #[test]
-    fn test_normalize_group_name() {
-        assert_eq!(
-            super::normalize_group_name(None),
-            crate::api::constants::DEFAULT_GROUP
-        );
-        assert_eq!(
-            super::normalize_group_name(Some(String::new())),
-            crate::api::constants::DEFAULT_GROUP
-        );
-        assert_eq!(super::normalize_group_name(Some("G".to_string())), "G");
     }
 
     #[test]

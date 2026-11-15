@@ -111,7 +111,7 @@ impl ServiceInfoObserver {
                 let naming_event = Arc::new(NamingChangeEvent {
                     service_name: naming_event.service_name.clone(),
                     group_name: naming_event.group_name.clone(),
-                    clusters: crate::common::util::unique_cluster_string(&entry.clusters),
+                    clusters: crate::naming::util::unique_cluster_string(&entry.clusters),
                     instances,
                 });
 
