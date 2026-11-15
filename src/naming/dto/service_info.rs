@@ -71,10 +71,6 @@ impl ServiceInfo {
         false
     }
 
-    pub fn get_grouped_service_name(service_name: &str, group_name: &str) -> String {
-        crate::common::util::grouped_service_name(service_name, group_name)
-    }
-
     pub fn hosts_to_json(&self) -> String {
         let Some(hosts) = self.hosts.as_ref() else {
             return "".to_owned();
@@ -94,7 +90,7 @@ impl ServiceInfo {
     /// every instance, and it filters by cluster in memory when handing the
     /// result to the caller.
     pub fn get_key_without_clusters(service_name: &str, group_name: &str) -> String {
-        Self::get_grouped_service_name(service_name, group_name)
+        crate::common::util::grouped_service_name(service_name, group_name)
     }
 }
 
@@ -186,15 +182,6 @@ mod tests {
         info.hosts = Some(Arc::new(vec![instance(true, 1.0), instance(true, 1.0)]));
         assert_eq!(info.ip_count(), 2);
 
-        assert_eq!(
-            ServiceInfo::get_grouped_service_name("svc", "DEFAULT"),
-            "DEFAULT@@svc"
-        );
-        assert_eq!(
-            ServiceInfo::get_grouped_service_name("DEFAULT@@svc", "DEFAULT"),
-            "DEFAULT@@svc"
-        );
-        assert_eq!(ServiceInfo::get_grouped_service_name("svc", ""), "svc");
         assert_eq!(
             ServiceInfo::get_key_without_clusters("svc", "DEFAULT"),
             "DEFAULT@@svc"
