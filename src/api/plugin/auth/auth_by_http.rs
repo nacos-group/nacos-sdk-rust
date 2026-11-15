@@ -67,7 +67,7 @@ impl AuthPlugin for HttpLoginAuthPlugin {
         };
         let login_url = format!("{scheme}://{server_addr}/nacos/v1/auth/login");
 
-        tracing::debug!("Http login with username={username},password={password}");
+        tracing::debug!("Http login with username={username}");
 
         let login_response = {
             let resp = crate::common::remote::http_client()

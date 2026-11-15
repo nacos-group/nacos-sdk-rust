@@ -131,7 +131,7 @@ pub(crate) trait AutomaticRequest: Send + Sync + 'static {
 
 /// The canonical redo task key: `namespace@@group@@service@@identity`.
 ///
-/// Both [`AutomaticRequest::name`] and the naming service's subscription
+/// Both [`AutomaticRequest::task_key`] and the naming service's subscription
 /// lookup build this key, so it is defined once here — the two must not be
 /// able to drift apart, or the subscription state check silently stops
 /// working.

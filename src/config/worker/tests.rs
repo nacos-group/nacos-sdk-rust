@@ -372,3 +372,30 @@ async fn failed_initial_fill_does_not_swallow_next_notification() {
         "first successful fill after a rejected initial response must notify"
     );
 }
+
+#[tokio::test]
+async fn failed_initial_fetch_does_not_swallow_next_notification() {
+    let mut data = cache_data();
+    let filters: Arc<Vec<Box<dyn ConfigFilter>>> = Arc::new(Vec::new());
+
+    ConfigWorker::fill_initial_snapshot(
+        &mut data,
+        Err(crate::api::error::Error::ConfigNotFound(
+            "config does not exist".to_string(),
+        )),
+        &filters,
+    )
+    .await;
+
+    assert!(
+        !data.initializing,
+        "a failed initial fetch must close the initialization window"
+    );
+    assert!(data.is_tombstone());
+
+    assert!(
+        ConfigWorker::fill_data(&mut data, response(Some("content"), Some("md5")))
+            .expect("valid response should fill the cache"),
+        "the first successful fill after a failed initial fetch must notify"
+    );
+}

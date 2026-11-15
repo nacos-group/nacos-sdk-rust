@@ -92,6 +92,15 @@ impl ServiceInfoUpdater {
         ServiceInfo::get_key_without_clusters(service_name, group_name)
     }
 }
+
+/// Whether the cached entry was refreshed after the poller's last query.
+///
+/// Equal timestamps still query: only a strictly newer cached revision makes
+/// the poll skippable.
+fn cache_is_newer(last_refresh_time: u64, cached_last_ref_time: i64) -> bool {
+    last_refresh_time < cached_last_ref_time as u64
+}
+
 struct ServiceInfoUpdateTask {
     running: Arc<AtomicBool>,
     service_name: String,
@@ -198,21 +207,12 @@ impl ServiceInfoUpdateTask {
 
                 debug!("{log_tag}:ServiceInfoUpdateTask refreshing");
 
-                let cached_last_ref_time = cache.get(&cache_key).map(|data| data.last_ref_time);
-
-                let mut need_query_service_info = true;
-
-                if let Some(cached_last_ref_time) = cached_last_ref_time {
-                    let is_outdate = last_refresh_time >= (cached_last_ref_time as u64);
-                    if is_outdate {
-                        need_query_service_info = true;
-                    } else {
-                        need_query_service_info = false;
-                        last_refresh_time = cached_last_ref_time as u64;
-                    }
-                }
-
-                if !need_query_service_info {
+                if let Some(cached_last_ref_time) = cache
+                    .get(&cache_key)
+                    .map(|data| data.last_ref_time)
+                    && cache_is_newer(last_refresh_time, cached_last_ref_time)
+                {
+                    last_refresh_time = cached_last_ref_time as u64;
                     warn!("{log_tag}:ServiceInfoUpdateTask don't need to refresh service info");
                     continue;
                 }
@@ -268,6 +268,13 @@ impl ServiceInfoUpdateTask {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_cache_is_newer_boundary() {
+        assert!(cache_is_newer(9, 10));
+        assert!(!cache_is_newer(10, 10));
+        assert!(!cache_is_newer(11, 10));
+    }
 
     #[test]
     fn test_update_task_key_excludes_clusters() {

@@ -2,6 +2,7 @@ use std::{
     collections::HashMap,
     future::Future,
     path::{Path, PathBuf},
+    sync::atomic::{AtomicU64, Ordering},
 };
 
 use async_trait::async_trait;
@@ -18,6 +19,28 @@ use crate::api::props::CacheKind;
 
 const MAX_RETRIES: u32 = 3;
 const RETRY_DELAY_MS: u64 = 100;
+
+static TEMP_FILE_SEQ: AtomicU64 = AtomicU64::new(0);
+
+/// A temp path in the same directory as `write_path`, based on the full key.
+///
+/// `with_extension("tmp")` cannot be used here: it collapses keys such as
+/// `a.properties+_+G+_+N` and `a.yaml+_+G+_+N` onto the same `a.tmp`, and a
+/// rename could then move one entry's bytes into the other entry's file. The
+/// pid and sequence suffix additionally keep concurrent saves of one key (in
+/// this or another process) from writing the same temp file.
+fn temp_path(write_path: &Path) -> PathBuf {
+    let mut name = write_path
+        .file_name()
+        .map(|name| name.to_os_string())
+        .unwrap_or_default();
+    name.push(format!(
+        ".{}.{}.tmp",
+        std::process::id(),
+        TEMP_FILE_SEQ.fetch_add(1, Ordering::Relaxed)
+    ));
+    write_path.with_file_name(name)
+}
 
 pub(crate) struct DiskStore {
     disk_path: PathBuf,
@@ -225,8 +248,8 @@ where
 
         info!(path = %write_path.display(), "Saving cache entry to disk");
 
-        // Write to a temporary file first, then rename for atomicity
-        let tmp_path = write_path.with_extension("tmp");
+        // Write to a unique temporary file first, then rename for atomicity
+        let tmp_path = temp_path(&write_path);
         Self::retry(key, &write_path, "save", || {
             self.try_save(&tmp_path, &write_path, &value)
         })
@@ -243,5 +266,48 @@ where
             self.try_remove(&delete_path)
         })
         .await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::temp_path;
+    use std::path::Path;
+
+    #[test]
+    fn test_temp_path_is_unique_and_stays_in_the_same_directory() {
+        let dir = Path::new("/cache/naming/server-a/public");
+        let properties = temp_path(&dir.join("application.properties+_+G+_+N"));
+        let yaml = temp_path(&dir.join("application.yaml+_+G+_+N"));
+        let repeated = temp_path(&dir.join("application.properties+_+G+_+N"));
+
+        assert_ne!(
+            properties, yaml,
+            "keys sharing a file stem must not share a temp file"
+        );
+        assert_ne!(
+            properties, repeated,
+            "concurrent saves of one key must not share a temp file"
+        );
+        for (path, key) in [
+            (&properties, "application.properties+_+G+_+N"),
+            (&yaml, "application.yaml+_+G+_+N"),
+            (&repeated, "application.properties+_+G+_+N"),
+        ] {
+            assert_eq!(
+                path.parent(),
+                Some(dir),
+                "the temp file must stay in the target directory"
+            );
+            let name = path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .expect("temp path should have a UTF-8 file name");
+            assert!(
+                name.starts_with(key),
+                "the temp file must keep the full key: {name}"
+            );
+            assert!(name.ends_with(".tmp"), "unexpected name: {name}");
+        }
     }
 }

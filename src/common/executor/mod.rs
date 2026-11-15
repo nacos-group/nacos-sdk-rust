@@ -4,10 +4,14 @@ use tokio::{
     task::JoinHandle,
 };
 
+fn parse_thread_cores(value: &str) -> Option<usize> {
+    value.parse::<usize>().ok().filter(|n| *n > 0)
+}
+
 static COMMON_THREAD_CORES: std::sync::LazyLock<usize> = std::sync::LazyLock::new(|| {
     std::env::var(crate::api::constants::ENV_NACOS_CLIENT_COMMON_THREAD_CORES)
         .ok()
-        .and_then(|v| v.parse::<usize>().ok().filter(|n| *n > 0))
+        .and_then(|value| parse_thread_cores(&value))
         .unwrap_or(1)
 });
 
@@ -37,41 +41,17 @@ where
 }
 
 #[cfg(test)]
-#[allow(clippy::disallowed_methods)] // Tests need std::thread::sleep and std::env::set_var
 mod tests {
 
     use super::*;
-    use crate::api::constants::ENV_NACOS_CLIENT_COMMON_THREAD_CORES;
 
     #[test]
-    fn test_common_thread_cores() {
-        let num_cpus = std::env::var(ENV_NACOS_CLIENT_COMMON_THREAD_CORES)
-            .ok()
-            .and_then(|v| v.parse::<usize>().ok().filter(|n| *n > 0))
-            .unwrap_or(
-                std::thread::available_parallelism()
-                    .expect("Should get available parallelism")
-                    .get(),
-            );
-        assert!(num_cpus > 0);
-
-        // SAFETY: This is safe in test context where we're the only thread
-        // and setting an env var that only affects this test.
-        // Rust 1.77+ marks set_var as unsafe due to thread-safety concerns
-        // in multi-threaded contexts.
-        #[allow(unsafe_code)]
-        unsafe {
-            std::env::set_var(ENV_NACOS_CLIENT_COMMON_THREAD_CORES, "4");
-        }
-        let num_cpus = std::env::var(ENV_NACOS_CLIENT_COMMON_THREAD_CORES)
-            .ok()
-            .and_then(|v| v.parse::<usize>().ok().filter(|n| *n > 0))
-            .unwrap_or(
-                std::thread::available_parallelism()
-                    .expect("Should get available parallelism")
-                    .get(),
-            );
-        assert_eq!(num_cpus, 4);
+    fn test_parse_thread_cores() {
+        assert_eq!(Some(4), parse_thread_cores("4"));
+        assert_eq!(None, parse_thread_cores("0"));
+        assert_eq!(None, parse_thread_cores("-1"));
+        assert_eq!(None, parse_thread_cores("not-a-number"));
+        assert!(*COMMON_THREAD_CORES > 0);
     }
 
     #[test]

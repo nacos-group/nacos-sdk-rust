@@ -422,31 +422,9 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_blocking_listener_does_not_starve_other_listeners() {
-        use crate::api::naming::{NamingChangeEvent, NamingEventListener};
-        use std::sync::Mutex;
+        use crate::test_support::{BlockingListener, SignalingListener};
         use std::sync::atomic::{AtomicBool, Ordering};
-        use std::sync::mpsc;
         use std::time::Duration;
-
-        struct BlockingListener {
-            entered: Arc<AtomicBool>,
-            release: Mutex<mpsc::Receiver<()>>,
-        }
-
-        impl NamingEventListener for BlockingListener {
-            fn event(&self, _: Arc<NamingChangeEvent>) {
-                self.entered.store(true, Ordering::Release);
-                let _ = self.release.lock().expect("release receiver").recv();
-            }
-        }
-
-        struct SignalingListener(Arc<AtomicBool>);
-
-        impl NamingEventListener for SignalingListener {
-            fn event(&self, _: Arc<NamingChangeEvent>) {
-                self.0.store(true, Ordering::Release);
-            }
-        }
 
         let cache = Arc::new(
             CacheBuilder::naming("test-observer".to_string())
@@ -455,20 +433,11 @@ mod tests {
         );
         let (observer, emitter) = create("test-observer".to_string(), cache, false);
         let key = ServiceInfo::get_key_without_clusters("svc", "DEFAULT");
-        let entered = Arc::new(AtomicBool::new(false));
+        let (blocking, release_tx) = BlockingListener::new();
+        let entered = Arc::clone(&blocking.entered);
         let second_ran = Arc::new(AtomicBool::new(false));
-        let (release_tx, release_rx) = mpsc::channel();
 
-        observer
-            .subscribe(
-                key.clone(),
-                Vec::new(),
-                Arc::new(BlockingListener {
-                    entered: Arc::clone(&entered),
-                    release: Mutex::new(release_rx),
-                }),
-            )
-            .await;
+        observer.subscribe(key.clone(), Vec::new(), blocking).await;
         emitter.emit(service_info(&["127.0.0.1"])).await;
         tokio::time::timeout(Duration::from_secs(2), async {
             while !entered.load(Ordering::Acquire) {
