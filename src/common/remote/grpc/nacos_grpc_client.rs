@@ -10,7 +10,10 @@ use crate::common::remote::grpc::message::{
 use crate::common::remote::server_list::{PollingServerListService, ServerListProvider};
 
 use super::connection::supervisor::StartupMode;
-use super::connection::{ConnectionHandle, ConnectionListener, ExecutorSpawner, SendRequest};
+use super::connection::{
+    Connection, ConnectionHandle, ConnectionListener, ExecutorSpawner,
+    abilities::SUPPORT_PERSISTENT_INSTANCE_BY_GRPC,
+};
 use super::handlers::client_detection_request_handler::ClientDetectionRequestHandler;
 use super::message::request::ClientDetectionRequest;
 use super::tonic::TonicBuilder;
@@ -20,7 +23,7 @@ const APP_FIELD: &str = "app";
 
 pub(crate) struct NacosGrpcClient {
     app_name: String,
-    send_request: Arc<dyn SendRequest + Send + Sync + 'static>,
+    connection: Arc<dyn Connection + Send + Sync + 'static>,
     auth_plugin: Arc<dyn AuthPlugin>,
 }
 
@@ -52,13 +55,26 @@ impl NacosGrpcClient {
         let grpc_request = grpc_request.into_payload()?;
 
         let grpc_response = self
-            .send_request
+            .connection
             .send_request(grpc_request)
             .in_current_span()
             .await?;
 
         let grpc_response = GrpcMessage::<Response>::from_payload(grpc_response)?;
         Ok(grpc_response.into_body())
+    }
+
+    /// Reads a server ability from the live connection. The supervisor
+    /// refreshes the map after every successful handshake, so this reflects
+    /// the server this client is currently talking to.
+    // Shared connection accessor; the AI feature is its current caller.
+    #[cfg_attr(not(feature = "ai"), allow(dead_code))]
+    pub(crate) async fn server_ability(&self, name: &str) -> Result<Option<bool>, Error> {
+        self.connection.server_ability(name).await
+    }
+
+    pub(crate) fn connection_id(&self) -> Option<String> {
+        self.connection.connection_id()
     }
 }
 
@@ -163,7 +179,7 @@ impl NacosGrpcClientBuilder {
         Self { ..self }
     }
 
-    // Only the naming service wires connection listeners; unused with `config` alone.
+    // Only the naming and ai services wire connection listeners; unused with `config` alone.
     #[allow(dead_code)]
     pub(crate) fn connected_listener(
         mut self,
@@ -214,24 +230,21 @@ impl NacosGrpcClientBuilder {
             Arc::new(ExecutorSpawner),
         );
 
-        let send_request =
-            Arc::new(connection.clone()) as Arc<dyn SendRequest + Send + Sync + 'static>;
+        let connection = Arc::new(connection) as Arc<dyn Connection + Send + Sync + 'static>;
 
         // The 2.3 handshake is the readiness check: `WaitForReady` has already
         // propagated any connection failure before this point.
         waiter.wait().await?;
 
-        if !self.emergency_start {
-            let abilities = connection.server_abilities();
-            if !abilities
-                .get("supportPersistentInstanceByGrpc")
-                .copied()
+        if !self.emergency_start
+            && !connection
+                .server_ability(SUPPORT_PERSISTENT_INSTANCE_BY_GRPC)
+                .await?
                 .unwrap_or(false)
-            {
-                tracing::warn!(
-                    "server does not advertise supportPersistentInstanceByGrpc; persistent naming operations may fail"
-                );
-            }
+        {
+            tracing::warn!(
+                "server does not advertise supportPersistentInstanceByGrpc; persistent naming operations may fail"
+            );
         }
 
         init_auth_plugin(
@@ -245,20 +258,25 @@ impl NacosGrpcClientBuilder {
         let app_name = self.app_name;
         let auth_plugin = self.auth_plugin;
 
-        Ok(NacosGrpcClient {
+        let client = NacosGrpcClient {
             app_name,
-            send_request,
+            connection,
             auth_plugin,
-        })
+        };
+        if let Some(connection_id) = client.connection_id() {
+            tracing::debug!(connection_id = %connection_id, "nacos grpc client built");
+        }
+        Ok(client)
     }
 }
 
 #[cfg(test)]
 pub mod tests {
 
-    use crate::common::remote::grpc::{
-        connection::MockSendRequest,
-        message::{request::HealthCheckRequest, response::HealthCheckResponse},
+    use crate::common::remote::grpc::connection::MockConnection;
+    use crate::common::remote::grpc::connection::abilities::SUPPORT_PERSISTENT_INSTANCE_BY_GRPC;
+    use crate::common::remote::grpc::message::{
+        request::HealthCheckRequest, response::HealthCheckResponse,
     };
 
     use mockall::predicate::*;
@@ -272,8 +290,8 @@ pub mod tests {
             ..Default::default()
         };
 
-        let mut mock_send_request = MockSendRequest::new();
-        mock_send_request
+        let mut mock_connection = MockConnection::new();
+        mock_connection
             .expect_send_request()
             .with(function(|req: &crate::nacos_proto::v2::Payload| {
                 let app_name = &req
@@ -311,7 +329,7 @@ pub mod tests {
 
         let nacos_grpc_client = NacosGrpcClient {
             app_name: "test_app".to_string(),
-            send_request: Arc::new(mock_send_request),
+            connection: Arc::new(mock_connection),
             auth_plugin: Arc::new(NoopAuthPlugin::default()),
         };
 
@@ -326,5 +344,44 @@ pub mod tests {
                 .request_id
                 .expect("Response request ID should exist")
         );
+    }
+
+    #[tokio::test]
+    async fn test_server_ability_delegates_to_connection() {
+        let mut mock_connection = MockConnection::new();
+        mock_connection
+            .expect_server_ability()
+            .with(eq(SUPPORT_PERSISTENT_INSTANCE_BY_GRPC))
+            .returning(|_| Ok(Some(true)));
+
+        let nacos_grpc_client = NacosGrpcClient {
+            app_name: "test_app".to_string(),
+            connection: Arc::new(mock_connection),
+            auth_plugin: Arc::new(NoopAuthPlugin::default()),
+        };
+
+        assert_eq!(
+            nacos_grpc_client
+                .server_ability(SUPPORT_PERSISTENT_INSTANCE_BY_GRPC)
+                .await
+                .expect("ability read"),
+            Some(true)
+        );
+    }
+
+    #[tokio::test]
+    async fn test_connection_id_delegates_to_connection() {
+        let mut mock_connection = MockConnection::new();
+        mock_connection
+            .expect_connection_id()
+            .returning(|| Some("c-1".to_string()));
+
+        let nacos_grpc_client = NacosGrpcClient {
+            app_name: "test_app".to_string(),
+            connection: Arc::new(mock_connection),
+            auth_plugin: Arc::new(NoopAuthPlugin::default()),
+        };
+
+        assert_eq!(nacos_grpc_client.connection_id().as_deref(), Some("c-1"));
     }
 }

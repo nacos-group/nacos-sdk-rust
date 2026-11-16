@@ -45,6 +45,7 @@ members = [
 default = ["config", "naming", "auth-by-http"]
 config = []
 naming = []
+ai = []
 tls = [
     "reqwest/default-tls",
     "tonic/tls-ring",

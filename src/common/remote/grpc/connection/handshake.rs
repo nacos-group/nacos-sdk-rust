@@ -154,6 +154,7 @@ mod tests {
     use futures::StreamExt;
 
     use super::*;
+    use crate::common::remote::grpc::connection::abilities::SUPPORT_PERSISTENT_INSTANCE_BY_GRPC;
     use crate::common::remote::grpc::connection::test_support::{
         server_check_payload, setup_ack_payload, test_spawner,
     };
@@ -346,7 +347,7 @@ mod tests {
         let transport = Arc::new(ScriptedTransport::new(
             vec![Ok(server_check_payload("c-1", true))],
             Some(setup_ack_payload(HashMap::from([(
-                "supportPersistentInstanceByGrpc".to_string(),
+                SUPPORT_PERSISTENT_INSTANCE_BY_GRPC.to_string(),
                 true,
             )]))),
             false,
@@ -356,7 +357,9 @@ mod tests {
             .expect("negotiation should succeed");
         assert_eq!(negotiated.connection_id, "c-1");
         assert_eq!(
-            negotiated.abilities.get("supportPersistentInstanceByGrpc"),
+            negotiated
+                .abilities
+                .get(SUPPORT_PERSISTENT_INSTANCE_BY_GRPC),
             Some(&true)
         );
         let setup = transport.last_setup_json();
