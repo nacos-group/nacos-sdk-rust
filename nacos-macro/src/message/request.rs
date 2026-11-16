@@ -49,6 +49,13 @@ pub(crate) fn grpc_request(
                     }
             }
         }
+        super::Module::Ai => {
+            quote! {
+                fn request_resource(&self) -> Option<crate::api::plugin::RequestResource> {
+                    self.ai_request_resource()
+                }
+            }
+        }
         _ => {
             quote! {
                 fn request_resource(&self) -> Option<crate::api::plugin::RequestResource> {

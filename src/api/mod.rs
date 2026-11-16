@@ -12,3 +12,7 @@ pub mod config;
 /// Api of Naming
 #[cfg(feature = "naming")]
 pub mod naming;
+
+/// Api of AI
+#[cfg(feature = "ai")]
+pub mod ai;

@@ -27,6 +27,10 @@ pub(crate) mod common_remote {
 
     /// LABEL_MODULE value config
     pub const LABEL_MODULE_CONFIG: &str = "config";
+
+    /// LABEL_MODULE value ai
+    #[cfg(feature = "ai")]
+    pub const LABEL_MODULE_AI: &str = "ai";
 }
 
 pub(crate) const ENV_NACOS_CLIENT_PROPS_FILE_PATH: &str = "NACOS_CLIENT_PROPS_FILE_PATH";

@@ -73,6 +73,8 @@
 /// Nacos API
 pub mod api;
 
+#[cfg(feature = "ai")]
+mod ai;
 mod common;
 #[cfg(feature = "config")]
 mod config;
