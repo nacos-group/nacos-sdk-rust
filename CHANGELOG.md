@@ -25,6 +25,8 @@
 - 性能：config/naming 用户监听回调改由阻塞线程池执行，避免同步回调阻塞 SDK 运行时
 - 增强：gRPC 请求默认 10 秒响应头超时（覆盖连接建立与等待响应头，不限制双向流生命周期；暂不支持自定义）
 - 破坏性变更：移除已废弃的 `ClientProps::max_retries` 与 `Error::MaxRetriesExceeded`
+- 特性：新增 `ai` feature，支持 MCP 服务器查询/发布、MCP 端点注册/注销（连接重建后自动重注册）与 Prompt 读取（MCP 需 Nacos Server >= 3.0.3，Prompt 需 >= 3.2.0，实测基线 3.3.0）
+- 特性：MCP 订阅支持按版本/`latest` 轮询变更并通过 listener 通知，退订后自动停止任务
 
 ---
 
@@ -51,6 +53,8 @@
 - Performance: config/naming user listener callbacks run on the blocking pool so synchronous callbacks cannot stall the SDK runtime
 - Enhance: gRPC requests now have a default 10-second response-header timeout (covers connection establishment and response headers, not the bi-stream lifetime; not user-configurable yet)
 - Change: remove the deprecated `ClientProps::max_retries` and `Error::MaxRetriesExceeded`
+- Feature: new `ai` feature for MCP server query/release, MCP endpoint registration with reconnect re-registration, and Prompt reads (MCP requires Nacos Server >= 3.0.3, Prompt requires >= 3.2.0; tested baseline 3.3.0)
+- Feature: MCP subscriptions poll per version/`latest` key and notify listeners on change; polling stops after the last unsubscribe
 
 ### 0.8.4
 

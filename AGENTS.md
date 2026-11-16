@@ -139,6 +139,14 @@ external mode; `it_auth` is gated to 2.5.4 until auth-on bootstrap exists.
 
 rnacos is not supported yet: it does not implement ability negotiation (`SetupAckRequest`).
 
+AI 集成测试（`tests/it_ai.rs`）仅在 Nacos 3.x 上运行：本地用 `NACOS_SERVER_PROFILE=3.3`（默认 2.5.4 会打印跳过原因）；CI 在 3.3 matrix 行执行。MCP 需要服务端 >= 3.0.3，Prompt 需要 >= 3.2.0（实测基线 3.3.0）；`auth-by-aliyun` 暂不支持 AI。
+
+MCP 订阅按 `name::version`（空版本为 `latest`）每键轮询，默认 10s；`NOT_FOUND` 保留旧缓存并告警；最后一个 listener 退订后任务停止。
+
+AI integration tests (`tests/it_ai.rs`) run only on Nacos 3.x: use `NACOS_SERVER_PROFILE=3.3` locally (the 2.5.4 default prints a skip reason), and CI runs them in the 3.3 matrix row. MCP requires server >= 3.0.3 and Prompt requires >= 3.2.0 (tested baseline 3.3.0); `auth-by-aliyun` does not support AI yet.
+
+MCP subscriptions poll per `name::version` (empty → `latest`), 10s by default; NOT_FOUND keeps the cached value and warns; the task stops after the last unsubscribe.
+
 ## Key Implementation Files
 
 - `src/common/remote/grpc/nacos_grpc_client.rs` - Core gRPC client logic
@@ -147,6 +155,7 @@ rnacos is not supported yet: it does not implement ability negotiation (`SetupAc
 - `src/config/worker.rs` - Config change detection and cache management
 - `src/naming/observable/` - Service instance change observation
 - `src/api/plugin/` - Plugin trait definitions
+- `src/ai/` - AI service: MCP registry, endpoint redo, and prompt reads (feature `ai`)
 
 ## Dependencies Worth Knowing
 
