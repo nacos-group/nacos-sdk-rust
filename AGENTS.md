@@ -117,7 +117,25 @@ NACOS_CONTAINER_RUNTIME=podman cargo test --test it_config --features "config" -
 
 # External Nacos on 127.0.0.1:8848 (used by CI)
 NACOS_SERVER=external cargo test --test it_config --test it_naming --test it_auth --features "config,naming,auth-by-http" -- --include-ignored
+
+# Nacos 3.3 with auth disabled (console readiness is mapped to http_port + 2000)
+NACOS_SERVER_PROFILE=3.3 \
+NACOS_DOCKER_IMAGE=docker.m.daocloud.io/nacos/nacos-server:v3.3.0 \
+cargo test --test it_config --test it_naming --features "config,naming" -- --include-ignored
 ```
+
+`NACOS_SERVER_PROFILE` accepts `2.5.4` (default) or `3.3`; `NACOS_DOCKER_IMAGE` overrides the
+image independently (use the daocloud mirror when Docker Hub is unreachable). The 3.3 profile
+starts with `NACOS_AUTH_ENABLE=false`, but the image still requires `NACOS_AUTH_TOKEN` and
+`NACOS_AUTH_IDENTITY_KEY/VALUE`. Auth-on bootstrap is not implemented yet, so keep `it_auth`
+on 2.5.4. 3.3 reports readiness on its console (8080); the fixture maps `http_port + 2000` and
+also requires `/nacos/v1/ns/operator/metrics` on 8848 before starting tests.
+
+Known container-mode failures on both 2.5.4 and 3.3 (external mode skips both, and CI uses
+external): `test_publish_config_beta` publishes to beta IP `127.0.0.1`, which does not match
+the container source IP, and `test_register_instance_with_cluster` uses `CUSTOM_CLUSTER`,
+whose underscore the server rejects. CI runs the container matrix for both versions in
+external mode; `it_auth` is gated to 2.5.4 until auth-on bootstrap exists.
 
 rnacos is not supported yet: it does not implement ability negotiation (`SetupAckRequest`).
 
