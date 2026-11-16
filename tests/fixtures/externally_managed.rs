@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use super::container_nacos::{ServerProfile, readiness_url_is_ok};
 use super::{FixtureError, Result};
 
 const GRPC_PORT_OFFSET: u16 = 1000;
@@ -9,6 +10,7 @@ pub struct ExternallyManagedServer {
     http_port: u16,
     grpc_port: u16,
     running: Arc<AtomicBool>,
+    profile: ServerProfile,
 }
 
 impl ExternallyManagedServer {
@@ -17,26 +19,27 @@ impl ExternallyManagedServer {
             http_port,
             grpc_port: http_port + GRPC_PORT_OFFSET,
             running: Arc::new(AtomicBool::new(false)),
+            profile: ServerProfile::from_env(),
         }
     }
 
-    pub async fn health_check(&self) -> bool {
-        let url = format!(
-            "http://127.0.0.1:{}/nacos/v1/console/health/readiness",
-            self.http_port
-        );
-        let client = match reqwest::Client::builder()
-            .timeout(tokio::time::Duration::from_secs(2))
-            .build()
-        {
-            Ok(c) => c,
-            Err(_) => return false,
-        };
+    fn console_port(&self) -> Option<u16> {
+        std::env::var("NACOS_CONSOLE_PORT")
+            .ok()
+            .and_then(|value| value.parse().ok())
+            .or_else(|| self.profile.console_port(self.http_port))
+    }
 
-        match client.get(&url).send().await {
-            Ok(resp) => resp.status().is_success(),
-            Err(_) => false,
+    pub async fn health_check(&self) -> bool {
+        for url in self
+            .profile
+            .readiness_urls(self.http_port, self.console_port())
+        {
+            if !readiness_url_is_ok(&url).await {
+                return false;
+            }
         }
+        true
     }
 
     pub fn is_running(&self) -> bool {
