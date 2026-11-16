@@ -106,6 +106,14 @@ jobs:
           NACOS_SERVER: external
           NACOS_SERVER_PROFILE: ${{ matrix.profile }}
           NACOS_CONSOLE_PORT: "10848"
+      - name: Run AI integration tests
+        if: matrix.profile == '3.3'
+        run: |
+          cargo test --test it_ai --features "config,naming,ai" -- --include-ignored
+        env:
+          NACOS_SERVER: external
+          NACOS_SERVER_PROFILE: ${{ matrix.profile }}
+          NACOS_CONSOLE_PORT: "10848"
       - name: Run auth integration tests
         if: matrix.profile == '2.5.4'
         run: |
@@ -155,6 +163,7 @@ jobs:
           - "config,naming,auth-by-http"
           - "config,naming,auth-by-http,tls"
           - "config,naming,auth-by-aliyun"
+          - "config,naming,ai"
     steps:
       - uses: actions/checkout@v4
       - name: Install Rust

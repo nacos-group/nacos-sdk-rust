@@ -9,8 +9,9 @@ use std::time::Duration;
 use async_trait::async_trait;
 use tokio::sync::mpsc;
 
+use super::super::Connection;
 use super::super::ConnectionHandle;
-use super::super::SendRequest;
+use super::super::abilities::SUPPORT_PERSISTENT_INSTANCE_BY_GRPC;
 use super::*;
 use crate::common::remote::grpc::connection::config::ConnectionSettings;
 use crate::common::remote::grpc::connection::test_support::{server_check_payload, test_spawner};
@@ -106,11 +107,15 @@ impl Drop for AbandonedOnDrop<'_> {
 
 impl ScriptedTransport {
     fn new(server_check: Payload) -> Self {
+        Self::with_ability_table(
+            server_check,
+            HashMap::from([(SUPPORT_PERSISTENT_INSTANCE_BY_GRPC.to_string(), true)]),
+        )
+    }
+
+    fn with_ability_table(server_check: Payload, ability_table: HashMap<String, bool>) -> Self {
         let ack = SetupAckRequest {
-            ability_table: Some(HashMap::from([(
-                "supportPersistentInstanceByGrpc".to_string(),
-                true,
-            )])),
+            ability_table: Some(ability_table),
             ..Default::default()
         };
         Self {
@@ -328,15 +333,94 @@ async fn test_ready_connection_serves_requests_and_exposes_abilities() {
     waiter.wait().await.expect("ready");
     assert_eq!(
         handle
-            .server_abilities()
-            .get("supportPersistentInstanceByGrpc"),
-        Some(&true)
+            .server_ability(SUPPORT_PERSISTENT_INSTANCE_BY_GRPC)
+            .await
+            .expect("ability read"),
+        Some(true)
     );
     let response = handle
         .send_request(Payload::default())
         .await
         .expect("business response");
     assert_eq!(response, business);
+    drop(handle);
+}
+
+#[tokio::test(start_paused = true)]
+async fn test_server_ability_follows_reconnect() {
+    let first = Arc::new(ScriptedTransport::with_ability_table(
+        server_check_payload("c-1", true),
+        HashMap::from([(SUPPORT_PERSISTENT_INSTANCE_BY_GRPC.to_string(), true)]),
+    ));
+    let second = Arc::new(ScriptedTransport::with_ability_table(
+        server_check_payload("c-2", true),
+        HashMap::from([(SUPPORT_PERSISTENT_INSTANCE_BY_GRPC.to_string(), false)]),
+    ));
+    let connector = ScriptedConnector::with_transports(vec![first.clone(), second]);
+    let (handle, waiter) = ConnectionHandle::start_with(
+        "test".to_string(),
+        connector,
+        HandlerMap::new(),
+        test_settings(),
+        StartupMode::WaitForReady { max_attempts: 1 },
+        None,
+        None,
+        test_spawner(),
+    );
+    waiter.wait().await.expect("ready");
+    assert_eq!(
+        handle
+            .server_ability(SUPPORT_PERSISTENT_INSTANCE_BY_GRPC)
+            .await
+            .expect("ability read"),
+        Some(true)
+    );
+
+    first.close_stream();
+    wait_until(|| {
+        matches!(
+            handle.state(),
+            ConnectionState::Ready { connection_id } if connection_id == "c-2"
+        )
+    })
+    .await;
+    assert_eq!(
+        handle
+            .server_ability(SUPPORT_PERSISTENT_INSTANCE_BY_GRPC)
+            .await
+            .expect("ability read after reconnect"),
+        Some(false)
+    );
+    drop(handle);
+}
+
+#[tokio::test(start_paused = true)]
+async fn test_connection_id_reports_ready_id() {
+    let first = Arc::new(ScriptedTransport::new(server_check_payload("c-1", true)));
+    let second = Arc::new(ScriptedTransport::new(server_check_payload("c-2", true)));
+    let connector = ScriptedConnector::with_transports(vec![first.clone(), second]);
+    let (handle, waiter) = ConnectionHandle::start_with(
+        "test".to_string(),
+        connector,
+        HandlerMap::new(),
+        test_settings(),
+        StartupMode::WaitForReady { max_attempts: 1 },
+        None,
+        None,
+        test_spawner(),
+    );
+    waiter.wait().await.expect("ready");
+    assert_eq!(handle.connection_id().as_deref(), Some("c-1"));
+
+    first.close_stream();
+    wait_until(|| {
+        matches!(
+            handle.state(),
+            ConnectionState::Ready { connection_id } if connection_id == "c-2"
+        )
+    })
+    .await;
+    assert_eq!(handle.connection_id().as_deref(), Some("c-2"));
     drop(handle);
 }
 

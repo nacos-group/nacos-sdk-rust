@@ -10,6 +10,7 @@ pub(crate) struct SetupAckRequest {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::common::remote::grpc::connection::abilities::SUPPORT_PERSISTENT_INSTANCE_BY_GRPC;
 
     #[test]
     fn test_setup_ack_parses_ability_table() {
@@ -18,7 +19,7 @@ mod tests {
         )
         .expect("setup ack should deserialize");
         let table = ack.ability_table.expect("ability table");
-        assert_eq!(table.get("supportPersistentInstanceByGrpc"), Some(&true));
+        assert_eq!(table.get(SUPPORT_PERSISTENT_INSTANCE_BY_GRPC), Some(&true));
     }
 
     #[test]

@@ -34,6 +34,16 @@ pub(crate) mod error_messages {
     pub(crate) const CONNECTION_LOST: &str = "connection lost";
     pub(crate) const REQUEST_TIMEOUT: &str = "connection request timeout";
     pub(crate) const REQUEST_CANCELLED: &str = "connection request cancelled";
+    pub(crate) const REQUEST_QUEUE_FULL: &str = "connection request queue is full";
+}
+
+/// Ability keys as advertised in the server's `SetupAck` table.
+pub(crate) mod abilities {
+    #[cfg(feature = "ai")]
+    pub(crate) const MCP: &str = "mcp";
+    #[cfg(feature = "ai")]
+    pub(crate) const MCP_DRAFT_RELEASE: &str = "mcpDraftRelease";
+    pub(crate) const SUPPORT_PERSISTENT_INSTANCE_BY_GRPC: &str = "supportPersistentInstanceByGrpc";
 }
 
 #[derive(Debug)]
@@ -150,12 +160,28 @@ impl ConnectionHandle {
         (Self { inner }, StartupWaiter(startup_rx))
     }
 
-    pub(crate) fn server_abilities(&self) -> HashMap<String, bool> {
-        self.inner
-            .server_abilities
-            .read()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .clone()
+    async fn wait_until_ready(&self, deadline: tokio::time::Instant) -> Result<(), Error> {
+        let mut state = self.inner.state.clone();
+        let ready = async {
+            loop {
+                match &*state.borrow() {
+                    ConnectionState::Ready { .. } => return Ok(()),
+                    ConnectionState::Stopped => {
+                        return Err(Error::ClientUnhealthy(
+                            error_messages::SUPERVISOR_STOPPED.to_string(),
+                        ));
+                    }
+                    _ => {}
+                }
+                state.changed().await.map_err(|_| {
+                    Error::ClientUnhealthy(error_messages::SUPERVISOR_STOPPED.to_string())
+                })?;
+            }
+        };
+        tokio::time::timeout_at(deadline, ready)
+            .await
+            .map_err(|_| Error::ClientUnhealthy(error_messages::NOT_READY.to_string()))??;
+        Ok(())
     }
 
     #[cfg(test)]
@@ -190,37 +216,26 @@ fn spawn_listener(
     }));
 }
 
-#[allow(clippy::disallowed_methods)] // mockall's generated MockSendRequest calls unwrap
+#[allow(clippy::disallowed_methods)] // mockall's generated MockConnection calls unwrap
 #[cfg_attr(test, mockall::automock)]
 #[async_trait]
-pub(crate) trait SendRequest: Send {
+pub(crate) trait Connection: Send {
     async fn send_request(&self, request: Payload) -> Result<Payload, Error>;
+
+    /// Reads the named ability from the current connection. Waits for a ready
+    /// connection so the map comes from the completed handshake, not the
+    /// previous connection during a reconnect.
+    async fn server_ability(&self, name: &str) -> Result<Option<bool>, Error>;
+
+    /// Returns the current ready connection id without waiting, or `None` when not ready.
+    fn connection_id(&self) -> Option<String>;
 }
 
 #[async_trait]
-impl SendRequest for ConnectionHandle {
+impl Connection for ConnectionHandle {
     async fn send_request(&self, request: Payload) -> Result<Payload, Error> {
         let deadline = tokio::time::Instant::now() + self.inner.request_timeout;
-        let mut state = self.inner.state.clone();
-        let ready = async {
-            loop {
-                match &*state.borrow() {
-                    ConnectionState::Ready { .. } => return Ok(()),
-                    ConnectionState::Stopped => {
-                        return Err(Error::ClientUnhealthy(
-                            error_messages::SUPERVISOR_STOPPED.to_string(),
-                        ));
-                    }
-                    _ => {}
-                }
-                state.changed().await.map_err(|_| {
-                    Error::ClientUnhealthy(error_messages::SUPERVISOR_STOPPED.to_string())
-                })?;
-            }
-        };
-        tokio::time::timeout_at(deadline, ready)
-            .await
-            .map_err(|_| Error::ClientUnhealthy(error_messages::NOT_READY.to_string()))??;
+        self.wait_until_ready(deadline).await?;
 
         let (reply, response) = oneshot::channel();
         tokio::time::timeout_at(
@@ -231,12 +246,31 @@ impl SendRequest for ConnectionHandle {
             }),
         )
         .await
-        .map_err(|_| Error::ClientUnhealthy("connection request queue is full".to_string()))?
+        .map_err(|_| Error::ClientUnhealthy(error_messages::REQUEST_QUEUE_FULL.to_string()))?
         .map_err(|_| Error::ClientUnhealthy(error_messages::SUPERVISOR_STOPPED.to_string()))?;
 
         tokio::time::timeout_at(deadline, response)
             .await
             .map_err(|_| Error::ClientUnhealthy(error_messages::REQUEST_TIMEOUT.to_string()))?
             .map_err(|_| Error::ClientUnhealthy(error_messages::REQUEST_CANCELLED.to_string()))?
+    }
+
+    async fn server_ability(&self, name: &str) -> Result<Option<bool>, Error> {
+        let deadline = tokio::time::Instant::now() + self.inner.request_timeout;
+        self.wait_until_ready(deadline).await?;
+        Ok(self
+            .inner
+            .server_abilities
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .get(name)
+            .copied())
+    }
+
+    fn connection_id(&self) -> Option<String> {
+        match &*self.inner.state.borrow() {
+            ConnectionState::Ready { connection_id } => Some(connection_id.clone()),
+            _ => None,
+        }
     }
 }

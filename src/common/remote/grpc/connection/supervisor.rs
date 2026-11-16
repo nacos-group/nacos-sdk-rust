@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::sync::mpsc::error::TryRecvError;
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::JoinHandle;
-use tracing::error;
+use tracing::{error, info};
 
 use crate::api::error::Error;
 use crate::common::util::now_millis;
@@ -258,6 +258,7 @@ impl<C: Connector> Supervisor<C> {
                     ever_ready = true;
                     let ready_at = tokio::time::Instant::now();
                     let connection_id = active.connection_id.clone();
+                    info!(connection_id = %connection_id, "nacos grpc connection ready");
                     self.publish(ConnectionState::Ready { connection_id });
                     if let Some(tx) = self.startup_tx.take() {
                         let _ = tx.send(Ok(()));

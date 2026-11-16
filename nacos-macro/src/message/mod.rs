@@ -22,6 +22,7 @@ enum Module {
     Config,
     Naming,
     Internal,
+    Ai,
 }
 
 impl Module {
@@ -30,6 +31,7 @@ impl Module {
             Module::Config => "config",
             Module::Naming => "naming",
             Module::Internal => "internal",
+            Module::Ai => "ai",
         }
     }
 }
