@@ -119,6 +119,10 @@ pub(crate) async fn init_auth_plugin(
     );
 }
 
+/// Request fields used by [`AuthPlugin`] to derive a login identity.
+///
+/// The string fields borrow from the request for the duration of
+/// [`AuthPlugin::get_login_identity`], so constructing this does not allocate.
 #[derive(Debug, Default)]
 pub struct RequestResource<'a> {
     pub request_type: &'static str,
