@@ -31,8 +31,9 @@ mod shared;
 #[cfg(feature = "auth-by-http")]
 mod auth_integration_tests {
     use crate::fixtures::shared_server::get_shared_server_addr;
-    use nacos_sdk::api::config::{ConfigChangeListener, ConfigResponse, ConfigServiceBuilder};
-    use nacos_sdk::api::naming::{NamingEventListener, NamingServiceBuilder, ServiceInstance};
+    use crate::shared::test_data::{MockNamingListener, ServiceInstanceBuilder};
+    use nacos_sdk::api::config::ConfigServiceBuilder;
+    use nacos_sdk::api::naming::NamingServiceBuilder;
     use nacos_sdk::api::props::ClientProps;
     use std::sync::Arc;
 
@@ -71,64 +72,6 @@ mod auth_integration_tests {
             .build()
             .await
             .expect("NamingServiceBuilder should build successfully")
-    }
-
-    struct TestConfigChangeListener {
-        received: std::sync::Mutex<Vec<Arc<ConfigResponse>>>,
-    }
-
-    impl TestConfigChangeListener {
-        fn new() -> Self {
-            Self {
-                received: std::sync::Mutex::new(Vec::new()),
-            }
-        }
-
-        fn get_received(&self) -> Vec<Arc<ConfigResponse>> {
-            self.received.lock().expect("mutex poisoned").clone()
-        }
-    }
-
-    impl ConfigChangeListener for TestConfigChangeListener {
-        fn notify(&self, config_resp: Arc<ConfigResponse>) {
-            tracing::debug!(
-                "TestConfigChangeListener received config: {}",
-                config_resp.as_ref()
-            );
-            self.received
-                .lock()
-                .expect("mutex poisoned")
-                .push(config_resp);
-        }
-    }
-
-    struct TestNamingEventListener {
-        received: std::sync::Mutex<Vec<String>>,
-    }
-
-    impl TestNamingEventListener {
-        fn new() -> Self {
-            Self {
-                received: std::sync::Mutex::new(Vec::new()),
-            }
-        }
-
-        fn get_received(&self) -> Vec<String> {
-            self.received.lock().expect("mutex poisoned").clone()
-        }
-    }
-
-    impl NamingEventListener for TestNamingEventListener {
-        fn event(&self, event: std::sync::Arc<nacos_sdk::api::naming::NamingChangeEvent>) {
-            tracing::debug!(
-                "TestNamingEventListener received event: {:?}",
-                event.service_name
-            );
-            self.received
-                .lock()
-                .expect("mutex poisoned")
-                .push(event.service_name.clone());
-        }
     }
 
     #[tokio::test]
@@ -207,18 +150,9 @@ mod auth_integration_tests {
         let service_name = "test-auth-service".to_string();
         let group_name = Some("TEST_GROUP".to_string());
 
-        let instance = ServiceInstance {
-            instance_id: None,
-            ip: "127.0.0.1".to_string(),
-            port: 8080,
-            weight: 1.0,
-            healthy: true,
-            enabled: true,
-            ephemeral: true,
-            cluster_name: Some("DEFAULT".to_string()),
-            service_name: Some(service_name.clone()),
-            metadata: Default::default(),
-        };
+        let instance = ServiceInstanceBuilder::new()
+            .service_name(service_name.clone())
+            .build();
 
         naming_service
             .register_instance(service_name.clone(), group_name.clone(), instance)
@@ -244,18 +178,9 @@ mod auth_integration_tests {
         assert_eq!(instances[0].ip(), "127.0.0.1");
         assert_eq!(instances[0].port(), 8080);
 
-        let instance = ServiceInstance {
-            instance_id: None,
-            ip: "127.0.0.1".to_string(),
-            port: 8080,
-            weight: 1.0,
-            healthy: true,
-            enabled: true,
-            ephemeral: true,
-            cluster_name: Some("DEFAULT".to_string()),
-            service_name: Some(service_name.clone()),
-            metadata: Default::default(),
-        };
+        let instance = ServiceInstanceBuilder::new()
+            .service_name(service_name.clone())
+            .build();
 
         naming_service
             .deregister_instance(service_name, group_name, instance)
@@ -275,7 +200,7 @@ mod auth_integration_tests {
         let service_name = "test-auth-subscribe-service".to_string();
         let group_name = Some("TEST_GROUP".to_string());
 
-        let subscriber = Arc::new(TestNamingEventListener::new());
+        let subscriber = Arc::new(MockNamingListener::new());
         naming_service
             .subscribe(
                 service_name.clone(),
@@ -286,36 +211,27 @@ mod auth_integration_tests {
             .await
             .expect("subscribe should succeed with valid auth");
 
-        let instance = ServiceInstance {
-            instance_id: None,
-            ip: "127.0.0.1".to_string(),
-            port: 9090,
-            weight: 1.0,
-            healthy: true,
-            enabled: true,
-            ephemeral: true,
-            cluster_name: Some("DEFAULT".to_string()),
-            service_name: Some(service_name.clone()),
-            metadata: Default::default(),
-        };
+        let instance = ServiceInstanceBuilder::new()
+            .port(9090)
+            .service_name(service_name.clone())
+            .build();
 
         naming_service
             .register_instance(service_name.clone(), group_name.clone(), instance)
             .await
             .expect("register_instance should succeed");
 
-        let events = tokio::time::timeout(tokio::time::Duration::from_secs(5), async {
-            loop {
-                let events = subscriber.get_received();
-                if !events.is_empty() {
-                    break events;
-                }
-                tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-            }
-        })
-        .await
-        .expect("Subscriber should have received at least one event");
-        assert_eq!(events[0], service_name);
+        let received =
+            crate::shared::wait_until(50, tokio::time::Duration::from_millis(100), || async {
+                !subscriber.get_events().is_empty()
+            })
+            .await;
+        assert!(
+            received,
+            "Subscriber should have received at least one event"
+        );
+        let events = subscriber.get_events();
+        assert_eq!(events[0].service_name, service_name);
 
         naming_service
             .unsubscribe(
@@ -375,30 +291,15 @@ mod auth_integration_tests {
         let group_name = Some("TEST_GROUP".to_string());
 
         let instances = vec![
-            ServiceInstance {
-                instance_id: None,
-                ip: "127.0.0.1".to_string(),
-                port: 8081,
-                weight: 1.0,
-                healthy: true,
-                enabled: true,
-                ephemeral: true,
-                cluster_name: Some("DEFAULT".to_string()),
-                service_name: Some(service_name.clone()),
-                metadata: Default::default(),
-            },
-            ServiceInstance {
-                instance_id: None,
-                ip: "127.0.0.1".to_string(),
-                port: 8082,
-                weight: 0.5,
-                healthy: true,
-                enabled: true,
-                ephemeral: true,
-                cluster_name: Some("DEFAULT".to_string()),
-                service_name: Some(service_name.clone()),
-                metadata: Default::default(),
-            },
+            ServiceInstanceBuilder::new()
+                .port(8081)
+                .service_name(service_name.clone())
+                .build(),
+            ServiceInstanceBuilder::new()
+                .port(8082)
+                .weight(0.5)
+                .service_name(service_name.clone())
+                .build(),
         ];
 
         naming_service
@@ -424,18 +325,10 @@ mod auth_integration_tests {
         );
 
         for port in [8081, 8082] {
-            let instance = ServiceInstance {
-                instance_id: None,
-                ip: "127.0.0.1".to_string(),
-                port,
-                weight: 1.0,
-                healthy: true,
-                enabled: true,
-                ephemeral: true,
-                cluster_name: Some("DEFAULT".to_string()),
-                service_name: Some(service_name.clone()),
-                metadata: Default::default(),
-            };
+            let instance = ServiceInstanceBuilder::new()
+                .port(port)
+                .service_name(service_name.clone())
+                .build();
 
             naming_service
                 .deregister_instance(service_name.clone(), group_name.clone(), instance)

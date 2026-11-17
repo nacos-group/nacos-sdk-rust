@@ -216,16 +216,16 @@ async fn start_mock_endpoint_server(nacos_addr: String) -> String {
 }
 
 async fn wait_for_server(port: u16) {
-    for _ in 0..20 {
-        if tokio::net::TcpStream::connect(format!("127.0.0.1:{port}"))
+    let ready = crate::shared::wait_until(20, Duration::from_millis(25), || async {
+        tokio::net::TcpStream::connect(format!("127.0.0.1:{port}"))
             .await
             .is_ok()
-        {
-            return;
-        }
-        tokio::time::sleep(Duration::from_millis(25)).await;
-    }
-    panic!("Mock endpoint server on port {port} did not become ready");
+    })
+    .await;
+    assert!(
+        ready,
+        "Mock endpoint server on port {port} did not become ready"
+    );
 }
 
 /// Starts a mock endpoint server that returns a dynamically-updatable server list.
