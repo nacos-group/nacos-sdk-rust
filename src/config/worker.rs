@@ -741,7 +741,7 @@ impl ConfigWorker {
             .send_request::<ConfigPublishRequest, ConfigPublishResponse>(req)
             .await?;
 
-        crate::common::error::handle_response(&resp, "publish_config").map(|_| true)
+        crate::common::error::handle_response(&resp).map(|_| true)
     }
 
     async fn remove_config_inner_async(
@@ -755,7 +755,7 @@ impl ConfigWorker {
             .send_request::<ConfigRemoveRequest, ConfigRemoveResponse>(req)
             .await?;
 
-        crate::common::error::handle_response(&resp, "remove_config").map(|_| true)
+        crate::common::error::handle_response(&resp).map(|_| true)
     }
 }
 

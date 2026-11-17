@@ -145,7 +145,11 @@ mod ai_integration_tests {
             .expect_err("duplicate release should fail");
         let message = format!("{duplicate}");
         assert!(
-            message.contains("error_code=409") && message.contains("already exist"),
+            matches!(
+                &duplicate,
+                nacos_sdk::api::error::Error::ErrResponse(_, _, 409, Some(detail))
+                    if detail.contains("already exist")
+            ),
             "unexpected duplicate error: {message}"
         );
     }
@@ -252,7 +256,10 @@ mod ai_integration_tests {
         // Nacos 3.3 reports the missing prompt as the server status 404 on the
         // gRPC prompt API; the v2 business code 20004 is never sent.
         assert!(
-            message.contains("error_code=404"),
+            matches!(
+                error,
+                nacos_sdk::api::error::Error::ErrResponse(_, _, 404, _)
+            ),
             "unexpected error: {message}"
         );
     }
@@ -281,8 +288,11 @@ mod ai_integration_tests {
             Err(error) => {
                 let message = format!("{error}");
                 assert!(
-                    message.contains("error_code=409")
-                        && message.contains("LIFECYCLE_MANAGED cutover"),
+                    matches!(
+                        &error,
+                        nacos_sdk::api::error::Error::ErrResponse(_, _, 409, Some(detail))
+                            if detail.contains("LIFECYCLE_MANAGED cutover")
+                    ),
                     "unexpected draft release error: {message}"
                 );
             }
@@ -304,7 +314,10 @@ mod ai_integration_tests {
             .expect_err("missing mcp server should fail");
         let message = format!("{error}");
         assert!(
-            message.contains("error_code=404"),
+            matches!(
+                error,
+                nacos_sdk::api::error::Error::ErrResponse(_, _, 404, _)
+            ),
             "unexpected error: {message}"
         );
     }
