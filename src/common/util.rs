@@ -105,12 +105,15 @@ pub(crate) fn check_not_blank(param_val: impl Into<String>, param_name: &str) ->
     }
 }
 
-const CACHE_SERVER_NAME_MAX_LEN: usize = 200;
+const CACHE_PATH_COMPONENT_MAX_LEN: usize = 200;
 
-/// Builds the per-server segment of the on-disk cache path, following the
-/// Java client's `<envName>_nacos` convention.
-pub(crate) fn cache_server_dir_name(identifier: &str) -> String {
-    let mut name: String = identifier
+/// Sanitizes one user-controlled value for use as a single cache path segment.
+///
+/// Any character outside `[A-Za-z0-9._-]` becomes `_`; empty and dot-only
+/// components are replaced with a hash so they cannot collapse or escape the
+/// parent directory.
+pub(crate) fn cache_path_component(value: &str) -> String {
+    let mut name: String = value
         .chars()
         .map(|c| {
             if c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-') {
@@ -120,10 +123,20 @@ pub(crate) fn cache_server_dir_name(identifier: &str) -> String {
             }
         })
         .collect();
-    if name.len() > CACHE_SERVER_NAME_MAX_LEN {
-        name.truncate(CACHE_SERVER_NAME_MAX_LEN);
-        name.push_str(&format!("_{:08x}", fnv1a_32(identifier.as_bytes())));
+    if name.is_empty() || name == "." || name == ".." {
+        name = format!("_{:08x}", fnv1a_32(value.as_bytes()));
     }
+    if name.len() > CACHE_PATH_COMPONENT_MAX_LEN {
+        name.truncate(CACHE_PATH_COMPONENT_MAX_LEN);
+        name.push_str(&format!("_{:08x}", fnv1a_32(value.as_bytes())));
+    }
+    name
+}
+
+/// Builds the per-server segment of the on-disk cache path, following the
+/// Java client's `<envName>_nacos` convention.
+pub(crate) fn cache_server_dir_name(identifier: &str) -> String {
+    let mut name = cache_path_component(identifier);
     name.push_str("_nacos");
     name
 }
@@ -139,7 +152,39 @@ fn fnv1a_32(bytes: &[u8]) -> u32 {
 
 #[cfg(test)]
 mod tests {
-    use crate::common::util::{cache_server_dir_name, check_not_blank, unordered_eq};
+    use crate::common::util::{
+        cache_path_component, cache_server_dir_name, check_not_blank, unordered_eq,
+    };
+
+    #[test]
+    fn test_cache_path_component_rejects_separators_and_dot_components() {
+        assert_eq!(cache_path_component("../evil"), ".._evil");
+        assert_eq!(cache_path_component("a/b"), "a_b");
+        assert_eq!(cache_path_component("/"), "_");
+
+        let dot = cache_path_component(".");
+        let dot_dot = cache_path_component("..");
+        let empty = cache_path_component("");
+        for component in [&dot, &dot_dot, &empty] {
+            assert!(!component.is_empty());
+            assert_ne!(component, ".");
+            assert_ne!(component, "..");
+            assert!(
+                component
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+            );
+        }
+    }
+
+    #[test]
+    fn test_cache_path_component_caps_long_identifiers() {
+        let first = cache_path_component(&"服".repeat(300));
+        let second = cache_path_component(&"服".repeat(301));
+
+        assert!(first.len() <= 209, "capped component is too long: {first}");
+        assert_ne!(first, second);
+    }
 
     #[test]
     fn test_cache_server_dir_name_is_path_safe() {

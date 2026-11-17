@@ -30,6 +30,8 @@
 - 破坏性变更：`AuthPlugin::get_login_identity` 接收借用 `RequestResource<'_>`（`namespace`/`group`/`resource` 为 `&str`），请求鉴权不再分配；`EncryptionPlugin::algorithm_name` / `parse_algorithm_name` 返回借用字符串，缺失算法段返回 `None` 而非 panic
 - 破坏性变更：服务端返回的失败统一为 `Error::ErrResponse(request_id, result_code, error_code, message)`，不再压平成 `ErrResult` 文本；config 的 300/查询冲突仍映射为 `ConfigNotFound`/`ConfigQueryConflict`
 - 性能：移除 `tower::Service` 服务端选择层，`PollingServerListService::select` 直接轮询；`Cache::remove` 将 key 移交持久化任务，减少一次克隆
+- 性能：MCP 订阅缓存改为直接比较服务器详情，去掉每次轮询的 JSON 归一化；最后一个 listener 退订时回收对应缓存
+- 变更：磁盘缓存路径中的 namespace 段按路径安全白名单清洗；包含路径分隔符或其他非法字符的旧缓存目录不再加载
 
 ---
 
@@ -61,6 +63,8 @@
 - Breaking: `AuthPlugin::get_login_identity` now takes a borrowed `RequestResource<'_>` (`namespace`/`group`/`resource` are `&str`), so request auth no longer allocates; `EncryptionPlugin::algorithm_name` / `parse_algorithm_name` return borrowed strings, and a missing algorithm segment yields `None` instead of panicking
 - Breaking: server-side failures now surface as `Error::ErrResponse(request_id, result_code, error_code, message)` instead of flattened `ErrResult` text; config's 300/query-conflict responses still map to `ConfigNotFound`/`ConfigQueryConflict`
 - Performance: drop the `tower::Service` server-selection layer; `PollingServerListService::select` selects directly, and `Cache::remove` hands its key to the persistence task instead of cloning it
+- Performance: MCP subscription caches now compare server details directly instead of normalizing them through JSON on every poll; the cache entry is evicted when the last listener unsubscribes
+- Change: the namespace segment of the on-disk cache path is sanitized for path safety; cache directories for namespaces with path separators or other invalid characters are no longer loaded
 
 ### 0.8.4
 
