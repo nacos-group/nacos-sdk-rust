@@ -311,7 +311,7 @@ where
         });
         disk_path.push(self.module.clone());
         disk_path.push(server_name);
-        disk_path.push(self.namespace.clone());
+        disk_path.push(crate::common::util::cache_path_component(&self.namespace));
 
         let disk_store = Arc::new(DiskStore::new(disk_path));
 
@@ -664,6 +664,35 @@ pub mod tests {
         assert!(value.eq("test"));
 
         let _ = tokio::fs::remove_dir_all(&root).await;
+    }
+
+    #[tokio::test]
+    async fn test_namespace_cache_path_is_sanitized() {
+        let root = std::env::temp_dir().join(format!(
+            "nacos-sdk-safe-namespace-{}",
+            rand::random::<u64>()
+        ));
+        let cache: Cache<String> = CacheBuilder::config("../evil".to_string())
+            .store(CacheKind::DiskStore, Some(root.clone()), TEST_SERVER)
+            .build()
+            .await;
+
+        cache.insert("key".to_string(), "value".to_string());
+
+        let safe_file = root
+            .join("config")
+            .join(TEST_SERVER)
+            .join(".._evil")
+            .join("key");
+        crate::test_config::wait_for_file(&safe_file, "sanitized namespace should be used").await;
+        assert!(
+            !root.join("config").join("evil").exists(),
+            "the namespace must not escape its parent directory"
+        );
+
+        tokio::fs::remove_dir_all(root)
+            .await
+            .expect("cache directory should be removable");
     }
 
     #[tokio::test]
