@@ -23,7 +23,7 @@ const APP_FIELD: &str = "app";
 
 pub(crate) struct NacosGrpcClient {
     app_name: String,
-    connection: Arc<dyn Connection + Send + Sync + 'static>,
+    connection: Arc<dyn Connection>,
     auth_plugin: Arc<dyn AuthPlugin>,
 }
 
@@ -230,7 +230,7 @@ impl NacosGrpcClientBuilder {
             Arc::new(ExecutorSpawner),
         );
 
-        let connection = Arc::new(connection) as Arc<dyn Connection + Send + Sync + 'static>;
+        let connection: Arc<dyn Connection> = Arc::new(connection);
 
         // The 2.3 handshake is the readiness check: `WaitForReady` has already
         // propagated any connection failure before this point.

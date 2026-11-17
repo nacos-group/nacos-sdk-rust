@@ -36,6 +36,7 @@ pub(crate) struct NacosAiService {
     namespace: String,
     endpoint_redo: Arc<EndpointRedo>,
     mcp_updater: Arc<McpServerUpdater>,
+    query: Arc<GrpcMcpQuery>,
 }
 
 impl std::fmt::Debug for NacosAiService {
@@ -99,13 +100,14 @@ impl NacosAiService {
             client: nacos_grpc_client.clone(),
             namespace: namespace.clone(),
         });
-        let mcp_updater = McpServerUpdater::new(namespace.clone(), query, update_interval);
+        let mcp_updater = McpServerUpdater::new(namespace.clone(), query.clone(), update_interval);
 
         Ok(Self {
             nacos_grpc_client,
             namespace,
             endpoint_redo,
             mcp_updater,
+            query,
         })
     }
 
@@ -123,8 +125,7 @@ impl NacosAiService {
         version: Option<String>,
     ) -> Result<McpServerDetailInfo> {
         ensure_mcp_registry(self.nacos_grpc_client.server_ability(MCP).await?)?;
-        let request = query_mcp_request(&self.namespace, &mcp_name, version.as_deref());
-        let response: QueryMcpServerResponse = self.request_to_server(request).await?;
+        let response = self.query.send_query(&mcp_name, version.as_deref()).await?;
         handle_response(&response, "mcp server query")?;
         response
             .mcp_server_detail_info
@@ -277,12 +278,21 @@ pub(crate) struct GrpcMcpQuery {
     namespace: String,
 }
 
+impl GrpcMcpQuery {
+    async fn send_query(
+        &self,
+        name: &str,
+        version: Option<&str>,
+    ) -> Result<QueryMcpServerResponse> {
+        let request = query_mcp_request(&self.namespace, name, version);
+        self.client.send_request(request).await
+    }
+}
+
 #[async_trait::async_trait]
 impl McpServerQuery for GrpcMcpQuery {
     async fn query(&self, name: &str, version: Option<&str>) -> Result<McpServerDetailInfo> {
-        let request = query_mcp_request(&self.namespace, name, version);
-        let response: QueryMcpServerResponse = self.client.send_request(request).await?;
-        query_result(response)
+        query_result(self.send_query(name, version).await?)
     }
 }
 
