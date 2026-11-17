@@ -21,10 +21,11 @@ pub trait EncryptionPlugin: Send + Sync {
     }
 
     /**
-     * Parse encryption algorithm name.
+     * Parse encryption algorithm name from a data_id.
      *
      * @param data_id data_id
-     * @return algorithm name
+     * @return the second `-`-separated segment, or `None` if the data_id has
+     *         no second segment; this method never panics
      */
     fn parse_algorithm_name<'a>(&self, data_id: &'a str) -> Option<&'a str> {
         data_id.split(DEFAULT_CIPHER_SPLIT).nth(1)
@@ -176,6 +177,18 @@ mod tests {
         }
     }
 
+    #[test]
+    fn test_parse_algorithm_name_boundaries() {
+        let plugin = TestEncryptionPlugin;
+
+        assert_eq!(plugin.parse_algorithm_name("cipher-AES-data"), Some("AES"));
+        assert_eq!(plugin.parse_algorithm_name("cipher-"), Some(""));
+        assert_eq!(plugin.parse_algorithm_name("cipher"), None);
+        assert!(plugin.need_cipher("cipher-TEST-data"));
+        assert!(!plugin.need_cipher("cipher--TEST-data"));
+        assert!(!plugin.need_cipher("cipher-AES-data"));
+    }
+
     #[tokio::test]
     async fn test_config_encryption_filters_empty() {
         let config_encryption_filter = ConfigEncryptionFilter::new(vec![]);
@@ -221,7 +234,7 @@ mod tests {
             ConfigEncryptionFilter::new(vec![Box::new(TestEncryptionPlugin {})]);
 
         let (data_id, group, namespace, content, encrypted_data_key) = (
-            DEFAULT_CIPHER_PREFIX.to_owned() + "-TEST-D",
+            DEFAULT_CIPHER_PREFIX.to_owned() + "TEST-D",
             "G".to_string(),
             "N".to_string(),
             "C".to_string(),
@@ -238,6 +251,8 @@ mod tests {
         config_encryption_filter
             .filter(Some(&mut config_req), None)
             .await;
+        assert_ne!(config_req.content, content);
+        assert_ne!(config_req.encrypted_data_key, encrypted_data_key);
 
         let mut config_resp = ConfigResp::new(
             config_req.data_id.clone(),

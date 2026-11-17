@@ -66,8 +66,8 @@ mod tests {
         let request = sample();
         let resource = request.request_resource().expect("ai resource");
         assert_eq!(resource.request_type, "AI");
-        assert_eq!(resource.namespace.as_deref(), Some("public"));
-        assert_eq!(resource.group.as_deref(), Some("DEFAULT_GROUP"));
-        assert_eq!(resource.resource.as_deref(), Some("plan-prompt"));
+        assert_eq!(resource.namespace, Some("public"));
+        assert_eq!(resource.group, Some("DEFAULT_GROUP"));
+        assert_eq!(resource.resource, Some("plan-prompt"));
     }
 }

@@ -55,6 +55,6 @@ mod tests {
         let request = sample();
         let resource = request.request_resource().expect("ai resource");
         assert_eq!(resource.request_type, "AI");
-        assert_eq!(resource.resource.as_deref(), Some("plan-mcp"));
+        assert_eq!(resource.resource, Some("plan-mcp"));
     }
 }

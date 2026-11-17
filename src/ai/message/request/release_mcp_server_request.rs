@@ -65,11 +65,7 @@ mod tests {
         );
         assert_eq!(sample().module(), "ai");
         assert_eq!(
-            sample()
-                .request_resource()
-                .expect("ai resource")
-                .resource
-                .as_deref(),
+            sample().request_resource().expect("ai resource").resource,
             Some("plan-mcp")
         );
     }
