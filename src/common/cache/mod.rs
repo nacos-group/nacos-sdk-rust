@@ -111,21 +111,18 @@ where
     }
 
     pub(crate) fn remove(&self, key: &str) -> Option<V> {
-        let ret = self.inner.remove(key)?;
+        let (key, value) = self.inner.remove(key)?;
 
-        if let Some(ref store) = self.store {
-            let key_str = ret.0.clone();
-            let store = store.clone();
-
+        if let Some(store) = self.store.clone() {
             executor::spawn(
                 async move {
-                    store.remove(&key_str).await;
+                    store.remove(&key).await;
                 }
                 .in_current_span(),
             );
         }
 
-        Some(ret.1)
+        Some(value)
     }
 
     /// Remove the persisted copy while keeping the in-memory entry.

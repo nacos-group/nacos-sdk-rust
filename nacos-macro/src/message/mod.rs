@@ -1,6 +1,7 @@
 use darling::FromMeta;
 use darling::ast::NestedMeta;
-use syn::{ItemStruct, Path, parse_macro_input, parse_quote};
+use quote::quote;
+use syn::{Ident, ItemStruct, parse_macro_input, parse_quote};
 
 use self::{request::grpc_request, response::grpc_response};
 
@@ -10,9 +11,6 @@ pub(crate) mod response;
 #[derive(Debug, FromMeta)]
 pub(crate) struct MacroArgs {
     identity: String,
-
-    #[darling(default)]
-    crates: Crates,
 
     module: Module,
 }
@@ -36,29 +34,23 @@ impl Module {
     }
 }
 
-#[derive(Debug, FromMeta)]
-struct Crates {
-    #[darling(default = "Self::default_serde")]
-    serde: Path,
-
-    #[darling(default = "Self::default_std")]
-    std: Path,
-}
-
-impl Default for Crates {
-    fn default() -> Self {
-        Self::from_list(&[]).expect("Default crates list should be valid")
+fn grpc_message_data_impl(name: &Ident, identity: &str) -> proc_macro2::TokenStream {
+    quote! {
+        impl crate::common::remote::grpc::message::GrpcMessageData for #name {
+            fn identity() -> &'static str {
+                #identity
+            }
+        }
     }
 }
 
-impl Crates {
-    fn default_serde() -> Path {
-        parse_quote! { ::serde }
-    }
-
-    fn default_std() -> Path {
-        parse_quote! { ::std }
-    }
+fn add_message_attrs(item_struct: &mut ItemStruct) {
+    item_struct.attrs.push(parse_quote! {
+        #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
+    });
+    item_struct.attrs.push(parse_quote!(
+        #[serde(rename_all = "camelCase")]
+    ));
 }
 
 pub fn request(

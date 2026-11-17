@@ -25,7 +25,7 @@ pub trait AuthPlugin: Send + Sync {
     ///
     /// Returning an [`Arc`] lets plugins that keep an identity around (e.g. HTTP
     /// token auth) hand out a shared reference instead of cloning the headers.
-    fn get_login_identity(&self, resource: RequestResource) -> Arc<LoginIdentityContext>;
+    fn get_login_identity(&self, resource: RequestResource<'_>) -> Arc<LoginIdentityContext>;
 }
 
 #[derive(Clone, Default)]
@@ -79,7 +79,7 @@ impl AuthPlugin for NoopAuthPlugin {
         // noop
     }
 
-    fn get_login_identity(&self, _: RequestResource) -> Arc<LoginIdentityContext> {
+    fn get_login_identity(&self, _: RequestResource<'_>) -> Arc<LoginIdentityContext> {
         // noop
         self.login_identity.clone()
     }
@@ -119,12 +119,16 @@ pub(crate) async fn init_auth_plugin(
     );
 }
 
+/// Request fields used by [`AuthPlugin`] to derive a login identity.
+///
+/// The string fields borrow from the request for the duration of
+/// [`AuthPlugin::get_login_identity`], so constructing this does not allocate.
 #[derive(Debug, Default)]
-pub struct RequestResource {
-    pub request_type: String,
-    pub namespace: Option<String>,
-    pub group: Option<String>,
-    pub resource: Option<String>,
+pub struct RequestResource<'a> {
+    pub request_type: &'static str,
+    pub namespace: Option<&'a str>,
+    pub group: Option<&'a str>,
+    pub resource: Option<&'a str>,
 }
 
 #[cfg(test)]

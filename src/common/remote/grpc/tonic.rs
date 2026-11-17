@@ -1,21 +1,16 @@
-use std::{
-    pin::Pin,
-    sync::Arc,
-    task::{Context, Poll},
-};
+use std::sync::Arc;
 
 use async_trait::async_trait;
-use futures::{Future, StreamExt};
+use futures::StreamExt;
 use tonic::transport::{Channel, Endpoint, Uri};
-use tower::Service;
-use tracing::{Instrument, debug, debug_span, error};
+use tracing::{debug, error};
 
 use super::config::GrpcConfiguration;
 use super::connection::{Connector, Transport};
 use super::nacos_grpc_service::GrpcStream;
 use crate::api::error::Error;
 use crate::api::error::Error::NoAvailableServer;
-use crate::common::remote::server_list::ServerAddress;
+use crate::common::remote::server_list::{PollingServerListService, ServerAddress};
 use crate::nacos_proto::v2::{
     Payload, bi_request_stream_client::BiRequestStreamClient, request_client::RequestClient,
 };
@@ -127,59 +122,20 @@ fn build_endpoint(grpc_config: &GrpcConfiguration, endpoint_uri: Uri) -> Endpoin
     endpoint
 }
 
-pub(crate) struct TonicBuilder<S> {
+pub(crate) struct TonicBuilder {
     grpc_config: GrpcConfiguration,
-    server_list: S,
+    server_list: PollingServerListService,
 }
 
-impl<S> TonicBuilder<S>
-where
-    S: Service<(), Response = Arc<dyn ServerAddress>, Error = Error>,
-    S::Future: Send + 'static,
-{
-    pub(crate) fn new(grpc_config: GrpcConfiguration, server_list: S) -> Self {
+impl TonicBuilder {
+    pub(crate) fn new(
+        grpc_config: GrpcConfiguration,
+        server_list: PollingServerListService,
+    ) -> Self {
         Self {
             grpc_config,
             server_list,
         }
-    }
-}
-
-impl<S> Service<()> for TonicBuilder<S>
-where
-    S: Service<(), Response = Arc<dyn ServerAddress>, Error = Error>,
-    S::Future: Send + 'static,
-{
-    type Response = Tonic;
-
-    type Error = Error;
-
-    type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
-
-    fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        let _span_enter = debug_span!("tonic_builder").entered();
-        self.server_list.poll_ready(cx)
-    }
-
-    fn call(&mut self, _: ()) -> Self::Future {
-        let _span_enter = debug_span!("tonic_builder").entered();
-
-        let server_info_fut = self.server_list.call(());
-        let mut grpc_config = self.grpc_config.clone();
-
-        let tonic_fut = async move {
-            let server_address = server_info_fut.await?;
-
-            if grpc_config.port.is_none() {
-                grpc_config.port = Some(server_address.port() + 1000);
-            }
-            grpc_config.host = server_address.host().to_owned();
-
-            let tonic = Tonic::new(grpc_config, server_address);
-            Ok(tonic)
-        }
-        .in_current_span();
-        Box::pin(tonic_fut)
     }
 }
 
@@ -218,15 +174,17 @@ impl Transport for Tonic {
 }
 
 #[async_trait]
-impl<S> Connector for TonicBuilder<S>
-where
-    S: Service<(), Response = Arc<dyn ServerAddress>, Error = Error> + Send + 'static,
-    S::Future: Send + 'static,
-{
+impl Connector for TonicBuilder {
     async fn connect(&mut self) -> Result<Arc<dyn Transport>, Error> {
-        futures::future::poll_fn(|cx| self.poll_ready(cx)).await?;
-        let tonic = self.call(()).await?;
-        Ok(Arc::new(tonic))
+        let server_address = self.server_list.select().await?;
+        let mut grpc_config = self.grpc_config.clone();
+
+        if grpc_config.port.is_none() {
+            grpc_config.port = Some(server_address.port() + 1000);
+        }
+        grpc_config.host = server_address.host().to_owned();
+
+        Ok(Arc::new(Tonic::new(grpc_config, server_address)))
     }
 }
 

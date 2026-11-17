@@ -1,9 +1,8 @@
-use syn::parse::Parser;
-use syn::{ItemStruct, Path, parse_quote};
-
 use quote::quote;
+use syn::ItemStruct;
+use syn::parse::Parser;
 
-use super::{Crates, MacroArgs};
+use super::{MacroArgs, add_message_attrs, grpc_message_data_impl};
 
 pub(crate) fn grpc_request(
     macro_args: MacroArgs,
@@ -12,53 +11,43 @@ pub(crate) fn grpc_request(
     let module = macro_args.module.to_string();
     let identity = macro_args.identity;
     let name = &item_struct.ident;
-
-    let Crates { serde, std } = macro_args.crates;
-
-    // add derive GrpcMessageData
-    let grpc_message_body = quote! {
-        impl crate::common::remote::grpc::message::GrpcMessageData for #name {
-            fn identity<'a>() -> std::borrow::Cow<'a, str> {
-                #identity.into()
-            }
-        }
-    };
+    let grpc_message_body = grpc_message_data_impl(name, &identity);
 
     let into_request_resource = match macro_args.module {
         super::Module::Naming => {
             quote! {
-                fn request_resource(&self) -> Option<crate::api::plugin::RequestResource> {
+                fn request_resource(&self) -> Option<crate::api::plugin::RequestResource<'_>> {
                         Some(crate::api::plugin::RequestResource {
-                            request_type: "Naming".to_string(),
-                            namespace: self.namespace.clone(),
-                            group: self.group_name.clone(),
-                            resource: self.service_name.clone()
+                            request_type: "Naming",
+                            namespace: self.namespace.as_deref(),
+                            group: self.group_name.as_deref(),
+                            resource: self.service_name.as_deref()
                         })
                 }
             }
         }
         super::Module::Config => {
             quote! {
-                fn request_resource(&self) -> Option<crate::api::plugin::RequestResource> {
+                fn request_resource(&self) -> Option<crate::api::plugin::RequestResource<'_>> {
                         Some(crate::api::plugin::RequestResource {
-                            request_type: "Config".to_string(),
-                            namespace: self.namespace.clone(),
-                            group: self.group.clone(),
-                            resource: self.data_id.clone()
+                            request_type: "Config",
+                            namespace: self.namespace.as_deref(),
+                            group: self.group.as_deref(),
+                            resource: self.data_id.as_deref()
                         })
                     }
             }
         }
         super::Module::Ai => {
             quote! {
-                fn request_resource(&self) -> Option<crate::api::plugin::RequestResource> {
+                fn request_resource(&self) -> Option<crate::api::plugin::RequestResource<'_>> {
                     self.ai_request_resource()
                 }
             }
         }
         _ => {
             quote! {
-                fn request_resource(&self) -> Option<crate::api::plugin::RequestResource> {
+                fn request_resource(&self) -> Option<crate::api::plugin::RequestResource<'_>> {
                     None
                 }
             }
@@ -74,15 +63,15 @@ pub(crate) fn grpc_request(
                 self.headers.get(key)
             }
 
-            fn headers(&self) -> &#std::collections::HashMap<String, String> {
+            fn headers(&self) -> &::std::collections::HashMap<String, String> {
                 &self.headers
             }
 
-            fn take_headers(&mut self) -> #std::collections::HashMap<String, String> {
-                #std::mem::take(&mut self.headers)
+            fn take_headers(&mut self) -> ::std::collections::HashMap<String, String> {
+                ::std::mem::take(&mut self.headers)
             }
 
-            fn add_headers(&mut self, map: #std::collections::HashMap<String, String>) {
+            fn add_headers(&mut self, map: ::std::collections::HashMap<String, String>) {
                 self.headers.extend(map.into_iter());
             }
 
@@ -102,7 +91,7 @@ pub(crate) fn grpc_request(
     if let syn::Fields::Named(ref mut fields) = item_struct.fields {
         let headers_field = syn::Field::parse_named
             .parse2(quote! {
-                pub headers: #std::collections::HashMap<String, String>
+                pub headers: ::std::collections::HashMap<String, String>
             })
             .expect("Failed to parse headers field for request struct");
         let request_id_field = syn::Field::parse_named
@@ -115,22 +104,7 @@ pub(crate) fn grpc_request(
         fields.named.push(request_id_field);
     }
 
-    let derive_paths: Vec<Path> = vec![
-        syn::parse_quote! { #serde::Deserialize },
-        syn::parse_quote! { #serde::Serialize },
-        syn::parse_quote! { Clone },
-        syn::parse_quote! { Debug },
-        syn::parse_quote! { Default },
-    ];
-
-    // add derive
-    item_struct.attrs.push(parse_quote! {
-        #[derive(#(#derive_paths),*)]
-
-    });
-    item_struct.attrs.push(parse_quote!(
-        #[serde(rename_all = "camelCase")]
-    ));
+    add_message_attrs(&mut item_struct);
 
     match macro_args.module {
         super::Module::Naming => naming_request(&mut item_struct),

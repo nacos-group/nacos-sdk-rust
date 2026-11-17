@@ -63,7 +63,7 @@ Nacos uses a custom RPC over gRPC. Key architectural notes:
 
 ### gRPC Client Architecture
 - `NacosGrpcClient` sends requests through a cloneable `ConnectionHandle`; a supervisor task owns the connection lifecycle
-- `tonic` provides the transport; `tower::Service` is only used to select a server from the server list
+- `tonic` provides the transport; `PollingServerListService::select` picks the next server and `TonicBuilder` implements `Connector` directly
 - The supervisor performs the Nacos >= 2.3 handshake (ServerCheck + ability negotiation + `SetupAckRequest`), then keeps the persistent bidirectional stream (`requestBiStream`) alive with health checks and jittered exponential backoff
 - Server pushes are dispatched to `ServerRequestHandler` implementations (for example config change notifications); the stream pump intercepts `SetupAckRequest` locally and never replies to it
 - Connection states are published through a `watch` channel; connected/disconnected listeners fire on `Ready` transitions

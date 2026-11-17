@@ -248,7 +248,7 @@ impl NacosNamingService {
     }
 
     /// Execute by register request with redo task (active → execute → frozen lifecycle)
-    async fn execute_by_register_with_redo<R, P>(&self, request: R, operation: &str) -> Result<()>
+    async fn execute_by_register_with_redo<R, P>(&self, request: R) -> Result<()>
     where
         R: GrpcRequestMessage + AutomaticRequest + Clone + 'static,
         P: GrpcResponseMessage + 'static,
@@ -256,14 +256,14 @@ impl NacosNamingService {
         let redo_task = self.register_redo_task(&request).await;
 
         let response = self.request_to_server::<R, P>(request).await?;
-        crate::common::error::handle_response(&response, operation)?;
+        crate::common::error::handle_response(&response)?;
 
         redo_task.frozen();
         Ok(())
     }
 
     /// Execute a deregister request and drop its redo task.
-    async fn execute_by_deregister<R, P>(&self, request: R, operation: &str) -> Result<()>
+    async fn execute_by_deregister<R, P>(&self, request: R) -> Result<()>
     where
         R: GrpcRequestMessage + AutomaticRequest + 'static,
         P: GrpcResponseMessage + 'static,
@@ -271,7 +271,7 @@ impl NacosNamingService {
         let task_key = request.task_key();
 
         let response = self.request_to_server::<R, P>(request).await?;
-        crate::common::error::handle_response(&response, operation)?;
+        crate::common::error::handle_response(&response)?;
 
         self.redo_task_executor.remove_task(&task_key).await;
         Ok(())
@@ -329,14 +329,13 @@ impl NacosNamingService {
         group_name: Option<String>,
         service_instance: ServiceInstance,
         build: F,
-        operation: &str,
     ) -> Result<()>
     where
         R: GrpcRequestMessage + AutomaticRequest + Clone + 'static,
         F: FnOnce(ServiceInstance, Option<String>, Option<String>, Option<String>) -> R,
     {
         let request = self.instance_request(service_name, group_name, service_instance, build);
-        self.execute_by_register_with_redo::<R, InstanceResponse>(request, operation)
+        self.execute_by_register_with_redo::<R, InstanceResponse>(request)
             .await
     }
 
@@ -346,14 +345,13 @@ impl NacosNamingService {
         group_name: Option<String>,
         service_instance: ServiceInstance,
         build: F,
-        operation: &str,
     ) -> Result<()>
     where
         R: GrpcRequestMessage + AutomaticRequest + Clone + 'static,
         F: FnOnce(ServiceInstance, Option<String>, Option<String>, Option<String>) -> R,
     {
         let request = self.instance_request(service_name, group_name, service_instance, build);
-        self.execute_by_deregister::<R, InstanceResponse>(request, operation)
+        self.execute_by_deregister::<R, InstanceResponse>(request)
             .await
     }
 
@@ -373,11 +371,8 @@ impl NacosNamingService {
             Some(group_name),
         );
 
-        self.execute_by_register_with_redo::<BatchInstanceRequest, BatchInstanceResponse>(
-            request,
-            "batch_register_instance",
-        )
-        .await
+        self.execute_by_register_with_redo::<BatchInstanceRequest, BatchInstanceResponse>(request)
+            .await
     }
 
     /// Fetches the full instance set for a service, before the in-memory
@@ -432,7 +427,7 @@ impl NacosNamingService {
             let response = self
                 .request_to_server::<ServiceQueryRequest, QueryServiceResponse>(request)
                 .await?;
-            crate::common::error::handle_response(&response, "get_all_instances")?;
+            crate::common::error::handle_response(&response)?;
             response.service_info.hosts
         };
         Ok(hosts.unwrap_or_default())
@@ -524,7 +519,7 @@ impl NacosNamingService {
         let response = self
             .request_to_server::<ServiceListRequest, ServiceListResponse>(request)
             .await?;
-        crate::common::error::handle_response(&response, "get_service_list")?;
+        crate::common::error::handle_response(&response)?;
 
         Ok((response.service_names, response.count))
     }
@@ -599,7 +594,7 @@ impl NacosNamingService {
                     .send_request::<SubscribeServiceRequest, SubscribeServiceResponse>(request)
                     .await;
                 if let Ok(resp) = response
-                    && crate::common::error::handle_response(&resp, "subscribe").is_ok()
+                    && crate::common::error::handle_response(&resp).is_ok()
                 {
                     debug!("subscribe the {resp:?}");
                     redo_task.frozen();
@@ -619,7 +614,7 @@ impl NacosNamingService {
             .await
         {
             Ok(response) => {
-                crate::common::error::handle_response(&response, "subscribe")?;
+                crate::common::error::handle_response(&response)?;
                 debug!("subscribe the {response:?}");
                 redo_task.frozen();
                 response.service_info.hosts
@@ -684,7 +679,7 @@ impl NacosNamingService {
         let response = self
             .request_to_server::<SubscribeServiceRequest, SubscribeServiceResponse>(request)
             .await?;
-        crate::common::error::handle_response(&response, "unsubscribe")?;
+        crate::common::error::handle_response(&response)?;
         debug!("unsubscribe the {response:?}");
         self.redo_task_executor.remove_task(&task_key).await;
         Ok(())
@@ -708,7 +703,6 @@ impl NacosNamingService {
                 group_name,
                 service_instance,
                 InstanceRequest::register,
-                "register_ephemeral_instance",
             )
             .await
         } else {
@@ -720,7 +714,6 @@ impl NacosNamingService {
                 group_name,
                 service_instance,
                 PersistentInstanceRequest::register,
-                "register_persistent_instance",
             )
             .await
         }
@@ -742,7 +735,6 @@ impl NacosNamingService {
                 group_name,
                 service_instance,
                 InstanceRequest::deregister,
-                "deregister_ephemeral_instance",
             )
             .await
         } else {
@@ -754,7 +746,6 @@ impl NacosNamingService {
                 group_name,
                 service_instance,
                 PersistentInstanceRequest::deregister,
-                "deregister_persistent_instance",
             )
             .await
         }

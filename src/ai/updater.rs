@@ -7,13 +7,12 @@ use tokio::sync::Mutex;
 use tokio::time::sleep;
 use tracing::{debug, warn};
 
+use crate::ai::message::NOT_FOUND_CODE;
 use crate::ai::message::response::QueryMcpServerResponse;
-use crate::ai::message::{NOT_FOUND_CODE, response_error};
 use crate::ai::model::mcp::McpServerDetailInfo;
 use crate::api::error::{Error, Result};
 use crate::common::error::handle_response;
 use crate::common::executor;
-use crate::common::remote::grpc::message::GrpcResponseMessage;
 
 const LATEST_VERSION: &str = "latest";
 
@@ -27,10 +26,7 @@ fn versioned_key(name: &str, version: Option<&str>) -> String {
 /// The production query converts the structured response here so that a 404
 /// surfaces as `ErrResponse(_, _, 404, _)`; `is_not_found` matches that variant.
 pub(crate) fn query_result(response: QueryMcpServerResponse) -> Result<McpServerDetailInfo> {
-    if !response.is_success() && response.error_code() == NOT_FOUND_CODE {
-        return Err(response_error(&response));
-    }
-    handle_response(&response, "mcp server query")?;
+    handle_response(&response)?;
     response
         .mcp_server_detail_info
         .ok_or_else(|| Error::ErrResult("mcp server query returned no detail".to_string()))

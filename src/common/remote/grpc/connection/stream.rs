@@ -42,7 +42,7 @@ pub(crate) async fn run(
                     debug!("server payload has no metadata, skip");
                     continue;
                 };
-                if metadata.r#type == SetupAckRequest::identity().as_ref() {
+                if metadata.r#type.as_str() == SetupAckRequest::identity() {
                     match GrpcMessage::<SetupAckRequest>::from_payload(payload) {
                         Ok(message) => {
                             if let Some(tx) = setup_ack_tx.take() {

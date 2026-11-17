@@ -12,7 +12,6 @@ use crate::ai::ability::{ensure_mcp_draft_release, ensure_mcp_registry};
 use crate::ai::endpoint_redo::{EndpointOps, EndpointRedo};
 use crate::ai::message::request::*;
 use crate::ai::message::response::*;
-use crate::ai::message::{INVALID_PARAM_CODE, NOT_FOUND_CODE, response_error};
 use crate::ai::model::mcp::{
     McpEndpointSpec, McpResourceSpecification, McpServerBasicInfo, McpServerDetailInfo,
     McpToolSpecification,
@@ -36,6 +35,7 @@ pub(crate) struct NacosAiService {
     namespace: String,
     endpoint_redo: Arc<EndpointRedo>,
     mcp_updater: Arc<McpServerUpdater>,
+    query: Arc<GrpcMcpQuery>,
 }
 
 impl std::fmt::Debug for NacosAiService {
@@ -99,13 +99,14 @@ impl NacosAiService {
             client: nacos_grpc_client.clone(),
             namespace: namespace.clone(),
         });
-        let mcp_updater = McpServerUpdater::new(namespace.clone(), query, update_interval);
+        let mcp_updater = McpServerUpdater::new(namespace.clone(), query.clone(), update_interval);
 
         Ok(Self {
             nacos_grpc_client,
             namespace,
             endpoint_redo,
             mcp_updater,
+            query,
         })
     }
 
@@ -123,12 +124,7 @@ impl NacosAiService {
         version: Option<String>,
     ) -> Result<McpServerDetailInfo> {
         ensure_mcp_registry(self.nacos_grpc_client.server_ability(MCP).await?)?;
-        let request = query_mcp_request(&self.namespace, &mcp_name, version.as_deref());
-        let response: QueryMcpServerResponse = self.request_to_server(request).await?;
-        handle_response(&response, "mcp server query")?;
-        response
-            .mcp_server_detail_info
-            .ok_or_else(|| Error::ErrResult("mcp server query returned no detail".to_string()))
+        self.query.query(&mcp_name, version.as_deref()).await
     }
 
     pub(crate) async fn subscribe_mcp_server(
@@ -185,7 +181,7 @@ impl NacosAiService {
             ..Default::default()
         };
         let response: ReleaseMcpServerResponse = self.request_to_server(request).await?;
-        handle_response(&response, "mcp server release")?;
+        handle_response(&response)?;
         response
             .mcp_id
             .ok_or_else(|| Error::ErrResult("mcp release returned no mcp id".to_string()))
@@ -206,7 +202,7 @@ impl NacosAiService {
             ..Default::default()
         };
         let response: QueryPromptResponse = self.request_to_server(request).await?;
-        handle_response(&response, "prompt query")?;
+        handle_response(&response)?;
         response
             .prompt_info
             .ok_or_else(|| Error::ErrResult("prompt query returned no prompt".to_string()))
@@ -277,12 +273,21 @@ pub(crate) struct GrpcMcpQuery {
     namespace: String,
 }
 
+impl GrpcMcpQuery {
+    async fn send_query(
+        &self,
+        name: &str,
+        version: Option<&str>,
+    ) -> Result<QueryMcpServerResponse> {
+        let request = query_mcp_request(&self.namespace, name, version);
+        self.client.send_request(request).await
+    }
+}
+
 #[async_trait::async_trait]
 impl McpServerQuery for GrpcMcpQuery {
     async fn query(&self, name: &str, version: Option<&str>) -> Result<McpServerDetailInfo> {
-        let request = query_mcp_request(&self.namespace, name, version);
-        let response: QueryMcpServerResponse = self.client.send_request(request).await?;
-        query_result(response)
+        query_result(self.send_query(name, version).await?)
     }
 }
 
@@ -309,7 +314,7 @@ impl EndpointOps for GrpcEndpointOps {
             McpServerEndpointRequest::REGISTER_ENDPOINT,
         );
         let response: McpServerEndpointResponse = self.client.send_request(request).await?;
-        handle_response(&response, "mcp endpoint register")
+        handle_response(&response)
     }
 
     async fn deregister(
@@ -328,12 +333,7 @@ impl EndpointOps for GrpcEndpointOps {
             McpServerEndpointRequest::DEREGISTER_ENDPOINT,
         );
         let response: McpServerEndpointResponse = self.client.send_request(request).await?;
-        if !response.is_success()
-            && matches!(response.error_code(), NOT_FOUND_CODE | INVALID_PARAM_CODE)
-        {
-            return Err(response_error(&response));
-        }
-        handle_response(&response, "mcp endpoint deregister")
+        handle_response(&response)
     }
 }
 

@@ -219,7 +219,7 @@ fn spawn_listener(
 #[allow(clippy::disallowed_methods)] // mockall's generated MockConnection calls unwrap
 #[cfg_attr(test, mockall::automock)]
 #[async_trait]
-pub(crate) trait Connection: Send {
+pub(crate) trait Connection: Send + Sync {
     async fn send_request(&self, request: Payload) -> Result<Payload, Error>;
 
     /// Reads the named ability from the current connection. Waits for a ready

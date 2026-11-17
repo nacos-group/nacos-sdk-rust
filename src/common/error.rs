@@ -3,13 +3,22 @@ use crate::api::error::Result;
 use crate::common::remote::grpc::message::GrpcResponseMessage;
 
 /// Handles a standard gRPC response and converts it to a Result.
-/// Returns Ok(()) if the response is successful, otherwise returns an Err with the error details.
-pub(crate) fn handle_response<T: GrpcResponseMessage>(response: &T, operation: &str) -> Result<()> {
+/// Returns Ok(()) if the response is successful, otherwise returns a structured error.
+pub(crate) fn handle_response<T: GrpcResponseMessage>(response: &T) -> Result<()> {
     if response.is_success() {
         Ok(())
     } else {
-        Err(Error::ErrResult(to_err_msg(response, operation)))
+        Err(response_error(response))
     }
+}
+
+pub(crate) fn response_error<T: GrpcResponseMessage>(response: &T) -> Error {
+    Error::ErrResponse(
+        response.request_id().cloned(),
+        response.result_code(),
+        response.error_code(),
+        response.message().cloned(),
+    )
 }
 
 pub(crate) fn to_err_msg<T: GrpcResponseMessage>(response: &T, operation: &str) -> String {
@@ -27,7 +36,6 @@ mod tests {
     use super::*;
     use crate::common::remote::grpc::message::GrpcMessageData;
     use serde::{Deserialize, Serialize};
-    use std::borrow::Cow;
 
     #[derive(Debug, Clone, Serialize, Deserialize)]
     struct MockResponse {
@@ -37,8 +45,8 @@ mod tests {
     }
 
     impl GrpcMessageData for MockResponse {
-        fn identity<'a>() -> Cow<'a, str> {
-            Cow::Borrowed("MockResponse")
+        fn identity() -> &'static str {
+            "MockResponse"
         }
     }
 
@@ -71,7 +79,7 @@ mod tests {
             error_code: 0,
             message: None,
         };
-        assert!(handle_response(&response, "test_handle_response_success").is_ok());
+        assert!(handle_response(&response).is_ok());
     }
 
     #[test]
@@ -81,10 +89,10 @@ mod tests {
             error_code: 400,
             message: Some("test error".to_string()),
         };
-        let result = handle_response(&response, "test_handle_response_failure");
-        assert!(result.is_err());
-        let err_msg = format!("{}", result.unwrap_err());
-        assert!(err_msg.contains("error_code=400"));
-        assert!(err_msg.contains("test error"));
+        let result = handle_response(&response);
+        assert!(matches!(
+            result,
+            Err(Error::ErrResponse(_, 500, 400, Some(message))) if message == "test error"
+        ));
     }
 }

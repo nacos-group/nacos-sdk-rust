@@ -27,6 +27,9 @@
 - 破坏性变更：移除已废弃的 `ClientProps::max_retries` 与 `Error::MaxRetriesExceeded`
 - 特性：新增 `ai` feature，支持 MCP 服务器查询/发布、MCP 端点注册/注销（连接重建后自动重注册）与 Prompt 读取（MCP 需 Nacos Server >= 3.0.3，Prompt 需 >= 3.2.0，实测基线 3.3.0）
 - 特性：MCP 订阅支持按版本/`latest` 轮询变更并通过 listener 通知，退订后自动停止任务
+- 破坏性变更：`AuthPlugin::get_login_identity` 接收借用 `RequestResource<'_>`（`namespace`/`group`/`resource` 为 `&str`），请求鉴权不再分配；`EncryptionPlugin::algorithm_name` / `parse_algorithm_name` 返回借用字符串，缺失算法段返回 `None` 而非 panic
+- 破坏性变更：服务端返回的失败统一为 `Error::ErrResponse(request_id, result_code, error_code, message)`，不再压平成 `ErrResult` 文本；config 的 300/查询冲突仍映射为 `ConfigNotFound`/`ConfigQueryConflict`
+- 性能：移除 `tower::Service` 服务端选择层，`PollingServerListService::select` 直接轮询；`Cache::remove` 将 key 移交持久化任务，减少一次克隆
 
 ---
 
@@ -55,6 +58,9 @@
 - Change: remove the deprecated `ClientProps::max_retries` and `Error::MaxRetriesExceeded`
 - Feature: new `ai` feature for MCP server query/release, MCP endpoint registration with reconnect re-registration, and Prompt reads (MCP requires Nacos Server >= 3.0.3, Prompt requires >= 3.2.0; tested baseline 3.3.0)
 - Feature: MCP subscriptions poll per version/`latest` key and notify listeners on change; polling stops after the last unsubscribe
+- Breaking: `AuthPlugin::get_login_identity` now takes a borrowed `RequestResource<'_>` (`namespace`/`group`/`resource` are `&str`), so request auth no longer allocates; `EncryptionPlugin::algorithm_name` / `parse_algorithm_name` return borrowed strings, and a missing algorithm segment yields `None` instead of panicking
+- Breaking: server-side failures now surface as `Error::ErrResponse(request_id, result_code, error_code, message)` instead of flattened `ErrResult` text; config's 300/query-conflict responses still map to `ConfigNotFound`/`ConfigQueryConflict`
+- Performance: drop the `tower::Service` server-selection layer; `PollingServerListService::select` selects directly, and `Cache::remove` hands its key to the persistence task instead of cloning it
 
 ### 0.8.4
 

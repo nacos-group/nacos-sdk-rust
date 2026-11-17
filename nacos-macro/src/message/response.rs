@@ -1,9 +1,8 @@
-use syn::parse::Parser;
-use syn::{ItemStruct, Path, parse_quote};
-
 use quote::quote;
+use syn::ItemStruct;
+use syn::parse::Parser;
 
-use super::{Crates, MacroArgs};
+use super::{MacroArgs, add_message_attrs, grpc_message_data_impl};
 
 const SUCCESS_RESPONSE: (i32, &str) = (200, "Response ok");
 const FAIL_RESPONSE: (i32, &str) = (500, "Response fail");
@@ -14,17 +13,7 @@ pub(crate) fn grpc_response(
 ) -> proc_macro2::TokenStream {
     let identity = macro_args.identity;
     let name = &item_struct.ident;
-
-    let Crates { serde, .. } = macro_args.crates;
-
-    // add derive GrpcMessageBody
-    let grpc_message_body = quote! {
-        impl crate::common::remote::grpc::message::GrpcMessageData for #name {
-            fn identity<'a>() -> std::borrow::Cow<'a, str> {
-                #identity.into()
-            }
-        }
-    };
+    let grpc_message_body = grpc_message_data_impl(name, &identity);
 
     let (success_code, success_message) = SUCCESS_RESPONSE;
     let (fail_code, fail_message) = FAIL_RESPONSE;
@@ -106,21 +95,7 @@ pub(crate) fn grpc_response(
         fields.named.push(request_id_field);
     }
 
-    let derive_paths: Vec<Path> = vec![
-        syn::parse_quote! { #serde::Deserialize },
-        syn::parse_quote! { #serde::Serialize },
-        syn::parse_quote! { Clone },
-        syn::parse_quote! { Debug },
-        syn::parse_quote! { Default },
-    ];
-    // add derive
-    item_struct.attrs.push(parse_quote! {
-        #[derive(#(#derive_paths),*)]
-
-    });
-    item_struct.attrs.push(parse_quote!(
-        #[serde(rename_all = "camelCase")]
-    ));
+    add_message_attrs(&mut item_struct);
 
     quote! {
         #item_struct
