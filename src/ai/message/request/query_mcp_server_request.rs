@@ -10,8 +10,8 @@ pub(crate) struct QueryMcpServerRequest {
 }
 
 impl QueryMcpServerRequest {
-    pub(crate) fn ai_request_resource(&self) -> Option<RequestResource> {
-        crate::ai::message::ai_resource(self.namespace_id.clone(), self.mcp_name.clone())
+    pub(crate) fn ai_request_resource(&self) -> Option<RequestResource<'_>> {
+        crate::ai::message::ai_resource(self.namespace_id.as_deref(), self.mcp_name.as_deref())
     }
 }
 
@@ -52,7 +52,8 @@ mod tests {
     fn test_query_mcp_server_request_resource() {
         assert_eq!(QueryMcpServerRequest::identity(), "QueryMcpServerRequest");
         assert_eq!(sample().module(), "ai");
-        let resource = sample().request_resource().expect("ai resource");
+        let request = sample();
+        let resource = request.request_resource().expect("ai resource");
         assert_eq!(resource.request_type, "AI");
         assert_eq!(resource.resource.as_deref(), Some("plan-mcp"));
     }

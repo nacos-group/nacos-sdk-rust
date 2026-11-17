@@ -202,7 +202,7 @@ pub(crate) trait GrpcRequestMessage: GrpcMessageData {
 
     fn module(&self) -> &str;
 
-    fn request_resource(&self) -> Option<RequestResource>;
+    fn request_resource(&self) -> Option<RequestResource<'_>>;
 }
 
 #[allow(dead_code)]

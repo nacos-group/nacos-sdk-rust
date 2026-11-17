@@ -17,8 +17,8 @@ impl McpServerEndpointRequest {
     pub(crate) const REGISTER_ENDPOINT: &'static str = "registerEndpoint";
     pub(crate) const DEREGISTER_ENDPOINT: &'static str = "deregisterEndpoint";
 
-    pub(crate) fn ai_request_resource(&self) -> Option<RequestResource> {
-        crate::ai::message::ai_resource(self.namespace_id.clone(), self.mcp_name.clone())
+    pub(crate) fn ai_request_resource(&self) -> Option<RequestResource<'_>> {
+        crate::ai::message::ai_resource(self.namespace_id.as_deref(), self.mcp_name.as_deref())
     }
 }
 

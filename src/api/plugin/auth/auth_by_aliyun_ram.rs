@@ -180,7 +180,7 @@ impl AliyunRamAuthPlugin {
         }
     }
 
-    fn get_login_identify_for_naming(&self, resource: RequestResource) -> LoginIdentityContext {
+    fn get_login_identify_for_naming(&self, resource: RequestResource<'_>) -> LoginIdentityContext {
         Self::get_sign_data(&resource)
             .map(|sign_data| {
                 let (signature_key, v4) = self.signature_key();
@@ -196,7 +196,7 @@ impl AliyunRamAuthPlugin {
             .unwrap_or_default()
     }
 
-    fn get_sign_data(resource: &RequestResource) -> Option<String> {
+    fn get_sign_data(resource: &RequestResource<'_>) -> Option<String> {
         Self::get_grouped_service_name(resource).map(|grouped_service_name| {
             let timestamp = now_millis();
             if grouped_service_name.is_empty() {
@@ -207,17 +207,14 @@ impl AliyunRamAuthPlugin {
         })
     }
 
-    fn get_grouped_service_name(resource: &RequestResource) -> Option<String> {
-        resource
-            .resource
-            .as_ref()
-            .map(|service_name| match &resource.group {
-                Some(group) => crate::common::util::grouped_service_name(service_name, group),
-                None => service_name.clone(),
-            })
+    fn get_grouped_service_name(resource: &RequestResource<'_>) -> Option<String> {
+        resource.resource.map(|service_name| match resource.group {
+            Some(group) => crate::common::util::grouped_service_name(service_name, group),
+            None => service_name.to_string(),
+        })
     }
 
-    fn get_login_identify_for_config(&self, resource: RequestResource) -> LoginIdentityContext {
+    fn get_login_identify_for_config(&self, resource: RequestResource<'_>) -> LoginIdentityContext {
         let (signature_key, v4) = self.signature_key();
         let mut res = LoginIdentityContext::default();
         if v4 {
@@ -231,12 +228,9 @@ impl AliyunRamAuthPlugin {
         res
     }
 
-    fn get_resource_for_config(resource: &RequestResource) -> String {
-        let namespace = resource
-            .namespace
-            .as_ref()
-            .filter(|value| !value.is_empty());
-        let group = resource.group.as_ref().filter(|value| !value.is_empty());
+    fn get_resource_for_config(resource: &RequestResource<'_>) -> String {
+        let namespace = resource.namespace.filter(|value| !value.is_empty());
+        let group = resource.group.filter(|value| !value.is_empty());
         if let (Some(n), Some(g)) = (namespace, group) {
             format!("{}+{}", n, g)
         } else if let Some(g) = group {
@@ -282,9 +276,9 @@ impl AuthPlugin for AliyunRamAuthPlugin {
     }
 
     /// Get the [`LoginIdentityContext`].
-    fn get_login_identity(&self, resource: RequestResource) -> Arc<LoginIdentityContext> {
+    fn get_login_identity(&self, resource: RequestResource<'_>) -> Arc<LoginIdentityContext> {
         tracing::trace!("signature to resource {:?}", resource);
-        Arc::new(match resource.request_type.as_str() {
+        Arc::new(match resource.request_type {
             "Naming" => self.get_login_identify_for_naming(resource),
             "Config" => self.get_login_identify_for_config(resource),
             _ => LoginIdentityContext::default(),
@@ -394,22 +388,22 @@ mod test {
     #[test]
     fn test_get_resource_for_config() {
         let resource = RequestResource {
-            group: Some("test-group".to_owned()),
+            group: Some("test-group"),
             ..Default::default()
         };
         let resource = AliyunRamAuthPlugin::get_resource_for_config(&resource);
         assert_eq!("test-group", resource);
 
         let resource = RequestResource {
-            namespace: Some("test-ns".to_owned()),
+            namespace: Some("test-ns"),
             ..Default::default()
         };
         let resource = AliyunRamAuthPlugin::get_resource_for_config(&resource);
         assert_eq!("test-ns", resource);
 
         let resource = RequestResource {
-            namespace: Some("test-ns".to_owned()),
-            group: Some("test-group".to_owned()),
+            namespace: Some("test-ns"),
+            group: Some("test-group"),
             ..Default::default()
         };
         let resource = AliyunRamAuthPlugin::get_resource_for_config(&resource);
@@ -423,7 +417,7 @@ mod test {
     #[test]
     fn test_get_grouped_service() {
         let resource = RequestResource {
-            resource: Some("test@@test".to_owned()),
+            resource: Some("test@@test"),
             ..Default::default()
         };
         let grouped_service_name = AliyunRamAuthPlugin::get_grouped_service_name(&resource);
@@ -433,7 +427,7 @@ mod test {
         );
 
         let resource = RequestResource {
-            resource: Some("test".to_owned()),
+            resource: Some("test"),
             ..Default::default()
         };
         let grouped_service_name = AliyunRamAuthPlugin::get_grouped_service_name(&resource);
@@ -443,8 +437,8 @@ mod test {
         );
 
         let resource = RequestResource {
-            resource: Some("test".to_owned()),
-            group: Some("test".to_owned()),
+            resource: Some("test"),
+            group: Some("test"),
             ..Default::default()
         };
         let grouped_service_name = AliyunRamAuthPlugin::get_grouped_service_name(&resource);
@@ -457,7 +451,7 @@ mod test {
     #[test]
     fn test_get_sign_data() {
         let request = RequestResource {
-            resource: Some("test".to_owned()),
+            resource: Some("test"),
             ..Default::default()
         };
         let sign_data = AliyunRamAuthPlugin::get_sign_data(&request)
@@ -477,10 +471,10 @@ mod test {
             .await;
 
         let resource = RequestResource {
-            request_type: "Naming".to_owned(),
-            namespace: Some("".to_owned()),
-            group: Some("test-group".to_owned()),
-            resource: Some("test-resource".to_owned()),
+            request_type: "Naming",
+            namespace: Some(""),
+            group: Some("test-group"),
+            resource: Some("test-resource"),
         };
         let identity_context = aliyun_ram_auth_plugin.get_login_identify_for_naming(resource);
         assert_eq!(4, identity_context.contexts.len());
@@ -531,10 +525,10 @@ mod test {
             .await;
 
         let resource = RequestResource {
-            request_type: "Config".to_owned(),
-            namespace: Some("".to_owned()),
-            group: Some("test-group".to_owned()),
-            resource: Some("test-resource".to_owned()),
+            request_type: "Config",
+            namespace: Some(""),
+            group: Some("test-group"),
+            resource: Some("test-resource"),
         };
         let identity_context = aliyun_ram_auth_plugin.get_login_identify_for_config(resource);
         assert_eq!(4, identity_context.contexts.len());

@@ -16,38 +16,38 @@ pub(crate) fn grpc_request(
     let into_request_resource = match macro_args.module {
         super::Module::Naming => {
             quote! {
-                fn request_resource(&self) -> Option<crate::api::plugin::RequestResource> {
+                fn request_resource(&self) -> Option<crate::api::plugin::RequestResource<'_>> {
                         Some(crate::api::plugin::RequestResource {
-                            request_type: "Naming".to_string(),
-                            namespace: self.namespace.clone(),
-                            group: self.group_name.clone(),
-                            resource: self.service_name.clone()
+                            request_type: "Naming",
+                            namespace: self.namespace.as_deref(),
+                            group: self.group_name.as_deref(),
+                            resource: self.service_name.as_deref()
                         })
                 }
             }
         }
         super::Module::Config => {
             quote! {
-                fn request_resource(&self) -> Option<crate::api::plugin::RequestResource> {
+                fn request_resource(&self) -> Option<crate::api::plugin::RequestResource<'_>> {
                         Some(crate::api::plugin::RequestResource {
-                            request_type: "Config".to_string(),
-                            namespace: self.namespace.clone(),
-                            group: self.group.clone(),
-                            resource: self.data_id.clone()
+                            request_type: "Config",
+                            namespace: self.namespace.as_deref(),
+                            group: self.group.as_deref(),
+                            resource: self.data_id.as_deref()
                         })
                     }
             }
         }
         super::Module::Ai => {
             quote! {
-                fn request_resource(&self) -> Option<crate::api::plugin::RequestResource> {
+                fn request_resource(&self) -> Option<crate::api::plugin::RequestResource<'_>> {
                     self.ai_request_resource()
                 }
             }
         }
         _ => {
             quote! {
-                fn request_resource(&self) -> Option<crate::api::plugin::RequestResource> {
+                fn request_resource(&self) -> Option<crate::api::plugin::RequestResource<'_>> {
                     None
                 }
             }

@@ -112,7 +112,7 @@ impl AuthPlugin for HttpLoginAuthPlugin {
         }
     }
 
-    fn get_login_identity(&self, _: RequestResource) -> Arc<LoginIdentityContext> {
+    fn get_login_identity(&self, _: RequestResource<'_>) -> Arc<LoginIdentityContext> {
         self.login_identity.load_full()
     }
 }

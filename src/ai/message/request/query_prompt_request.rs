@@ -11,8 +11,8 @@ pub(crate) struct QueryPromptRequest {
 }
 
 impl QueryPromptRequest {
-    pub(crate) fn ai_request_resource(&self) -> Option<RequestResource> {
-        crate::ai::message::ai_resource(self.namespace_id.clone(), self.prompt_key.clone())
+    pub(crate) fn ai_request_resource(&self) -> Option<RequestResource<'_>> {
+        crate::ai::message::ai_resource(self.namespace_id.as_deref(), self.prompt_key.as_deref())
     }
 }
 
@@ -63,7 +63,8 @@ mod tests {
         assert_eq!(QueryPromptRequest::identity(), "QueryPromptRequest");
         assert_eq!(sample().module(), "ai");
 
-        let resource = sample().request_resource().expect("ai resource");
+        let request = sample();
+        let resource = request.request_resource().expect("ai resource");
         assert_eq!(resource.request_type, "AI");
         assert_eq!(resource.namespace.as_deref(), Some("public"));
         assert_eq!(resource.group.as_deref(), Some("DEFAULT_GROUP"));
