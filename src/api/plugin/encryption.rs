@@ -17,9 +17,7 @@ pub trait EncryptionPlugin: Send + Sync {
      */
     fn need_cipher(&self, data_id: &str) -> bool {
         data_id.starts_with(DEFAULT_CIPHER_PREFIX)
-            && self
-                .parse_algorithm_name(data_id)
-                .eq(&self.algorithm_name())
+            && self.parse_algorithm_name(data_id) == Some(self.algorithm_name())
     }
 
     /**
@@ -28,12 +26,8 @@ pub trait EncryptionPlugin: Send + Sync {
      * @param data_id data_id
      * @return algorithm name
      */
-    fn parse_algorithm_name(&self, data_id: &str) -> String {
-        data_id
-            .split(DEFAULT_CIPHER_SPLIT)
-            .nth(1)
-            .expect("data_id should have algorithm name in the second segment")
-            .to_string()
+    fn parse_algorithm_name<'a>(&self, data_id: &'a str) -> Option<&'a str> {
+        data_id.split(DEFAULT_CIPHER_SPLIT).nth(1)
     }
 
     /**
@@ -66,7 +60,7 @@ pub trait EncryptionPlugin: Send + Sync {
      *
      * @return name
      */
-    fn algorithm_name(&self) -> String;
+    fn algorithm_name(&self) -> &str;
 
     /**
      * Encrypt secret Key. It will be transmitted in the network.
@@ -169,8 +163,8 @@ mod tests {
             "secret-key".to_string()
         }
 
-        fn algorithm_name(&self) -> String {
-            "TEST".to_string()
+        fn algorithm_name(&self) -> &str {
+            "TEST"
         }
 
         async fn encrypt_secret_key(&self, secret_key: &str) -> String {
