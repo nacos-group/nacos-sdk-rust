@@ -700,7 +700,7 @@ impl ConfigWorker {
         } else if resp.is_query_conflict() {
             Err(crate::api::error::Error::ConfigQueryConflict(err_str))
         } else {
-            Err(crate::api::error::Error::ErrResult(err_str))
+            Err(crate::common::error::response_error(&resp))
         }
     }
 
