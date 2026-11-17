@@ -4,7 +4,7 @@ use std::ops::Deref;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(default, rename_all = "camelCase")]
 pub struct McpServerBasicInfo {
     pub namespace_id: Option<String>,
@@ -50,7 +50,7 @@ impl Default for McpServerBasicInfo {
     }
 }
 
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct McpServerDetailInfo {
     #[serde(flatten)]
@@ -70,14 +70,14 @@ impl Deref for McpServerDetailInfo {
     }
 }
 
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
 pub struct ServerVersionDetail {
     pub version: String,
     pub release_date: Option<String>,
     pub is_latest: Option<bool>,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct McpEndpointInfo {
     pub protocol: Option<String>,
@@ -87,7 +87,7 @@ pub struct McpEndpointInfo {
     pub headers: Option<Vec<Value>>,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct McpToolSpecification {
     pub specification_type: Option<String>,
@@ -102,7 +102,7 @@ pub struct McpToolSpecification {
     pub extensions: Value,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct McpTool {
     pub name: String,
@@ -114,7 +114,7 @@ pub struct McpTool {
     pub annotations: Option<McpToolAnnotations>,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(default, rename_all = "camelCase")]
 pub struct McpToolMeta {
     pub invoke_context: Option<HashMap<String, String>>,
@@ -132,7 +132,7 @@ impl Default for McpToolMeta {
     }
 }
 
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct McpToolAnnotations {
     pub title: Option<String>,
@@ -142,7 +142,7 @@ pub struct McpToolAnnotations {
     pub open_world_hint: Option<bool>,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct McpResourceSpecification {
     pub specification_type: Option<String>,
@@ -155,7 +155,7 @@ pub struct McpResourceSpecification {
     pub extensions: Value,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct McpEndpointSpec {
     #[serde(rename = "type")]
@@ -164,7 +164,7 @@ pub struct McpEndpointSpec {
     pub data: HashMap<String, String>,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct McpServerRemoteServiceConfig {
     pub service_ref: Option<Value>,
@@ -172,7 +172,7 @@ pub struct McpServerRemoteServiceConfig {
     pub front_endpoint_config_list: Option<Vec<Value>>,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Repository {
     pub url: Option<String>,
