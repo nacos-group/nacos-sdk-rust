@@ -92,8 +92,8 @@ where
 
         // try to serialize target type if r_type is not empty
         if !r_type.is_empty() {
-            if T::identity().eq(&r_type) {
-                let de_body = convert_body::<T>(&body_any, T::identity().as_ref())?;
+            if T::identity() == r_type.as_str() {
+                let de_body = convert_body::<T>(&body_any, T::identity())?;
                 return Ok(GrpcMessage {
                     headers,
                     body: de_body,
@@ -161,7 +161,7 @@ impl From<ErrorResponse> for crate::api::error::Error {
 pub(crate) trait GrpcMessageData:
     Debug + Clone + Serialize + DeserializeOwned + Send
 {
-    fn identity<'a>() -> std::borrow::Cow<'a, str>;
+    fn identity() -> &'static str;
 
     fn to_proto_any(&self) -> Result<Any> {
         let byte_data = match serde_json::to_vec(self) {

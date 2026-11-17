@@ -139,7 +139,7 @@ pub(crate) fn redo_task_key(
     namespace: &str,
     group_name: &str,
     service_name: &str,
-    identity: std::borrow::Cow<'_, str>,
+    identity: &str,
 ) -> String {
     format!("{namespace}@@{group_name}@@{service_name}@@{identity}")
 }

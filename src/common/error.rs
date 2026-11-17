@@ -27,7 +27,6 @@ mod tests {
     use super::*;
     use crate::common::remote::grpc::message::GrpcMessageData;
     use serde::{Deserialize, Serialize};
-    use std::borrow::Cow;
 
     #[derive(Debug, Clone, Serialize, Deserialize)]
     struct MockResponse {
@@ -37,8 +36,8 @@ mod tests {
     }
 
     impl GrpcMessageData for MockResponse {
-        fn identity<'a>() -> Cow<'a, str> {
-            Cow::Borrowed("MockResponse")
+        fn identity() -> &'static str {
+            "MockResponse"
         }
     }
 
