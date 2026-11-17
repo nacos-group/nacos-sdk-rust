@@ -24,7 +24,6 @@ use crate::api::props::ClientProps;
 use crate::common::error::handle_response;
 use crate::common::remote::generate_request_id;
 use crate::common::remote::grpc::connection::abilities::{MCP, MCP_DRAFT_RELEASE};
-use crate::common::remote::grpc::message::{GrpcRequestMessage, GrpcResponseMessage};
 use crate::common::remote::grpc::{NacosGrpcClient, NacosGrpcClientBuilder};
 use crate::common::remote::server_list::create_server_list_provider;
 
@@ -110,14 +109,6 @@ impl NacosAiService {
         })
     }
 
-    async fn request_to_server<R, P>(&self, request: R) -> Result<P>
-    where
-        R: GrpcRequestMessage + 'static,
-        P: GrpcResponseMessage + 'static,
-    {
-        self.nacos_grpc_client.send_request::<R, P>(request).await
-    }
-
     pub(crate) async fn get_mcp_server(
         &self,
         mcp_name: String,
@@ -180,7 +171,8 @@ impl NacosAiService {
             request_id: Some(generate_request_id()),
             ..Default::default()
         };
-        let response: ReleaseMcpServerResponse = self.request_to_server(request).await?;
+        let response: ReleaseMcpServerResponse =
+            self.nacos_grpc_client.send_request(request).await?;
         handle_response(&response)?;
         response
             .mcp_id
@@ -201,7 +193,7 @@ impl NacosAiService {
             request_id: Some(generate_request_id()),
             ..Default::default()
         };
-        let response: QueryPromptResponse = self.request_to_server(request).await?;
+        let response: QueryPromptResponse = self.nacos_grpc_client.send_request(request).await?;
         handle_response(&response)?;
         response
             .prompt_info
@@ -273,21 +265,12 @@ pub(crate) struct GrpcMcpQuery {
     namespace: String,
 }
 
-impl GrpcMcpQuery {
-    async fn send_query(
-        &self,
-        name: &str,
-        version: Option<&str>,
-    ) -> Result<QueryMcpServerResponse> {
-        let request = query_mcp_request(&self.namespace, name, version);
-        self.client.send_request(request).await
-    }
-}
-
 #[async_trait::async_trait]
 impl McpServerQuery for GrpcMcpQuery {
     async fn query(&self, name: &str, version: Option<&str>) -> Result<McpServerDetailInfo> {
-        query_result(self.send_query(name, version).await?)
+        let request = query_mcp_request(&self.namespace, name, version);
+        let response: QueryMcpServerResponse = self.client.send_request(request).await?;
+        query_result(response)
     }
 }
 
