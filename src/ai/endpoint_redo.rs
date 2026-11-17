@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use tokio::sync::Mutex;
 use tracing::warn;
 
-use crate::ai::message::{INVALID_PARAM_CODE, NOT_FOUND_CODE};
+use crate::ai::message::is_permanent_rejection;
 use crate::api::error::{Error, Result};
 use crate::common::remote::grpc::connection::error_messages;
 
@@ -171,32 +171,40 @@ impl EndpointRedo {
 
     async fn try_entry_locked(&self, key: &(String, String, i32)) -> Result<()> {
         let (mcp_name, address, port) = key;
-        let (endpoint_state, version, connection_id) = {
+        enum Action {
+            Register {
+                version: Option<String>,
+                connection_id: Option<String>,
+            },
+            Deregister,
+        }
+        let action = {
             let state = self.lock_state();
-            match state.entries.get(key) {
-                Some(entry) => (
-                    entry.state.clone(),
-                    entry.version.clone(),
-                    state.last_connection_id.clone(),
-                ),
-                None => return Ok(()),
-            }
-        };
-        match endpoint_state {
-            EndpointState::PendingRegister => {
-                self.register_entry_locked(key, version.as_deref(), connection_id)
-                    .await
-            }
-            EndpointState::Registered {
-                connection_id: registered_on,
-            } => {
-                if registered_on == connection_id {
+            let Some(entry) = state.entries.get(key) else {
+                return Ok(());
+            };
+            match &entry.state {
+                EndpointState::Registered { connection_id }
+                    if *connection_id == state.last_connection_id =>
+                {
                     return Ok(());
                 }
+                EndpointState::PendingDeregister => Action::Deregister,
+                _ => Action::Register {
+                    version: entry.version.clone(),
+                    connection_id: state.last_connection_id.clone(),
+                },
+            }
+        };
+        match action {
+            Action::Register {
+                version,
+                connection_id,
+            } => {
                 self.register_entry_locked(key, version.as_deref(), connection_id)
                     .await
             }
-            EndpointState::PendingDeregister => {
+            Action::Deregister => {
                 match self
                     .ops
                     .deregister(&self.namespace, mcp_name, address, *port)
@@ -262,13 +270,6 @@ fn is_disconnect_error(error: &Error) -> bool {
         }
         _ => false,
     }
-}
-
-fn is_permanent_rejection(error: &Error) -> bool {
-    matches!(
-        error,
-        Error::ErrResponse(_, _, NOT_FOUND_CODE | INVALID_PARAM_CODE, _)
-    )
 }
 
 #[cfg(test)]

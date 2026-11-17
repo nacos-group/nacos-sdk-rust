@@ -57,7 +57,10 @@ mod ai_integration_tests {
     }
 
     async fn create_ai_service(server_addr: &str) -> AiService {
-        create_ai_service_with_interval(server_addr, Duration::from_secs(10)).await
+        AiServiceBuilder::new(ClientProps::new().server_addr(server_addr))
+            .build()
+            .await
+            .expect("AiServiceBuilder should build")
     }
 
     fn basic_spec(name: &str) -> McpServerBasicInfo {
@@ -190,23 +193,18 @@ mod ai_integration_tests {
             .await
             .expect("register endpoint should succeed");
 
-        let mut registered = false;
-        for _ in 0..40 {
-            if let Ok(detail) = service
+        let registered = crate::shared::wait_until(40, Duration::from_millis(50), || async {
+            service
                 .get_mcp_server(name.clone(), Some("1.0.0".to_string()))
                 .await
-            {
-                registered = detail
-                    .backend_endpoints
-                    .as_ref()
-                    .map(|endpoints| endpoints.iter().any(|endpoint| endpoint.port == 18080))
-                    .unwrap_or(false);
-                if registered {
-                    break;
-                }
-            }
-            tokio::time::sleep(Duration::from_millis(50)).await;
-        }
+                .map(|detail| {
+                    detail.backend_endpoints.as_ref().is_some_and(|endpoints| {
+                        endpoints.iter().any(|endpoint| endpoint.port == 18080)
+                    })
+                })
+                .unwrap_or(false)
+        })
+        .await;
         assert!(registered, "backend endpoint should appear");
 
         service
@@ -214,24 +212,19 @@ mod ai_integration_tests {
             .await
             .expect("deregister endpoint should succeed");
 
-        let mut removed = false;
-        for _ in 0..40 {
-            if let Ok(detail) = service
+        let removed = crate::shared::wait_until(40, Duration::from_millis(50), || async {
+            service
                 .get_mcp_server(name.clone(), Some("1.0.0".to_string()))
                 .await
-            {
-                // `registered` required Some([...port]), so a null list here is a real removal.
-                removed = detail
-                    .backend_endpoints
-                    .as_ref()
-                    .map(|endpoints| endpoints.iter().all(|endpoint| endpoint.port != 18080))
-                    .unwrap_or(true);
-                if removed {
-                    break;
-                }
-            }
-            tokio::time::sleep(Duration::from_millis(50)).await;
-        }
+                .map(|detail| {
+                    // `registered` required Some([...port]), so a null list here is a real removal.
+                    detail.backend_endpoints.as_ref().is_none_or(|endpoints| {
+                        endpoints.iter().all(|endpoint| endpoint.port != 18080)
+                    })
+                })
+                .unwrap_or(false)
+        })
+        .await;
         assert!(removed, "backend endpoint should disappear");
     }
 

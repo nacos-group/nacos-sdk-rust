@@ -7,7 +7,7 @@ use tokio::sync::Mutex;
 use tokio::time::sleep;
 use tracing::{debug, warn};
 
-use crate::ai::message::NOT_FOUND_CODE;
+use crate::ai::message::is_not_found;
 use crate::ai::message::response::QueryMcpServerResponse;
 use crate::ai::model::mcp::McpServerDetailInfo;
 use crate::api::error::{Error, Result};
@@ -30,10 +30,6 @@ pub(crate) fn query_result(response: QueryMcpServerResponse) -> Result<McpServer
     response
         .mcp_server_detail_info
         .ok_or_else(|| Error::ErrResult("mcp server query returned no detail".to_string()))
-}
-
-fn is_not_found(error: &Error) -> bool {
-    matches!(error, Error::ErrResponse(_, _, NOT_FOUND_CODE, _))
 }
 
 #[derive(Default)]
@@ -118,22 +114,23 @@ impl McpServerUpdater {
         let version = version.map(str::trim).filter(|value| !value.is_empty());
         let key = versioned_key(name, version);
 
-        match self.query.query(name, version).await {
-            Ok(detail) => {
-                self.register_listener(&key, name, version, listener).await;
-                Ok(Some(self.apply(&key, detail).await))
-            }
+        let detail = match self.query.query(name, version).await {
+            Ok(detail) => Some(detail),
             Err(error) if is_not_found(&error) => {
-                self.register_listener(&key, name, version, listener).await;
                 warn!(
                     namespace = %self.namespace,
                     mcp_name = name,
                     version = version.unwrap_or(LATEST_VERSION),
                     "mcp server not found while subscribing; polling continues"
                 );
-                Ok(None)
+                None
             }
-            Err(error) => Err(error),
+            Err(error) => return Err(error),
+        };
+        self.register_listener(&key, name, version, listener).await;
+        match detail {
+            Some(detail) => Ok(Some(self.apply(&key, detail).await)),
+            None => Ok(None),
         }
     }
 

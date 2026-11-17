@@ -471,6 +471,9 @@ mod tests {
 
         let json = serde_json::to_string(&data).expect("cache data should serialize");
         assert!(json.contains("\"content\":\"hello\""));
+        assert!(json.contains("\"data_id\":\"D\""));
+        assert!(json.contains("\"group\":\"G\""));
+        assert!(json.contains("\"namespace\":\"N\""));
         assert!(!json.contains("snapshot"));
         assert!(!json.contains("listeners"));
         assert!(!json.contains("initializing"));
@@ -485,6 +488,20 @@ mod tests {
         assert_eq!(decoded.snapshot.md5(), "m1");
         assert_eq!(decoded.encrypted_data_key.as_str(), "key");
         assert_eq!(decoded.last_modified, 42);
+    }
+
+    #[test]
+    fn test_replace_snapshot_preserves_identity_values() {
+        let mut data = CacheData::new("D".to_string(), "G".to_string(), "N".to_string());
+        data.snapshot = Arc::new(ConfigResponse::new("D", "G", "N", "old", "text", "m1"));
+        data.replace_snapshot("new".to_string(), "json".to_string(), "m2".to_string());
+
+        assert_eq!(data.snapshot.data_id(), "D");
+        assert_eq!(data.snapshot.group(), "G");
+        assert_eq!(data.snapshot.namespace(), "N");
+        assert_eq!(data.snapshot.content(), "new");
+        assert_eq!(data.snapshot.content_type(), "json");
+        assert_eq!(data.snapshot.md5(), "m2");
     }
 
     #[test]

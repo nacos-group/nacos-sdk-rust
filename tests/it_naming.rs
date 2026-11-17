@@ -376,16 +376,11 @@ mod naming_integration_tests {
             .await
             .expect("batch_register failed");
 
-        for _ in 0..50 {
-            if !listener.get_events().is_empty() {
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(100)).await;
-        }
-        assert!(
-            !listener.get_events().is_empty(),
-            "expected a push to populate the cache"
-        );
+        let populated = crate::shared::wait_until(50, Duration::from_millis(100), || async {
+            !listener.get_events().is_empty()
+        })
+        .await;
+        assert!(populated, "expected a push to populate the cache");
 
         let first = service
             .get_all_instances(service_name.clone(), group.clone(), vec![], true)
