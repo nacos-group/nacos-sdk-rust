@@ -209,7 +209,8 @@ jobs:
       - name: Verify tag matches crate version
         run: |
           tag_version="${GITHUB_REF_NAME#nacos-macro-v}"
-          crate_version="$(cargo pkgid -p nacos-macro | sed -E 's/.*#(nacos-macro@)?//')"
+          # Cargo.lock is not committed, so read the manifest instead of cargo pkgid.
+          crate_version="$(sed -nE 's/^version = "([^"]+)".*/\1/p' nacos-macro/Cargo.toml | head -n 1)"
           if [ "$tag_version" != "$crate_version" ]; then
             echo "Tag version '$tag_version' does not match nacos-macro crate version '$crate_version'" >&2
             exit 1
