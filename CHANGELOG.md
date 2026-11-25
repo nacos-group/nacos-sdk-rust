@@ -1,70 +1,24 @@
 # 变更日志 | Change log
 
-### Unreleased
+### 0.9.0-alpha
 
-- 破坏性变更：要求 Nacos Server >= 2.3.0；连接建立后必须完成能力协商（`SetupAckRequest`），旧版本服务端在普通 `build()` 中返回 `UnsupportedServerVersion`（`emergency_start` 仅记录错误并持续重试）
-- 破坏性变更：连接层重写为独立监督任务；`build()` 在 3 次连接尝试仍失败时返回错误（`emergency_start` 仍立即返回并后台重连）；普通模式在服务端不支持能力协商时立即失败
-- 特性：连接握手支持能力表协商，记录服务端能力；新增指数退避 + 随机偏移（base 500ms、cap 30s、稳定 10s 后重置）
-- 变更：集成测试默认使用 `nacos/nacos-server:v2.5.4`（podman/docker 自动探测）；rnacos 暂不支持（未实现能力协商）
-- 变更：集成测试新增 Nacos 3.3 profile（`NACOS_SERVER_PROFILE=3.3`，关闭鉴权）；CI 矩阵同时覆盖 2.5.4 与 3.3.0
-- 变更：就绪前发起的请求会等待连接就绪，并与响应共享 10 秒预算；断连时在途请求立即失败，断开瞬间已排队的请求被拒绝（不再无限排队）（用户可见行为变化）
-- 变更：普通 `build()` 每次失败尝试都要消耗服务端检查耗时（共 3 次尝试），因此连接失败不是瞬时返回
-- 破坏性变更：API 入口的必填字符串参数统一改为 `impl Into<String>`（如 `data_id`、`group`、`content`、`cas_md5`、`beta_ips`、`service_name`）；`ConfigResponse` 与 `ServiceInstance` 的 getter 改为返回 `&str` / `Option<&str>`
-- 破坏性变更：`ConfigResponse` 改为纯值类型（内部字段由 `Arc<String>` 改为 `String`）；`ConfigService::get_config` 返回 `Arc<ConfigResponse>`，`ConfigChangeListener::notify` 接收 `Arc<ConfigResponse>`；config 缓存保存不可变响应快照，未配置 `ConfigFilter` 时缓存命中与多监听器分发零拷贝共享同一快照，磁盘快照 JSON 格式保持不变
-- 破坏性变更：`get_all_instances` / `select_instances` 返回 `Arc<Vec<ServiceInstance>>`，`select_one_healthy_instance` 返回 `Arc<ServiceInstance>`，`NamingChangeEvent.instances` 改为 `Option<Arc<Vec<ServiceInstance>>>`
-- 破坏性变更：磁盘缓存按服务端隔离，路径改为 `<cache_dir>/<module>/<server>_nacos/<namespace>`，避免加载其他实例的缓存；旧版未隔离的缓存不再加载（可手动删除）。服务端标识优先取 endpoint、否则取 server_addr，特殊字符替换为 `_`；超长标识截断并附加哈希
-- 增强：上述入口可直接传入 `&str` / `&String`，无需手动 `to_string()`
-- 破坏性变更：`AuthPlugin::get_login_identity` 改为返回 `Arc<LoginIdentityContext>`，HTTP token 认证直接共享已登录身份，不再克隆整份身份 map（header 条目仍会复制进每次请求；该 trait 文档已声明后续可能变更）
-- 修复：`ConfigFilter` 改由 worker 在出口统一应用，不再随每条缓存数据保存；从磁盘恢复的配置缓存（`config_load_cache_at_start`）也会继续经过 filter（如解密）
-- 修复：naming redo 调度不再在自动重试请求执行期间持有读锁，重试进行中注册/注销不再被阻塞
-- 修复：配置响应缺少 content/content_type/md5 字段时，拉取路径返回错误、推送路径告警并跳过通知，不再 panic 导致通知任务退出
-- 修复：服务端返回 300（配置不存在）时清空本地缓存中的旧内容与 md5、删除对应的磁盘快照（与 Java 客户端 `saveSnapshot(null)` 一致），并以空 content、空 md5 通知此前订阅过该配置的 listener；启动时清理遗留的空缓存项。避免 list-watch 每 60 秒重复拉取已删除配置、持续打印 `ConfigNotFound`，同时不再继续返回已删除配置的旧内容
-- 性能：服务实例变更日志仅在日志启用时才序列化实例数据
-- 性能：未配置 `ConfigFilter` 时 config 缓存命中不再复制配置内容，naming 缓存命中的实例列表改为共享，选择单个实例时只克隆最终选中的实例
-- 性能：缓存序列化移出调用线程，并且只在显式请求持久化时落盘；注册/注销 listener 不再重写磁盘缓存
-- 性能：config/naming 用户监听回调改由阻塞线程池执行，避免同步回调阻塞 SDK 运行时
-- 增强：gRPC 请求默认 10 秒响应头超时（覆盖连接建立与等待响应头，不限制双向流生命周期；暂不支持自定义）
-- 破坏性变更：移除已废弃的 `ClientProps::max_retries` 与 `Error::MaxRetriesExceeded`
-- 特性：新增 `ai` feature，支持 MCP 服务器查询/发布、MCP 端点注册/注销（连接重建后自动重注册）与 Prompt 读取（MCP 需 Nacos Server >= 3.0.3，Prompt 需 >= 3.2.0，实测基线 3.3.0）
-- 特性：MCP 订阅支持按版本/`latest` 轮询变更并通过 listener 通知，退订后自动停止任务
-- 破坏性变更：`AuthPlugin::get_login_identity` 接收借用 `RequestResource<'_>`（`namespace`/`group`/`resource` 为 `&str`），请求鉴权不再分配；`EncryptionPlugin::algorithm_name` / `parse_algorithm_name` 返回借用字符串，缺失算法段返回 `None` 而非 panic
-- 破坏性变更：服务端返回的失败统一为 `Error::ErrResponse(request_id, result_code, error_code, message)`，不再压平成 `ErrResult` 文本；config 的 300/查询冲突仍映射为 `ConfigNotFound`/`ConfigQueryConflict`
-- 性能：移除 `tower::Service` 服务端选择层，`PollingServerListService::select` 直接轮询；`Cache::remove` 将 key 移交持久化任务，减少一次克隆
-- 性能：MCP 订阅缓存改为直接比较服务器详情，去掉每次轮询的 JSON 归一化；最后一个 listener 退订时回收对应缓存
-- 变更：磁盘缓存路径中的 namespace 段按路径安全白名单清洗；包含路径分隔符或其他非法字符的旧缓存目录不再加载
+- 破坏性变更：要求 Nacos Server >= 2.3.0，连接层改为独立监督任务并完成能力协商；普通 `build()` 最多 3 次尝试，`emergency_start` 后台重连；就绪前请求共享 10 秒预算，断连时在途请求立即失败、已排队请求被拒绝；集成测试覆盖 2.5.4 与 3.3.0 矩阵（rnacos 暂不支持）
+- 破坏性变更：API 收紧——必填参数接受 `impl Into<String>`、getter 返回借用字符串，`ConfigResponse` 与实例列表改用 `Arc` 共享，插件 trait 参数/返回值改为借用（`AuthPlugin` 共享 `Arc` 身份），服务端失败统一为 `Error::ErrResponse`，移除 `max_retries`
+- 破坏性变更：`nacos-macro` 0.4.0-alpha 移除宏的 `crates` 参数、新增 `Ai` 模块，`GrpcMessageData::identity` 改为返回 `&'static str`
+- 破坏性变更：磁盘缓存按服务端隔离并清洗 namespace 段，旧缓存不再加载
+- 特性：新增 `ai` feature（MCP 查询/发布、端点注册、Prompt 读取、按 `name::version` 订阅，MCP 需 3.0.3+、Prompt 需 3.2.0+）；gRPC 默认 10 秒响应头超时
+- 修复：服务端 300 时清理旧缓存并通知监听器、不再每 60 秒重复拉取；`ConfigFilter` 在出口统一应用；redo 重试不再持锁
+- 性能：减少配置/实例/gRPC 热路径复制，缓存序列化移出调用线程，用户回调改由阻塞线程池执行
 
 ---
 
-- Breaking: Nacos Server >= 2.3.0 is required; connections must complete ability negotiation (`SetupAckRequest`), and older servers fail with `UnsupportedServerVersion` in a normal `build()` (`emergency_start` logs the error and keeps retrying)
-- Breaking: the connection layer is now an independent supervisor task; `build()` fails after 3 connection attempts (unless `emergency_start`), or immediately in normal mode when the server reports no ability negotiation
-- Feature: ability-table negotiation during setup with server abilities recorded; exponential backoff with jitter (base 500ms, cap 30s, reset after 10s stable)
-- Change: integration tests default to `nacos/nacos-server:v2.5.4` (podman/docker auto-detected); rnacos is unsupported until it implements ability negotiation
-- Change: integration tests add a Nacos 3.3 profile (`NACOS_SERVER_PROFILE=3.3`, auth disabled); CI now runs a 2.5.4 + 3.3.0 matrix
-- Change: requests issued before readiness wait for the connection within the same 10-second budget; in-flight requests fail immediately on disconnect, and requests already queued when the connection drops are rejected (no unbounded queue) (user-visible behavior change)
-- Change: an ordinary `build()` spends server-check time on every failed attempt (3 attempts total), so a failed build is not instantaneous
-- Change: required string parameters of API entries now accept `impl Into<String>` (e.g. `data_id`, `group`, `content`, `cas_md5`, `beta_ips`, `service_name`); `ConfigResponse` and `ServiceInstance` getters now return `&str` / `Option<&str>`
-- Breaking: `ConfigResponse` is now a plain value type (its fields are `String` instead of `Arc<String>`); `ConfigService::get_config` returns `Arc<ConfigResponse>` and `ConfigChangeListener::notify` receives `Arc<ConfigResponse>`; the config cache stores an immutable response snapshot, so without a `ConfigFilter` both cache hits and multi-listener fan-out share one snapshot with no copies, and the on-disk snapshot JSON format is unchanged
-- Change: `get_all_instances` / `select_instances` return `Arc<Vec<ServiceInstance>>`, `select_one_healthy_instance` returns `Arc<ServiceInstance>`, and `NamingChangeEvent.instances` is now `Option<Arc<Vec<ServiceInstance>>>`
-- Breaking: the disk cache is now scoped per server at `<cache_dir>/<module>/<server>_nacos/<namespace>`, so a client never loads another server's cache; caches written by earlier versions are no longer loaded (they can be deleted manually). The identifier is the endpoint when set, otherwise server_addr; characters outside `[A-Za-z0-9._-]` are replaced by `_`, and over-long identifiers are truncated with a hash suffix
-- Enhance: those entries accept `&str` / `&String` directly, no manual `to_string()`
-- Change: `AuthPlugin::get_login_identity` now returns `Arc<LoginIdentityContext>`, so HTTP token auth shares the logged-in identity instead of cloning the whole identity map (entries are still copied into each request; the trait is documented as subject to change)
-- Fix: `ConfigFilter` is now applied by the worker at the response exits instead of being stored with each cache entry; config cache entries restored from disk (`config_load_cache_at_start`) still run filters such as decryption
-- Fix: the naming redo scheduler no longer holds a read lock while automatic retry requests run, so registrations and deregistrations are not blocked during a retry
-- Fix: config responses missing content/content_type/md5 now make the fetch path return an error and the push path warn and skip notification, instead of panicking and killing the notify task
-- Fix: a server-side 300 (config not found) now clears the stale cached content and md5, deletes the on-disk snapshot (matching the Java client's `saveSnapshot(null)`), and notifies listeners that had previously observed the config with an empty content and md5; empty entries left behind are pruned at startup. The list-watch loop no longer re-fetches deleted configs every 60 seconds (no more repeated `ConfigNotFound` errors) and deleted configs are no longer served from the cache
-- Performance: service-instance diff logs serialize instance data only when logging is enabled
-- Performance: without a configured `ConfigFilter`, config cache hits no longer copy the config content; naming cache hits share the instance list, and single-instance selection clones only the chosen instance
-- Performance: cache serialization runs off the caller thread and only writes to disk when persistence is explicitly requested; listener add/remove no longer rewrites the disk cache
-- Performance: config/naming user listener callbacks run on the blocking pool so synchronous callbacks cannot stall the SDK runtime
-- Enhance: gRPC requests now have a default 10-second response-header timeout (covers connection establishment and response headers, not the bi-stream lifetime; not user-configurable yet)
-- Change: remove the deprecated `ClientProps::max_retries` and `Error::MaxRetriesExceeded`
-- Feature: new `ai` feature for MCP server query/release, MCP endpoint registration with reconnect re-registration, and Prompt reads (MCP requires Nacos Server >= 3.0.3, Prompt requires >= 3.2.0; tested baseline 3.3.0)
-- Feature: MCP subscriptions poll per version/`latest` key and notify listeners on change; polling stops after the last unsubscribe
-- Breaking: `AuthPlugin::get_login_identity` now takes a borrowed `RequestResource<'_>` (`namespace`/`group`/`resource` are `&str`), so request auth no longer allocates; `EncryptionPlugin::algorithm_name` / `parse_algorithm_name` return borrowed strings, and a missing algorithm segment yields `None` instead of panicking
-- Breaking: server-side failures now surface as `Error::ErrResponse(request_id, result_code, error_code, message)` instead of flattened `ErrResult` text; config's 300/query-conflict responses still map to `ConfigNotFound`/`ConfigQueryConflict`
-- Performance: drop the `tower::Service` server-selection layer; `PollingServerListService::select` selects directly, and `Cache::remove` hands its key to the persistence task instead of cloning it
-- Performance: MCP subscription caches now compare server details directly instead of normalizing them through JSON on every poll; the cache entry is evicted when the last listener unsubscribes
-- Change: the namespace segment of the on-disk cache path is sanitized for path safety; cache directories for namespaces with path separators or other invalid characters are no longer loaded
+- Breaking: Nacos Server >= 2.3.0 is required; the connection layer is now a supervisor task that completes ability negotiation, an ordinary `build()` makes up to 3 attempts, and `emergency_start` retries in the background; pre-readiness requests share a 10-second budget, in-flight requests fail immediately on disconnect, and already-queued requests are rejected; integration tests cover 2.5.4 and 3.3.0 (rnacos unsupported)
+- Breaking: API tightening — required parameters accept `impl Into<String>`, getters return borrowed strings, `ConfigResponse` and instance lists are shared via `Arc`, plugin traits take/return borrowed data (`AuthPlugin` shares an `Arc` identity), server-side failures surface as `Error::ErrResponse`, and `max_retries` is removed
+- Breaking: `nacos-macro` 0.4.0-alpha removes the macro `crates` argument, adds an `Ai` module, and changes `GrpcMessageData::identity` to return `&'static str`
+- Breaking: the disk cache is scoped per server with a sanitized namespace segment; caches from earlier versions are no longer loaded
+- Feature: new `ai` feature (MCP query/release, endpoint registration, Prompt reads, per-`name::version` subscriptions; MCP requires 3.0.3+, Prompt 3.2.0+); gRPC requests get a default 10-second response-header timeout
+- Fix: a server-side 300 clears the stale cache and notifies listeners instead of re-fetching every 60 seconds; `ConfigFilter` is applied at the response exits; naming redo retries no longer hold a lock
+- Performance: fewer copies on config/instance/gRPC hot paths, cache serialization moved off the caller thread, and user callbacks moved to the blocking pool
 
 ### 0.8.4
 

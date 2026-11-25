@@ -18,7 +18,7 @@
 
 [package]
 name = "nacos-sdk"
-version = "0.8.4"
+version = "0.9.0-alpha"
 edition = "2024"
 authors = ["nacos-group", "CheirshCai <785427346@qq.com>", "onewe <2583021406@qq.com>"]
 license = "Apache-2.0"
@@ -57,7 +57,7 @@ auth-by-aliyun = ["ring", "base64", "chrono"]
 tracing-log = ["tracing-subscriber", "tracing-appender"]
 
 [dependencies]
-nacos-macro = { version = "0.3.0", path = "nacos-macro" }
+nacos-macro = { version = "0.4.0-alpha", path = "nacos-macro" }
 
 arc-swap = "1.9"
 thiserror = "2"
