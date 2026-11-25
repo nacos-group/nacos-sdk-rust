@@ -26,7 +26,7 @@ Add the dependency in `Cargo.toml`:
 
 ```toml
 [dependencies]
-nacos-sdk = { version = "0.8", features = ["default"] }
+nacos-sdk = { version = "0.9", features = ["default"] }
 ```
 
 ### Usage of Config
@@ -190,7 +190,7 @@ let naming_service = NamingServiceBuilder::new(props).build().await?;
     - enable auth-by-http(default is enabled)
     ```toml
     [dependencies]
-    nacos-sdk = { version = "0.8", features = ["default"] }
+    nacos-sdk = { version = "0.9", features = ["default"] }
     ```
     - Set username and password via environment variables
     ```shell
@@ -216,7 +216,7 @@ let naming_service = NamingServiceBuilder::new(props).build().await?;
     - enable auth-by-aliyun feature in toml
     ```toml
     [dependencies]
-    nacos-sdk = { version = "0.8", features = ["default", "auth-by-aliyun"] }
+    nacos-sdk = { version = "0.9", features = ["default", "auth-by-aliyun"] }
     ```
     - Set accessKey and secretKey via environment variables
     ```shell
